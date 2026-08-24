@@ -238,7 +238,32 @@ function headRead(){ const k=conn().key, h={'apikey':k,'Content-Type':'applicati
   else if(/^eyJ/.test(k||'')) h['Authorization']='Bearer '+k;
   return h; }
 function headWrite(){ return {'apikey':conn().key,'Authorization':'Bearer '+sess().token,'Content-Type':'application/json'}; }
-function sessionAlive(){ const s=sess(); return !!(s.token && s.exp && Date.now() < s.exp); }
+/* A Supabase access token lasts ~1 hour; the refresh token renews it silently, so a
+   staff member signs in once and is not thrown out mid-shift. */
+function sessionAlive(){ const s=sess(); return !!(s.token && s.exp && Date.now() < s.exp) || !!(s.refresh); }
+function tokenFresh(){ const s=sess(); return !!(s.token && s.exp && Date.now() < s.exp-60000); }
+let _refreshing=null;
+async function ensureSession(){
+  if(tokenFresh()) return true;
+  const s=sess();
+  if(!s.refresh) return false;
+  if(_refreshing) return _refreshing;
+  _refreshing=(async()=>{
+    try{
+      const r=await fetch(base()+'/auth/v1/token?grant_type=refresh_token',
+        {method:'POST',headers:{'apikey':conn().key,'Content-Type':'application/json'},
+         body:JSON.stringify({refresh_token:s.refresh})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok || !j.access_token) throw new Error('refresh failed');
+      sessSave({token:j.access_token, refresh:j.refresh_token||s.refresh,
+                email:(j.user&&j.user.email)||s.email,
+                exp:Date.now()+((j.expires_in||3600)-60)*1000});
+      return true;
+    }catch(e){ sessClear(); return false; }
+    finally{ _refreshing=null; }
+  })();
+  return _refreshing;
+}
 
 async function doLogin(email,pass){
   const r=await fetch(base()+'/auth/v1/token?grant_type=password',{
@@ -246,7 +271,7 @@ async function doLogin(email,pass){
     body:JSON.stringify({email:email,password:pass})});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error_description||j.msg||j.message||('Sign-in failed ('+r.status+')'));
-  sessSave({token:j.access_token, email:(j.user&&j.user.email)||email,
+  sessSave({token:j.access_token, refresh:j.refresh_token||'', email:(j.user&&j.user.email)||email,
             exp:Date.now()+((j.expires_in||3600)-60)*1000});
   return true;
 }
@@ -258,6 +283,13 @@ async function doLogin(email,pass){
 let ROWS=[];        // all company rows
 let CUR=null;       // active row
 let DIRTY=false;
+/* Concurrency support. BASE is the untouched copy of what we loaded, and TOUCHED lists
+   the keys this person actually changed. On save we re-read the server, keep everyone
+   else's keys as they are, and only lay our own edits on top — so two people working on
+   different sheets never wipe each other. */
+let BASE={};        // snapshot of CUR.data at load time
+let TOUCHED={};     // keys edited in this session
+const LISTKEYS={recv:1, mr:1};   // append-style sheets: merged entry-by-entry
 
 function getKey(k, dflt){
   if(!CUR||!CUR.data||CUR.data[k]==null) return dflt;
@@ -267,7 +299,24 @@ function setKey(k, val){
   if(!CUR) return;
   CUR.data=CUR.data||{};
   CUR.data[k]=JSON.stringify(val);
+  TOUCHED[k]=1;
   markDirty();
+}
+/* snapshot what we loaded, so a save can tell "mine" from "someone else's" */
+function snapshotBase(){ BASE=JSON.parse(JSON.stringify((CUR&&CUR.data)||{})); TOUCHED={}; }
+function parseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+/* identity of one purchase / stock-issue entry — content based, since older rows have no id */
+function entryKey(e){ return [e.date,e.item,e.group,e.qty,e.inv].map(function(x){ return x==null?'':String(x); }).join(''); }
+/* three-way merge for an append-style sheet: server's list, minus what I deleted, plus what I added */
+function mergeList(serverStr, baseStr, mineStr){
+  const server=parseArr(serverStr), base=parseArr(baseStr), mine=parseArr(mineStr);
+  const baseSet={}; base.forEach(function(e){ baseSet[entryKey(e)]=1; });
+  const mineSet={}; mine.forEach(function(e){ mineSet[entryKey(e)]=1; });
+  const iRemoved={}; base.forEach(function(e){ const k=entryKey(e); if(!mineSet[k]) iRemoved[k]=1; });
+  const out=[], seen={};
+  server.forEach(function(e){ const k=entryKey(e); if(iRemoved[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  mine.forEach(function(e){ const k=entryKey(e); if(baseSet[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  return JSON.stringify(out);
 }
 function markDirty(){ DIRTY=true; const p=$('savedPill');
   p.className='pill dirty'; p.innerHTML='<i></i>UNSAVED CHANGES'; }
@@ -275,6 +324,7 @@ function markClean(){ DIRTY=false; const p=$('savedPill');
   p.className='pill live'; p.innerHTML='<i></i>SAVED'; }
 
 async function loadAll(){
+  await ensureSession();
   const r=await fetch(restUrl()+'?select=id,co,data,updated_at&order=co',{headers:headRead()});
   if(!r.ok) throw new Error('Could not read data ('+r.status+')');
   ROWS=await r.json();
@@ -285,19 +335,58 @@ async function loadAll(){
   const keep=CUR&&CUR.id;
   CUR=ROWS.find(x=>x.id===keep)||ROWS[0];
   ROWS.forEach(x=>{ if(typeof x.data==='string'){ try{ x.data=JSON.parse(x.data); }catch(e){ x.data={}; } } x.data=x.data||{}; });
-  fillCoPick(); markClean();
+  fillCoPick(); snapshotBase(); markClean();
 }
 async function saveCur(){
   if(!CUR) return;
-  if(!sessionAlive()){ toast('Session expired — sign in again','err'); logout(); return; }
+  if(!(await ensureSession())){ toast('Session expired — sign in again','err'); logout(); return; }
   const btn=$('btnSave'); btn.disabled=true; btn.textContent='Saving…';
   try{
-    const r=await fetch(restUrl(),{method:'POST',
-      headers:{...headWrite(),'Prefer':'resolution=merge-duplicates'},
-      body:JSON.stringify([{id:CUR.id, co:CUR.co, data:CUR.data, updated_at:new Date().toISOString()}])});
-    if(r.status===401||r.status===403) throw new Error('Not allowed — sign in again');
-    if(!r.ok) throw new Error('Save failed ('+r.status+')');
-    markClean(); toast('Saved to cloud — open the app and press Pull','ok');
+    let saved=false, note='';
+    /* Read → merge → write-if-unchanged. If someone saved in the gap, the conditional
+       write matches no row and we simply try again with their version as the base. */
+    for(let attempt=0; attempt<4 && !saved; attempt++){
+      const g=await fetch(restUrl()+'?id=eq.'+encodeURIComponent(CUR.id)+'&select=data,updated_at',{headers:headRead()});
+      if(g.status===401||g.status===403) throw new Error('Not allowed — sign in again');
+      if(!g.ok) throw new Error('Could not read the current copy ('+g.status+')');
+      const rows=await g.json();
+
+      if(!rows.length){   // first ever save for this company
+        const c=await fetch(restUrl(),{method:'POST',
+          headers:{...headWrite(),'Prefer':'resolution=merge-duplicates'},
+          body:JSON.stringify([{id:CUR.id, co:CUR.co, data:CUR.data, updated_at:new Date().toISOString()}])});
+        if(!c.ok) throw new Error('Save failed ('+c.status+')');
+        saved=true; break;
+      }
+
+      const srv=rows[0], srvData=(typeof srv.data==='string'?JSON.parse(srv.data||'{}'):(srv.data||{}));
+      const merged=Object.assign({}, srvData);          // start from THEIR latest
+      let othersChanged=false;
+      Object.keys(TOUCHED).forEach(function(k){         // lay only MY edits on top
+        merged[k] = LISTKEYS[k] ? mergeList(srvData[k], BASE[k], CUR.data[k]) : CUR.data[k];
+      });
+      Object.keys(srvData).forEach(function(k){
+        if(!TOUCHED[k] && srvData[k]!==BASE[k]) othersChanged=true;
+      });
+
+      const p=await fetch(restUrl()+'?id=eq.'+encodeURIComponent(CUR.id)
+              +'&updated_at=eq.'+encodeURIComponent(srv.updated_at),
+        {method:'PATCH', headers:{...headWrite(),'Prefer':'return=representation'},
+         body:JSON.stringify({co:CUR.co, data:merged, updated_at:new Date().toISOString()})});
+      if(p.status===401||p.status===403) throw new Error('Not allowed — sign in again');
+      if(!p.ok) throw new Error('Save failed ('+p.status+')');
+      const back=await p.json();
+      if(back.length){                                   // nobody slipped in — done
+        saved=true;
+        CUR.data=merged; CUR.updated_at=back[0].updated_at;
+        if(othersChanged) note=' · someone else’s changes were kept too';
+      }
+      /* else: the row moved under us — loop and merge onto the newer version */
+    }
+    if(!saved) throw new Error('Too many people saving at once — press Save again');
+    snapshotBase(); markClean();
+    toast('Saved to cloud'+note+' — in the app press Pull','ok');
+    renderTabs(); render();
   }catch(e){ toast(e.message,'err'); }
   btn.disabled=false; btn.textContent='💾 Save to cloud';
 }
@@ -548,7 +637,7 @@ $('view').addEventListener('change',e=>{
 });
 $('coPick').addEventListener('change',e=>{
   if(DIRTY && !confirm('You have unsaved changes. Switch company and lose them?')){ fillCoPick(); return; }
-  CUR=ROWS.find(r=>r.id===e.target.value)||ROWS[0]; markClean(); renderTabs(); render();
+  CUR=ROWS.find(r=>r.id===e.target.value)||ROWS[0]; snapshotBase(); markClean(); renderTabs(); render();
 });
 $('btnSave').addEventListener('click',saveCur);
 $('btnReload').addEventListener('click',async()=>{
