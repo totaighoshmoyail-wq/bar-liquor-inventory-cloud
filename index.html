@@ -1,9 +1,711 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bar Backend</title>
-<meta http-equiv="refresh" content="0; url=backend.html">
-<style>body{background:#0d0f14;color:#e7e9ee;font-family:'Segoe UI',system-ui,sans-serif;
-display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-a{color:#d4af37}</style>
-</head><body><p>Opening the Backend Console… <a href="backend.html">click here</a> if nothing happens.</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bar Liquor Inventory Cloud</title>
+<link rel="icon" type="image/png" href="assets/img/icon-192.png">
+<style>
+/* ===========================================================
+   Backend console — standalone, no libraries, no build step.
+   Talks to Supabase over plain fetch:
+     login  : POST {url}/auth/v1/token?grant_type=password
+     read   : GET  {url}/rest/v1/blis_sync            (anon key)
+     write  : POST {url}/rest/v1/blis_sync            (Bearer access_token)
+   The row shape is EXACTLY what the app's cloudPush writes:
+     { id: <companyId>, co: <companyName>, data: { <storageSubKey>: <rawJSONstring> } }
+   so the app's existing Pull loads it with no changes.
+   =========================================================== */
+:root{
+  --bg:#0d0f14; --bg-2:#11141b; --panel:#161a23; --panel-2:#1c212d;
+  --border:#262d3a; --border-soft:#1f2530;
+  --text:#e7e9ee; --muted:#8a93a7; --dim:#636c80;
+  --gold:#d4af37; --gold-soft:#e7c860; --gold-dim:rgba(212,175,55,.14);
+  --green:#3fb27f; --red:#e0574f;
+  --serif:Georgia,'Times New Roman',serif;
+  --sans:'Segoe UI',-apple-system,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+.hide{display:none!important}
+
+/* ---------- shared controls ---------- */
+.btn{background:var(--bg-2);border:1px solid var(--border);color:var(--muted);border-radius:8px;
+  padding:7px 13px;cursor:pointer;font-size:12.5px;font-weight:600}
+.btn:hover{border-color:var(--gold);color:var(--text)}
+.btn.gold{background:linear-gradient(140deg,var(--gold-soft),var(--gold));border-color:var(--gold);color:#1a1408}
+.btn.danger{color:var(--red);border-color:rgba(224,87,79,.4)}
+.btn.danger:hover{border-color:var(--red)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.inp{width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text)}
+.inp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-dim)}
+label.f{display:block;font-size:11.5px;color:var(--muted);margin:0 0 5px}
+.fld{margin-bottom:12px}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.grow{flex:1;min-width:0}
+.muted{color:var(--muted)} .dim{color:var(--dim)} .gold{color:var(--gold)}
+.small{font-size:11.5px}
+
+/* ---------- gate (setup + login) ---------- */
+.gate{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px 18px}
+.gcard{width:100%;max-width:430px;background:var(--panel);border:1px solid var(--border-soft);
+  border-radius:16px;padding:28px 26px}
+.gcard h1{font-family:var(--serif);font-size:22px;margin:0 0 4px;color:var(--gold);font-weight:600}
+.gcard .s{font-size:12px;color:var(--muted);margin:0 0 20px}
+.crest{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:23px;border:2px solid var(--gold);background:radial-gradient(circle at 50% 40%,var(--gold-dim),transparent 70%);
+  margin-bottom:14px}
+.msg{font-size:12px;margin-top:12px;min-height:17px}
+.msg.err{color:var(--red)} .msg.ok{color:var(--green)}
+.gcard details{margin-top:16px;font-size:11.5px;color:var(--muted)}
+.gcard summary{cursor:pointer}
+.gcard details p{margin:8px 0 0;line-height:1.75}
+
+/* ---------- app shell ---------- */
+.shell{display:none;min-height:100%;flex-direction:column}
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 18px;
+  background:var(--panel);border-bottom:1px solid var(--border-soft);position:sticky;top:0;z-index:5}
+.top h1{font-family:var(--serif);font-size:16px;margin:0;color:var(--gold);font-weight:600;white-space:nowrap}
+.top .who{font-size:11px;color:var(--dim);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;
+  border-radius:999px;padding:3px 10px;white-space:nowrap}
+.pill.live{color:var(--green);background:rgba(63,178,127,.1);border:1px solid rgba(63,178,127,.35)}
+.pill.dirty{color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold)}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+.tabs{display:flex;gap:3px;overflow-x:auto;padding:0 18px;background:var(--panel);
+  border-bottom:1px solid var(--border-soft)}
+.tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
+  padding:10px 13px;cursor:pointer;font-size:12.5px;font-weight:600;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--gold-soft);border-bottom-color:var(--gold)}
+.tab .c{font-size:10px;color:var(--dim);margin-left:5px}
+
+main{flex:1;padding:18px}
+.card{background:var(--panel);border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.chead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:11px 15px;border-bottom:1px solid var(--border-soft)}
+.chead h2{font-family:var(--serif);font-size:15px;margin:0;font-weight:600}
+.chead p{font-size:11px;color:var(--muted);margin:2px 0 0}
+.cbody{padding:14px 15px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--border-soft)}
+.stats div{background:var(--panel-2);padding:12px 14px}
+.stats i{display:block;font-style:normal;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.stats b{display:block;font-size:18px;margin-top:3px;font-variant-numeric:tabular-nums}
+
+.twrap{overflow-x:auto;max-height:60vh;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+thead th{position:sticky;top:0;background:var(--bg-2);text-align:left;padding:8px 10px;
+  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  border-bottom:1px solid var(--border);white-space:nowrap;z-index:1}
+tbody td{padding:5px 8px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
+tbody tr:hover{background:var(--panel-2)}
+td .ci{width:100%;background:none;border:1px solid transparent;border-radius:5px;padding:4px 6px;color:var(--text)}
+td .ci:hover{border-color:var(--border)}
+td .ci:focus{outline:none;border-color:var(--gold);background:var(--bg-2)}
+td.r{text-align:right} th.r{text-align:right}
+td .ci.r{text-align:right;font-variant-numeric:tabular-nums}
+.xbtn{background:none;border:none;color:var(--dim);cursor:pointer;padding:2px 6px;border-radius:5px;font-size:13px}
+.xbtn:hover{color:var(--red);background:rgba(224,87,79,.1)}
+.empty{padding:26px;text-align:center;color:var(--dim);font-size:12.5px}
+
+.addbar{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:12px 15px;
+  border-bottom:1px solid var(--border-soft);background:var(--panel-2)}
+.addbar .fld{margin:0;min-width:130px;flex:1}
+.addbar .fld.sm{max-width:130px;flex:none}
+.search{display:flex;align-items:center;gap:9px;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:9px;padding:8px 13px;margin-bottom:12px}
+.search input{flex:1;background:none;border:none}
+.search input:focus{outline:none}
+
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--border);
+  border-left:3px solid var(--gold);border-radius:9px;padding:11px 15px;font-size:12.5px;
+  box-shadow:0 8px 26px rgba(0,0,0,.45);opacity:0;transform:translateY(8px);
+  transition:.2s;pointer-events:none;max-width:320px;z-index:50}
+.toast.on{opacity:1;transform:none}
+.toast.err{border-left-color:var(--red)} .toast.ok{border-left-color:var(--green)}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+@media(max-width:640px){ main{padding:12px} .top{padding:10px 12px} .tabs{padding:0 12px} }
+</style>
+</head>
+<body>
+
+<!-- ============ GATE : setup + login ============ -->
+<div class="gate" id="gate">
+  <div class="gcard">
+    <div class="crest">🔐</div>
+    <h1>Bar Liquor Inventory</h1>
+    <p class="s">Cloud console — data entry &amp; management</p>
+
+    <!-- step 1: connection -->
+    <div id="setupBox" class="hide">
+      <div class="fld"><label class="f" for="sbUrl">Supabase Project URL</label>
+        <input class="inp" id="sbUrl" placeholder="https://xxxx.supabase.co" autocomplete="off"></div>
+      <div class="fld"><label class="f" for="sbKey">anon public key</label>
+        <input class="inp" id="sbKey" placeholder="eyJhbGciOi…" autocomplete="off"></div>
+      <button class="btn gold" style="width:100%" id="btnSaveConn">Save connection</button>
+      <div class="msg" id="setupMsg"></div>
+      <details>
+        <summary>Where do I find these?</summary>
+        <p>Supabase → your project → <b>⚙ Project Settings</b> → <b>API</b>.
+        Copy <b>Project URL</b> and the <b>anon public</b> key.
+        Never paste the <code>service_role</code> key here.</p>
+      </details>
+    </div>
+
+    <!-- step 2: login -->
+    <div id="loginBox" class="hide">
+      <form id="loginForm" autocomplete="on">
+        <div class="fld"><label class="f" for="liEmail">Email</label>
+          <input class="inp" id="liEmail" type="email" autocomplete="username" required></div>
+        <div class="fld"><label class="f" for="liPass">Password</label>
+          <input class="inp" id="liPass" type="password" autocomplete="current-password" required></div>
+        <button class="btn gold" style="width:100%" type="submit" id="btnLogin">Sign in</button>
+      </form>
+      <div class="msg" id="loginMsg"></div>
+      <div class="row" style="margin-top:14px;justify-content:space-between">
+        <button class="btn" id="btnEditConn" style="font-size:11.5px">⚙ Change connection</button>
+        <span class="small dim" id="connHost"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SHELL ============ -->
+<div class="shell" id="shell">
+  <div class="top">
+    <h1>⚙ Bar Liquor Inventory Cloud</h1>
+    <select class="inp" id="coPick" style="width:auto;min-width:170px;padding:6px 10px;font-size:12.5px"></select>
+    <span class="pill live" id="savedPill"><i></i>SAVED</span>
+    <span class="grow"></span>
+    <span class="who" id="whoAmI"></span>
+    <button class="btn" id="btnReload">↻ Reload</button>
+    <button class="btn gold" id="btnSave">💾 Save to cloud</button>
+    <button class="btn" id="btnLogout">Sign out</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <main id="view"></main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   0 · tiny helpers
+   ========================================================= */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmt=n=>{ n=Math.round((+n||0)*100)/100;
+  const s=String(n).split('.'); let x=s[0]; const neg=x[0]==='-'; if(neg) x=x.slice(1);
+  let last3=x.slice(-3), rest=x.slice(0,-3);
+  if(rest) last3=','+last3;
+  rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,',');
+  return (neg?'-':'')+rest+last3+(s[1]?'.'+s[1]:''); };
+/* MUST match the app's norm() exactly — inv{} keys are built with it */
+const norm=s=>String(s==null?'':s).toUpperCase().replace(/["'.,]/g,'').replace(/\s+/g,' ').trim();
+const today=()=>new Date().toISOString().slice(0,10);
+let _tt;
+function toast(m,kind){ const t=$('toast'); t.textContent=m; t.className='toast on'+(kind?' '+kind:'');
+  clearTimeout(_tt); _tt=setTimeout(()=>t.className='toast',2600); }
+
+/* =========================================================
+   1 · connection + session
+   ========================================================= */
+const CONN_KEY='blis_backend_conn', SESS_KEY='blis_backend_sess';
+/* Hosted build: the project is baked in so staff only ever type their own email + password.
+   Safe ONLY because the read policy is 'to authenticated' — the anon key alone reads nothing. */
+const BAKED={url:'https://svpbxsbwbwuxnmgcqgfy.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cGJ4c2J3Ynd1eG5tZ2NxZ2Z5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1MDM1MjIsImV4cCI6MjEwMzA3OTUyMn0.Ctli-IKRmcMg2S3N54uAzZ9-pg11h5dt2jvE3et_woA'};
+function conn(){ try{ const c=JSON.parse(localStorage.getItem(CONN_KEY)||'null'); if(c&&c.url&&c.key) return c; }catch(e){} return BAKED; }
+function connSave(c){ localStorage.setItem(CONN_KEY, JSON.stringify(c)); }
+function sess(){ try{ return JSON.parse(localStorage.getItem(SESS_KEY)||'null')||{}; }catch(e){ return {}; } }
+function sessSave(s){ localStorage.setItem(SESS_KEY, JSON.stringify(s)); }
+function sessClear(){ localStorage.removeItem(SESS_KEY); }
+const base=()=>conn().url.replace(/\/+$/,'');
+const restUrl=()=>base()+'/rest/v1/blis_sync';
+/* anon key alone = read.  Bearer access_token = write (that is what the RLS policy checks).
+   Supabase issues two key styles: the legacy `anon` JWT (eyJ…) and the newer
+   `sb_publishable_…`. Only a JWT is valid in an `Authorization: Bearer` header, and
+   `apikey` on its own already selects the anon role — so Bearer is added only for a JWT. */
+function headRead(){ const k=conn().key, h={'apikey':k,'Content-Type':'application/json'};
+  /* Prefer the signed-in token: once this page is hosted publicly the read policy is
+     tightened to `to authenticated`, and then the anon key alone cannot read. */
+  if(sessionAlive()) h['Authorization']='Bearer '+sess().token;
+  else if(/^eyJ/.test(k||'')) h['Authorization']='Bearer '+k;
+  return h; }
+function headWrite(){ return {'apikey':conn().key,'Authorization':'Bearer '+sess().token,'Content-Type':'application/json'}; }
+/* A Supabase access token lasts ~1 hour; the refresh token renews it silently, so a
+   staff member signs in once and is not thrown out mid-shift. */
+function sessionAlive(){ const s=sess(); return !!(s.token && s.exp && Date.now() < s.exp) || !!(s.refresh); }
+function tokenFresh(){ const s=sess(); return !!(s.token && s.exp && Date.now() < s.exp-60000); }
+let _refreshing=null;
+async function ensureSession(){
+  if(tokenFresh()) return true;
+  const s=sess();
+  if(!s.refresh) return false;
+  if(_refreshing) return _refreshing;
+  _refreshing=(async()=>{
+    try{
+      const r=await fetch(base()+'/auth/v1/token?grant_type=refresh_token',
+        {method:'POST',headers:{'apikey':conn().key,'Content-Type':'application/json'},
+         body:JSON.stringify({refresh_token:s.refresh})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok || !j.access_token) throw new Error('refresh failed');
+      sessSave({token:j.access_token, refresh:j.refresh_token||s.refresh,
+                email:(j.user&&j.user.email)||s.email,
+                exp:Date.now()+((j.expires_in||3600)-60)*1000});
+      return true;
+    }catch(e){ sessClear(); return false; }
+    finally{ _refreshing=null; }
+  })();
+  return _refreshing;
+}
+
+async function doLogin(email,pass){
+  const r=await fetch(base()+'/auth/v1/token?grant_type=password',{
+    method:'POST', headers:{'apikey':conn().key,'Content-Type':'application/json'},
+    body:JSON.stringify({email:email,password:pass})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error_description||j.msg||j.message||('Sign-in failed ('+r.status+')'));
+  sessSave({token:j.access_token, refresh:j.refresh_token||'', email:(j.user&&j.user.email)||email,
+            exp:Date.now()+((j.expires_in||3600)-60)*1000});
+  return true;
+}
+
+/* =========================================================
+   2 · data: one company row = { id, co, data:{subKey: rawJSONstring} }
+   Only the keys we edit are rewritten; everything else is preserved.
+   ========================================================= */
+let ROWS=[];        // all company rows
+let CUR=null;       // active row
+let DIRTY=false;
+/* Concurrency support. BASE is the untouched copy of what we loaded, and TOUCHED lists
+   the keys this person actually changed. On save we re-read the server, keep everyone
+   else's keys as they are, and only lay our own edits on top — so two people working on
+   different sheets never wipe each other. */
+let BASE={};        // snapshot of CUR.data at load time
+let TOUCHED={};     // keys edited in this session
+const LISTKEYS={recv:1, mr:1};   // append-style sheets: merged entry-by-entry
+
+function getKey(k, dflt){
+  if(!CUR||!CUR.data||CUR.data[k]==null) return dflt;
+  try{ const v=JSON.parse(CUR.data[k]); return (v==null?dflt:v); }catch(e){ return dflt; }
+}
+function setKey(k, val){
+  if(!CUR) return;
+  CUR.data=CUR.data||{};
+  CUR.data[k]=JSON.stringify(val);
+  TOUCHED[k]=1;
+  markDirty();
+}
+/* snapshot what we loaded, so a save can tell "mine" from "someone else's" */
+function snapshotBase(){ BASE=JSON.parse(JSON.stringify((CUR&&CUR.data)||{})); TOUCHED={}; }
+function parseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+/* identity of one purchase / stock-issue entry — content based, since older rows have no id */
+function entryKey(e){ return [e.date,e.item,e.group,e.qty,e.inv].map(function(x){ return x==null?'':String(x); }).join(''); }
+/* three-way merge for an append-style sheet: server's list, minus what I deleted, plus what I added */
+function mergeList(serverStr, baseStr, mineStr){
+  const server=parseArr(serverStr), base=parseArr(baseStr), mine=parseArr(mineStr);
+  const baseSet={}; base.forEach(function(e){ baseSet[entryKey(e)]=1; });
+  const mineSet={}; mine.forEach(function(e){ mineSet[entryKey(e)]=1; });
+  const iRemoved={}; base.forEach(function(e){ const k=entryKey(e); if(!mineSet[k]) iRemoved[k]=1; });
+  const out=[], seen={};
+  server.forEach(function(e){ const k=entryKey(e); if(iRemoved[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  mine.forEach(function(e){ const k=entryKey(e); if(baseSet[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  return JSON.stringify(out);
+}
+function markDirty(){ DIRTY=true; const p=$('savedPill');
+  p.className='pill dirty'; p.innerHTML='<i></i>UNSAVED CHANGES'; }
+function markClean(){ DIRTY=false; const p=$('savedPill');
+  p.className='pill live'; p.innerHTML='<i></i>SAVED'; }
+
+async function loadAll(){
+  await ensureSession();
+  const r=await fetch(restUrl()+'?select=id,co,data,updated_at&order=co',{headers:headRead()});
+  if(!r.ok) throw new Error('Could not read data ('+r.status+')');
+  ROWS=await r.json();
+  if(!ROWS.length){
+    ROWS=[{id:'main', co:'Main Company', data:{}, updated_at:null}];
+    toast('No company in the cloud yet — press Save to create one','err');
+  }
+  const keep=CUR&&CUR.id;
+  CUR=ROWS.find(x=>x.id===keep)||ROWS[0];
+  ROWS.forEach(x=>{ if(typeof x.data==='string'){ try{ x.data=JSON.parse(x.data); }catch(e){ x.data={}; } } x.data=x.data||{}; });
+  fillCoPick(); snapshotBase(); markClean();
+}
+async function saveCur(){
+  if(!CUR) return;
+  if(!(await ensureSession())){ toast('Session expired — sign in again','err'); logout(); return; }
+  const btn=$('btnSave'); btn.disabled=true; btn.textContent='Saving…';
+  try{
+    let saved=false, note='';
+    /* Read → merge → write-if-unchanged. If someone saved in the gap, the conditional
+       write matches no row and we simply try again with their version as the base. */
+    for(let attempt=0; attempt<4 && !saved; attempt++){
+      const g=await fetch(restUrl()+'?id=eq.'+encodeURIComponent(CUR.id)+'&select=data,updated_at',{headers:headRead()});
+      if(g.status===401||g.status===403) throw new Error('Not allowed — sign in again');
+      if(!g.ok) throw new Error('Could not read the current copy ('+g.status+')');
+      const rows=await g.json();
+
+      if(!rows.length){   // first ever save for this company
+        const c=await fetch(restUrl(),{method:'POST',
+          headers:{...headWrite(),'Prefer':'resolution=merge-duplicates'},
+          body:JSON.stringify([{id:CUR.id, co:CUR.co, data:CUR.data, updated_at:new Date().toISOString()}])});
+        if(!c.ok) throw new Error('Save failed ('+c.status+')');
+        saved=true; break;
+      }
+
+      const srv=rows[0], srvData=(typeof srv.data==='string'?JSON.parse(srv.data||'{}'):(srv.data||{}));
+      const merged=Object.assign({}, srvData);          // start from THEIR latest
+      let othersChanged=false;
+      Object.keys(TOUCHED).forEach(function(k){         // lay only MY edits on top
+        merged[k] = LISTKEYS[k] ? mergeList(srvData[k], BASE[k], CUR.data[k]) : CUR.data[k];
+      });
+      Object.keys(srvData).forEach(function(k){
+        if(!TOUCHED[k] && srvData[k]!==BASE[k]) othersChanged=true;
+      });
+
+      const p=await fetch(restUrl()+'?id=eq.'+encodeURIComponent(CUR.id)
+              +'&updated_at=eq.'+encodeURIComponent(srv.updated_at),
+        {method:'PATCH', headers:{...headWrite(),'Prefer':'return=representation'},
+         body:JSON.stringify({co:CUR.co, data:merged, updated_at:new Date().toISOString()})});
+      if(p.status===401||p.status===403) throw new Error('Not allowed — sign in again');
+      if(!p.ok) throw new Error('Save failed ('+p.status+')');
+      const back=await p.json();
+      if(back.length){                                   // nobody slipped in — done
+        saved=true;
+        CUR.data=merged; CUR.updated_at=back[0].updated_at;
+        if(othersChanged) note=' · someone else’s changes were kept too';
+      }
+      /* else: the row moved under us — loop and merge onto the newer version */
+    }
+    if(!saved) throw new Error('Too many people saving at once — press Save again');
+    snapshotBase(); markClean();
+    toast('Saved to cloud'+note+' — in the app press Pull','ok');
+    renderTabs(); render();
+  }catch(e){ toast(e.message,'err'); }
+  btn.disabled=false; btn.textContent='💾 Save to cloud';
+}
+function fillCoPick(){
+  $('coPick').innerHTML=ROWS.map(r=>`<option value="${esc(r.id)}"${r.id===CUR.id?' selected':''}>${esc(r.co||r.id)}</option>`).join('');
+}
+
+/* =========================================================
+   3 · screens
+   ========================================================= */
+const TABS=[
+  {k:'home',  t:'Overview'},
+  {k:'items', t:'Item Master', key:'rawdata2'},
+  {k:'purch', t:'Purchase',    key:'recv'},
+  {k:'issue', t:'Bar Stock Issue', key:'mr'},
+  {k:'brand', t:'Brands',      key:'tally'},
+  {k:'stock', t:'Stock & Rates', key:'inv'}
+];
+let TAB='home', Q='';
+
+function tabCount(t){
+  if(!t.key) return '';
+  const v=getKey(t.key, t.key==='inv'?{}:[]);
+  const n=Array.isArray(v)?v.length:Object.keys(v).length;
+  return n?`<span class="c">${n}</span>`:'';
+}
+function renderTabs(){
+  $('tabs').innerHTML=TABS.map(t=>`<button class="tab${t.k===TAB?' on':''}" data-tab="${t.k}">${t.t}${tabCount(t)}</button>`).join('');
+}
+function go(k){ TAB=k; Q=''; renderTabs(); render(); }
+
+function searchBar(ph){
+  return `<div class="search"><span>🔎</span><input id="q" placeholder="${ph}" value="${esc(Q)}"></div>`;
+}
+function wireSearch(){
+  const i=$('q'); if(!i) return;
+  i.addEventListener('input',e=>{ Q=e.target.value; const b=$('tbody'); if(b) b.innerHTML=rowsHtml(); });
+}
+
+/* ---- generic list editing ---- */
+function listOf(key){ const v=getKey(key,[]); return Array.isArray(v)?v:[]; }
+function setList(key,arr){ setKey(key,arr); renderTabs(); }
+
+function delRow(key,i){
+  const a=listOf(key); a.splice(i,1); setList(key,a);
+  const b=$('tbody'); if(b) b.innerHTML=rowsHtml();
+  toast('Row deleted');
+}
+function editCell(key,i,field,val,numeric){
+  const a=listOf(key); if(!a[i]) return;
+  a[i][field]= numeric ? (val===''?'':(+val||0)) : val;
+  setList(key,a);
+}
+
+function rowsHtml(){
+  const t=TABS.find(x=>x.k===TAB); if(!t||!t.key) return '';
+  if(TAB==='stock') return stockRows();
+  const a=listOf(t.key);
+  const q=norm(Q);
+  const idx=a.map((r,i)=>[r,i]).filter(([r])=>{
+    if(!q) return true;
+    return Object.keys(r).some(k=>norm(r[k]).indexOf(q)>=0);
+  });
+  if(!idx.length) return `<tr><td colspan="9"><div class="empty">${a.length?'Nothing matches “'+esc(Q)+'”':'No rows yet — add one above.'}</div></td></tr>`;
+  return idx.slice(0,400).map(([r,i])=>rowHtml(t.key,r,i)).join('')
+    + (idx.length>400?`<tr><td colspan="9"><div class="empty">+ ${idx.length-400} more — narrow the search to see them</div></td></tr>`:'');
+}
+function ci(key,i,f,v,cls,type){
+  return `<input class="ci${cls?' '+cls:''}" ${type?`type="${type}"`:''} value="${esc(v==null?'':v)}"
+    data-k="${esc(key)}" data-i="${i}" data-f="${f}"${cls==='r'?' data-num="1"':''}>`;
+}
+function rowHtml(key,r,i){
+  if(key==='rawdata2') return `<tr>
+    <td>${ci(key,i,'item',r.item)}</td><td>${ci(key,i,'group',r.group)}</td>
+    <td class="r"><button class="xbtn" data-del="${key}" data-i="${i}" title="Delete">✕</button></td></tr>`;
+  if(key==='recv') return `<tr>
+    <td style="width:130px">${ci(key,i,'date',r.date,'','date')}</td>
+    <td>${ci(key,i,'item',r.item)}</td><td style="width:170px">${ci(key,i,'group',r.group)}</td>
+    <td style="width:90px">${ci(key,i,'qty',r.qty,'r')}</td>
+    <td style="width:120px">${ci(key,i,'inv',r.inv)}</td>
+    <td class="r"><button class="xbtn" data-del="${key}" data-i="${i}" title="Delete">✕</button></td></tr>`;
+  if(key==='mr') return `<tr>
+    <td style="width:130px">${ci(key,i,'date',r.date,'','date')}</td>
+    <td>${ci(key,i,'item',r.item)}</td><td style="width:170px">${ci(key,i,'group',r.group)}</td>
+    <td style="width:90px">${ci(key,i,'qty',r.qty,'r')}</td>
+    <td class="r"><button class="xbtn" data-del="${key}" data-i="${i}" title="Delete">✕</button></td></tr>`;
+  if(key==='tally') return `<tr>
+    <td>${ci(key,i,'name',r.name)}</td><td style="width:190px">${ci(key,i,'category',r.category)}</td>
+    <td style="width:100px">${ci(key,i,'pegMl',r.pegMl,'r')}</td>
+    <td class="r"><button class="xbtn" data-del="${key}" data-i="${i}" title="Delete">✕</button></td></tr>`;
+  return '';
+}
+
+/* ---- stock: inv{} keyed by norm(item) ---- */
+function stockRows(){
+  const inv=getKey('inv',{})||{};
+  const brands=listOf('tally');
+  const q=norm(Q);
+  const names=brands.map(b=>b.name).filter(n=>!q||norm(n).indexOf(q)>=0);
+  if(!names.length) return `<tr><td colspan="6"><div class="empty">${brands.length?'No brand matches “'+esc(Q)+'”':'Add brands first (Brands tab).'}</div></td></tr>`;
+  return names.slice(0,400).map(n=>{
+    const k=norm(n), v=inv[k]||{};
+    const c=(f,val)=>`<input class="ci r" value="${esc(val==null?'':val)}" data-inv="${esc(k)}" data-f="${f}">`;
+    return `<tr><td>${esc(n)}</td>
+      <td style="width:110px">${c('openBL',v.openBL)}</td>
+      <td style="width:110px">${c('closeBL',v.closeBL)}</td>
+      <td style="width:110px">${c('lrOpen',v.lrOpen)}</td>
+      <td style="width:110px">${c('land',v.land)}</td>
+      <td style="width:110px">${c('mrp',v.mrp)}</td></tr>`;
+  }).join('') + (names.length>400?`<tr><td colspan="6"><div class="empty">+ ${names.length-400} more — use the search</div></td></tr>`:'');
+}
+function editInv(k,f,val){
+  const inv=getKey('inv',{})||{};
+  inv[k]=inv[k]||{};
+  if(val==='') delete inv[k][f]; else inv[k][f]=(+val||0);
+  setKey('inv',inv);
+}
+
+/* ---- add bars ---- */
+function addBar(){
+  if(TAB==='items') return `<div class="addbar">
+    <div class="fld grow"><label class="f">Item name</label><input class="inp" id="a1" placeholder="KINGFISHER ULTRA 650 ML"></div>
+    <div class="fld grow"><label class="f">Group</label><input class="inp" id="a2" placeholder="BEER 650 ML"></div>
+    <button class="btn gold" id="btnAdd">＋ Add item</button></div>`;
+  if(TAB==='purch') return `<div class="addbar">
+    <div class="fld sm"><label class="f">Date</label><input class="inp" id="a0" type="date" value="${today()}"></div>
+    <div class="fld grow"><label class="f">Item</label><input class="inp" id="a1" list="dlItems" placeholder="Item name"></div>
+    <div class="fld sm"><label class="f">Qty</label><input class="inp" id="a2" type="number" step="any" placeholder="0"></div>
+    <div class="fld sm"><label class="f">Invoice</label><input class="inp" id="a3" placeholder="optional"></div>
+    <button class="btn gold" id="btnAdd">＋ Add purchase</button></div>`;
+  if(TAB==='issue') return `<div class="addbar">
+    <div class="fld sm"><label class="f">Date</label><input class="inp" id="a0" type="date" value="${today()}"></div>
+    <div class="fld grow"><label class="f">Item</label><input class="inp" id="a1" list="dlItems" placeholder="Item name"></div>
+    <div class="fld sm"><label class="f">Qty</label><input class="inp" id="a2" type="number" step="any" placeholder="0"></div>
+    <button class="btn gold" id="btnAdd">＋ Add issue</button></div>`;
+  if(TAB==='brand') return `<div class="addbar">
+    <div class="fld grow"><label class="f">Brand name</label><input class="inp" id="a1" placeholder="BLENDERS PRIDE"></div>
+    <div class="fld grow"><label class="f">Category</label><input class="inp" id="a2" list="dlCats" placeholder="WHISKY"></div>
+    <div class="fld sm"><label class="f">Peg ml</label><input class="inp" id="a3" type="number" step="any" value="30"></div>
+    <button class="btn gold" id="btnAdd">＋ Add brand</button></div>`;
+  return '';
+}
+function groupOf(item){
+  const r=listOf('rawdata2').find(x=>norm(x.item)===norm(item));
+  return r?r.group:'';
+}
+function doAdd(){
+  const v=id=>{ const e=$(id); return e?e.value.trim():''; };
+  if(TAB==='items'){
+    const item=v('a1').toUpperCase(); if(!item) return toast('Type an item name','err');
+    const a=listOf('rawdata2');
+    if(a.some(x=>norm(x.item)===norm(item))) return toast('That item already exists','err');
+    a.push({item:item, group:v('a2').toUpperCase()}); setList('rawdata2',a);
+    $('a1').value=''; $('a1').focus();
+  } else if(TAB==='purch'){
+    const item=v('a1').toUpperCase(); if(!item) return toast('Type an item','err');
+    const a=listOf('recv');
+    a.push({date:v('a0')||today(), item:item, qty:+v('a2')||0, group:groupOf(item), inv:v('a3')});
+    setList('recv',a); $('a1').value=''; $('a2').value=''; $('a1').focus();
+  } else if(TAB==='issue'){
+    const item=v('a1').toUpperCase(); if(!item) return toast('Type an item','err');
+    const a=listOf('mr');
+    a.push({date:v('a0')||today(), group:groupOf(item), item:item, qty:+v('a2')||0});
+    setList('mr',a); $('a1').value=''; $('a2').value=''; $('a1').focus();
+  } else if(TAB==='brand'){
+    const name=v('a1').toUpperCase(); if(!name) return toast('Type a brand name','err');
+    const a=listOf('tally');
+    if(a.some(x=>norm(x.name)===norm(name))) return toast('That brand already exists','err');
+    a.push({name:name, category:v('a2').toUpperCase()||'WHISKY', pegMl:+v('a3')||30});
+    setList('tally',a); $('a1').value=''; $('a1').focus();
+  }
+  const b=$('tbody'); if(b) b.innerHTML=rowsHtml();
+  toast('Added — remember to Save');
+}
+
+function datalists(){
+  const items=listOf('rawdata2').slice(0,900).map(r=>`<option value="${esc(r.item)}">`).join('');
+  const cats=[...new Set(listOf('tally').map(b=>b.category).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
+  return `<datalist id="dlItems">${items}</datalist><datalist id="dlCats">${cats}</datalist>`;
+}
+
+const HEADS={
+  rawdata2:['Item','Group',''],
+  recv:['Date','Item','Group','Qty','Invoice',''],
+  mr:['Date','Item','Group','Qty',''],
+  tally:['Brand','Category','Peg ml','']
+};
+
+function render(){
+  const v=$('view');
+  if(TAB==='home'){
+    const upd=CUR.updated_at?new Date(CUR.updated_at).toLocaleString():'never';
+    const inv=getKey('inv',{})||{};
+    v.innerHTML=`
+      <div class="card"><div class="chead"><div><h2>${esc(CUR.co||CUR.id)}</h2>
+        <p>Cloud copy last saved: ${esc(upd)}</p></div></div>
+        <div class="stats">
+          <div><i>Brands</i><b class="num">${listOf('tally').length}</b></div>
+          <div><i>Item Master</i><b class="num">${listOf('rawdata2').length}</b></div>
+          <div><i>Purchases</i><b class="num">${listOf('recv').length}</b></div>
+          <div><i>Stock issues</i><b class="num">${listOf('mr').length}</b></div>
+          <div><i>Items with rates</i><b class="num">${Object.keys(inv).length}</b></div>
+          <div><i>POS rows</i><b class="num">${listOf('pos').length}</b></div>
+        </div></div>
+      <div class="card"><div class="chead"><div><h2>How this works</h2></div></div>
+        <div class="cbody muted" style="font-size:12.5px;line-height:1.9">
+          1 · Pick a company above, edit in the tabs, then press <b class="gold">💾 Save to cloud</b>.<br>
+          2 · Open the app on any device → <b>Settings → ☁️ Cloud Sync → ⬇ Pull from cloud</b>.<br>
+          3 · The app replaces its data with this cloud copy and reloads.<br><br>
+          <span class="dim">Only the sheets shown here are edited. Aliases, cocktails, POS rows and settings
+          are carried through untouched, so nothing you set up in the app is lost.</span>
+        </div></div>`;
+    return;
+  }
+  const t=TABS.find(x=>x.k===TAB);
+  const heads=(HEADS[t.key]||[]).map(h=>`<th${h==='Qty'||h==='Peg ml'?' class="r"':''}>${h}</th>`).join('');
+  const stockHead=`<th>Brand</th><th class="r">Opening</th><th class="r">Closing</th><th class="r">LR Opening</th><th class="r">Landing ₹</th><th class="r">MRP ₹</th>`;
+  v.innerHTML=`${datalists()}
+    <div class="card">
+      <div class="chead"><div><h2>${t.t}</h2><p>${
+        TAB==='stock'?'Opening / closing are in bottle.loose form — 2.35 means 2 bottles + 350 ml':
+        TAB==='items'?'The master list every purchase and issue is matched against':
+        'Edit any cell directly — changes are kept until you press Save'}</p></div></div>
+      ${addBar()}
+      <div class="cbody" style="padding-bottom:0">${searchBar('Search…')}</div>
+      <div class="twrap"><table>
+        <thead><tr>${TAB==='stock'?stockHead:heads}</tr></thead>
+        <tbody id="tbody">${rowsHtml()}</tbody>
+      </table></div>
+    </div>`;
+  wireSearch();
+}
+
+/* =========================================================
+   4 · events
+   ========================================================= */
+$('tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-tab]'); if(b) go(b.dataset.tab); });
+$('view').addEventListener('click',e=>{
+  const d=e.target.closest('[data-del]');
+  if(d){ delRow(d.dataset.del, +d.dataset.i); renderTabs(); return; }
+  if(e.target.id==='btnAdd') doAdd();
+});
+$('view').addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset && t.dataset.inv!=null && t.dataset.f){ editInv(t.dataset.inv,t.dataset.f,t.value.trim()); return; }
+  if(t.dataset && t.dataset.k!=null && t.dataset.f){
+    editCell(t.dataset.k, +t.dataset.i, t.dataset.f, t.value.trim(), t.dataset.num==='1'); }
+});
+$('coPick').addEventListener('change',e=>{
+  if(DIRTY && !confirm('You have unsaved changes. Switch company and lose them?')){ fillCoPick(); return; }
+  CUR=ROWS.find(r=>r.id===e.target.value)||ROWS[0]; snapshotBase(); markClean(); renderTabs(); render();
+});
+$('btnSave').addEventListener('click',saveCur);
+$('btnReload').addEventListener('click',async()=>{
+  if(DIRTY && !confirm('Reload from cloud and lose unsaved changes?')) return;
+  try{ await loadAll(); renderTabs(); render(); toast('Reloaded from cloud','ok'); }
+  catch(e){ toast(e.message,'err'); }
+});
+$('btnLogout').addEventListener('click',()=>{
+  if(DIRTY && !confirm('Sign out and lose unsaved changes?')) return;
+  logout();
+});
+window.addEventListener('beforeunload',e=>{ if(DIRTY){ e.preventDefault(); e.returnValue=''; } });
+
+/* gate events */
+$('btnSaveConn').addEventListener('click',()=>{
+  const url=$('sbUrl').value.trim().replace(/\/+$/,''), key=$('sbKey').value.trim();
+  const m=$('setupMsg');
+  if(!/^https:\/\/[\w-]+\.supabase\.co$/i.test(url)){ m.className='msg err'; m.textContent='That does not look like a Supabase project URL.'; return; }
+  if(/^sb_secret_/i.test(key)){ m.className='msg err'; m.textContent='That is the SECRET key — never use it in a browser. Copy the anon / publishable key instead.'; return; }
+  if(key.length<40 || !(/^eyJ/.test(key) || /^sb_publishable_/i.test(key))){
+    m.className='msg err'; m.textContent='That does not look like an anon key. Copy the full "anon public" key (eyJ…) or a publishable key (sb_publishable_…).'; return; }
+  connSave({url:url,key:key}); m.className='msg ok'; m.textContent='Saved.'; showGate();
+});
+$('btnEditConn').addEventListener('click',()=>{
+  const c=conn(); $('sbUrl').value=c.url||''; $('sbKey').value=c.key||'';
+  $('setupBox').classList.remove('hide'); $('loginBox').classList.add('hide');
+});
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const m=$('loginMsg'), b=$('btnLogin');
+  m.className='msg'; m.textContent='Signing in…'; b.disabled=true;
+  try{
+    await doLogin($('liEmail').value.trim(), $('liPass').value);
+    $('liPass').value='';
+    await start();
+  }catch(err){
+    m.className='msg err';
+    m.textContent = /Invalid login/i.test(err.message)
+      ? 'Wrong email or password.'
+      : (/confirm/i.test(err.message) ? 'This user is not confirmed — tick “Auto Confirm User” in Supabase.' : err.message);
+  }
+  b.disabled=false;
+});
+
+/* =========================================================
+   5 · boot
+   ========================================================= */
+function logout(){ sessClear(); DIRTY=false; $('shell').style.display='none'; $('gate').style.display='flex'; showGate(); }
+function showGate(){
+  const c=conn(), have=!!(c.url&&c.key);
+  $('setupBox').classList.toggle('hide', have);
+  $('loginBox').classList.toggle('hide', !have);
+  if(have){ try{ $('connHost').textContent=new URL(c.url).host; }catch(e){} $('liEmail').focus(); }
+  else $('sbUrl').focus();
+}
+async function start(){
+  $('gate').style.display='none';
+  $('shell').style.display='flex';
+  $('whoAmI').textContent=sess().email||'';
+  try{ await loadAll(); }
+  catch(e){ toast(e.message,'err'); }
+  renderTabs(); render();
+}
+(function boot(){
+  const c=conn();
+  if(c.url && c.key && sessionAlive()) start();
+  else { $('gate').style.display='flex'; showGate(); }
+})();
+</script>
+</body>
+</html>
