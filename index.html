@@ -5,195 +5,151 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bar Liquor Inventory Cloud</title>
 <link rel="icon" type="image/png" href="assets/img/icon-192.png">
+<!-- the APP's own stylesheet, so the console looks exactly like the app -->
+<link rel="stylesheet" href="assets/css/styles.css">
 <style>
 /* ===========================================================
-   Backend console — standalone, no libraries, no build step.
+   Backend console — same shell and same styles as the app.
+   Everything here is only what the app has no equivalent for:
+   the sign-in gate, and a few table-cell tweaks for inline editing.
    Talks to Supabase over plain fetch:
      login  : POST {url}/auth/v1/token?grant_type=password
-     read   : GET  {url}/rest/v1/blis_sync            (anon key)
-     write  : POST {url}/rest/v1/blis_sync            (Bearer access_token)
-   The row shape is EXACTLY what the app's cloudPush writes:
-     { id: <companyId>, co: <companyName>, data: { <storageSubKey>: <rawJSONstring> } }
-   so the app's existing Pull loads it with no changes.
+     read   : GET  {url}/rest/v1/blis_sync
+     write  : PATCH/POST {url}/rest/v1/blis_sync  (Bearer access_token)
+   Row shape is EXACTLY what the app's cloudPush writes, so the app's
+   Cloud Sync → Pull loads it unchanged.
    =========================================================== */
-:root{
-  --bg:#0d0f14; --bg-2:#11141b; --panel:#161a23; --panel-2:#1c212d;
-  --border:#262d3a; --border-soft:#1f2530;
-  --text:#e7e9ee; --muted:#8a93a7; --dim:#636c80;
-  --gold:#d4af37; --gold-soft:#e7c860; --gold-dim:rgba(212,175,55,.14);
-  --green:#3fb27f; --red:#e0574f;
-  --serif:Georgia,'Times New Roman',serif;
-  --sans:'Segoe UI',-apple-system,system-ui,sans-serif;
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
-button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
-.num{font-variant-numeric:tabular-nums}
 .hide{display:none!important}
 
-/* ---------- shared controls ---------- */
-.btn{background:var(--bg-2);border:1px solid var(--border);color:var(--muted);border-radius:8px;
-  padding:7px 13px;cursor:pointer;font-size:12.5px;font-weight:600}
-.btn:hover{border-color:var(--gold);color:var(--text)}
-.btn.gold{background:linear-gradient(140deg,var(--gold-soft),var(--gold));border-color:var(--gold);color:#1a1408}
-.btn.danger{color:var(--red);border-color:rgba(224,87,79,.4)}
-.btn.danger:hover{border-color:var(--red)}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
-.inp{width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text)}
-.inp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-dim)}
-label.f{display:block;font-size:11.5px;color:var(--muted);margin:0 0 5px}
-.fld{margin-bottom:12px}
-.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-.grow{flex:1;min-width:0}
-.muted{color:var(--muted)} .dim{color:var(--dim)} .gold{color:var(--gold)}
-.small{font-size:11.5px}
-
-/* ---------- gate (setup + login) ---------- */
-.gate{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px 18px}
+/* ---------- sign-in gate ---------- */
+.gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 18px}
 .gcard{width:100%;max-width:430px;background:var(--panel);border:1px solid var(--border-soft);
-  border-radius:16px;padding:28px 26px}
-.gcard h1{font-family:var(--serif);font-size:22px;margin:0 0 4px;color:var(--gold);font-weight:600}
-.gcard .s{font-size:12px;color:var(--muted);margin:0 0 20px}
+  border-radius:16px;padding:28px 26px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.gcard h1{font-family:Georgia,'Times New Roman',serif;font-size:22px;margin:0 0 4px;color:var(--gold);font-weight:600}
+.gcard .s{font-size:12px;color:var(--text-muted);margin:0 0 20px}
 .crest{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-size:23px;border:2px solid var(--gold);background:radial-gradient(circle at 50% 40%,var(--gold-dim),transparent 70%);
-  margin-bottom:14px}
+  font-size:23px;border:2px solid var(--gold);margin-bottom:14px;
+  background:radial-gradient(circle at 50% 40%,var(--gold-dim),transparent 70%)}
 .msg{font-size:12px;margin-top:12px;min-height:17px}
 .msg.err{color:var(--red)} .msg.ok{color:var(--green)}
-.gcard details{margin-top:16px;font-size:11.5px;color:var(--muted)}
+.gcard details{margin-top:16px;font-size:11.5px;color:var(--text-muted)}
 .gcard summary{cursor:pointer}
 .gcard details p{margin:8px 0 0;line-height:1.75}
 
-/* ---------- app shell ---------- */
-.shell{display:none;min-height:100%;flex-direction:column}
-.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 18px;
-  background:var(--panel);border-bottom:1px solid var(--border-soft);position:sticky;top:0;z-index:5}
-.top h1{font-family:var(--serif);font-size:16px;margin:0;color:var(--gold);font-weight:600;white-space:nowrap}
-.top .who{font-size:11px;color:var(--dim);white-space:nowrap}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;
-  border-radius:999px;padding:3px 10px;white-space:nowrap}
-.pill.live{color:var(--green);background:rgba(63,178,127,.1);border:1px solid rgba(63,178,127,.35)}
-.pill.dirty{color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold)}
-.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+/* ---------- shell bits the app styles do not cover ---------- */
+.shell{display:none}
+.pill.dirty{background:var(--gold-dim);color:var(--gold-soft);border:1px solid var(--gold)}
+.pill.live{background:rgba(63,178,127,.12);color:var(--green);border:1px solid rgba(63,178,127,.4)}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;margin-right:5px}
+.topbar-actions .who{font-size:11px;color:var(--text-dim);white-space:nowrap}
 
-.tabs{display:flex;gap:3px;overflow-x:auto;padding:0 18px;background:var(--panel);
-  border-bottom:1px solid var(--border-soft)}
-.tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
-  padding:10px 13px;cursor:pointer;font-size:12.5px;font-weight:600;white-space:nowrap}
-.tab:hover{color:var(--text)}
-.tab.on{color:var(--gold-soft);border-bottom-color:var(--gold)}
-.tab .c{font-size:10px;color:var(--dim);margin-left:5px}
-
-main{flex:1;padding:18px}
-.card{background:var(--panel);border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;margin-bottom:14px}
-.chead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
-  padding:11px 15px;border-bottom:1px solid var(--border-soft)}
-.chead h2{font-family:var(--serif);font-size:15px;margin:0;font-weight:600}
-.chead p{font-size:11px;color:var(--muted);margin:2px 0 0}
-.cbody{padding:14px 15px}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--border-soft)}
-.stats div{background:var(--panel-2);padding:12px 14px}
-.stats i{display:block;font-style:normal;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
-.stats b{display:block;font-size:18px;margin-top:3px;font-variant-numeric:tabular-nums}
-
-.twrap{overflow-x:auto;max-height:60vh;overflow-y:auto}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-thead th{position:sticky;top:0;background:var(--bg-2);text-align:left;padding:8px 10px;
-  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
-  border-bottom:1px solid var(--border);white-space:nowrap;z-index:1}
-tbody td{padding:5px 8px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
-tbody tr:hover{background:var(--panel-2)}
-td .ci{width:100%;background:none;border:1px solid transparent;border-radius:5px;padding:4px 6px;color:var(--text)}
+/* inline-editable cells, same feel as the app's .cell-input */
+td .ci{width:100%;background:none;border:1px solid transparent;border-radius:6px;
+  padding:5px 7px;color:var(--text);font-family:inherit;font-size:13px}
 td .ci:hover{border-color:var(--border)}
 td .ci:focus{outline:none;border-color:var(--gold);background:var(--bg-2)}
-td.r{text-align:right} th.r{text-align:right}
 td .ci.r{text-align:right;font-variant-numeric:tabular-nums}
-.xbtn{background:none;border:none;color:var(--dim);cursor:pointer;padding:2px 6px;border-radius:5px;font-size:13px}
-.xbtn:hover{color:var(--red);background:rgba(224,87,79,.1)}
-.empty{padding:26px;text-align:center;color:var(--dim);font-size:12.5px}
-
-.addbar{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:12px 15px;
-  border-bottom:1px solid var(--border-soft);background:var(--panel-2)}
-.addbar .fld{margin:0;min-width:130px;flex:1}
-.addbar .fld.sm{max-width:130px;flex:none}
-.search{display:flex;align-items:center;gap:9px;background:var(--bg-2);border:1px solid var(--border);
-  border-radius:9px;padding:8px 13px;margin-bottom:12px}
-.search input{flex:1;background:none;border:none}
-.search input:focus{outline:none}
-
+.xbtn{background:none;border:none;color:var(--text-dim);cursor:pointer;padding:3px 7px;
+  border-radius:6px;font-size:14px}
+.xbtn:hover{color:var(--red);background:rgba(224,87,79,.12)}
+.empty{padding:28px;text-align:center;color:var(--text-dim);font-size:12.5px}
+.twrap{overflow-x:auto;max-height:62vh;overflow-y:auto}
+.addbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;
+  padding:14px 18px;border-bottom:1px solid var(--border-soft);background:var(--bg-2)}
+.addbar .fld{margin:0;min-width:140px;flex:1}
+.addbar .fld.sm{max-width:140px;flex:none}
+.fld{margin-bottom:12px}
+.fld label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
 .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--border);
-  border-left:3px solid var(--gold);border-radius:9px;padding:11px 15px;font-size:12.5px;
-  box-shadow:0 8px 26px rgba(0,0,0,.45);opacity:0;transform:translateY(8px);
-  transition:.2s;pointer-events:none;max-width:320px;z-index:50}
+  border-left:3px solid var(--gold);border-radius:10px;padding:12px 16px;font-size:12.5px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);
+  transition:.2s;pointer-events:none;max-width:330px;z-index:90}
 .toast.on{opacity:1;transform:none}
 .toast.err{border-left-color:var(--red)} .toast.ok{border-left-color:var(--green)}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
-@media(max-width:640px){ main{padding:12px} .top{padding:10px 12px} .tabs{padding:0 12px} }
+@media(max-width:900px){ .sidebar{position:fixed;left:-260px;transition:left .2s} .sidebar.open{left:0} }
 </style>
 </head>
-<body>
+<body class="app-body t-emlux a-fade a-rows a-hover a-toast a-theme">
 
-<!-- ============ GATE : setup + login ============ -->
+<!-- ============ GATE : setup + sign in ============ -->
 <div class="gate" id="gate">
   <div class="gcard">
     <div class="crest">🔐</div>
     <h1>Bar Liquor Inventory</h1>
-    <p class="s">Cloud console — data entry &amp; management</p>
+    <p class="s">Cloud console — sign in to enter and manage data</p>
 
-    <!-- step 1: connection -->
     <div id="setupBox" class="hide">
-      <div class="fld"><label class="f" for="sbUrl">Supabase Project URL</label>
-        <input class="inp" id="sbUrl" placeholder="https://xxxx.supabase.co" autocomplete="off"></div>
-      <div class="fld"><label class="f" for="sbKey">anon public key</label>
-        <input class="inp" id="sbKey" placeholder="eyJhbGciOi…" autocomplete="off"></div>
-      <button class="btn gold" style="width:100%" id="btnSaveConn">Save connection</button>
+      <div class="fld"><label for="sbUrl">Supabase Project URL</label>
+        <input class="input" id="sbUrl" placeholder="https://xxxx.supabase.co" autocomplete="off"></div>
+      <div class="fld"><label for="sbKey">anon public key</label>
+        <input class="input" id="sbKey" placeholder="eyJhbGciOi..." autocomplete="off"></div>
+      <button class="btn btn-gold btn-block" id="btnSaveConn">Save connection</button>
       <div class="msg" id="setupMsg"></div>
       <details>
         <summary>Where do I find these?</summary>
-        <p>Supabase → your project → <b>⚙ Project Settings</b> → <b>API</b>.
-        Copy <b>Project URL</b> and the <b>anon public</b> key.
+        <p>Supabase → your project → <b>Project Settings</b> → <b>API</b>.
+        Copy the <b>Project URL</b> and the <b>anon public</b> key.
         Never paste the <code>service_role</code> key here.</p>
       </details>
     </div>
 
-    <!-- step 2: login -->
     <div id="loginBox" class="hide">
       <form id="loginForm" autocomplete="on">
-        <div class="fld"><label class="f" for="liEmail">Email</label>
-          <input class="inp" id="liEmail" type="email" autocomplete="username" required></div>
-        <div class="fld"><label class="f" for="liPass">Password</label>
-          <input class="inp" id="liPass" type="password" autocomplete="current-password" required></div>
-        <button class="btn gold" style="width:100%" type="submit" id="btnLogin">Sign in</button>
+        <div class="fld"><label for="liEmail">Email</label>
+          <input class="input" id="liEmail" type="email" autocomplete="username" required></div>
+        <div class="fld"><label for="liPass">Password</label>
+          <input class="input" id="liPass" type="password" autocomplete="current-password" required></div>
+        <button class="btn btn-gold btn-block" type="submit" id="btnLogin">Sign in</button>
       </form>
       <div class="msg" id="loginMsg"></div>
-      <div class="row" style="margin-top:14px;justify-content:space-between">
-        <button class="btn" id="btnEditConn" style="font-size:11.5px">⚙ Change connection</button>
-        <span class="small dim" id="connHost"></span>
+      <div class="flex between items-center" style="margin-top:14px">
+        <button class="btn btn-ghost btn-sm" id="btnEditConn">Change connection</button>
+        <span class="muted" style="font-size:11px" id="connHost"></span>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ============ SHELL ============ -->
-<div class="shell" id="shell">
-  <div class="top">
-    <h1>⚙ Bar Liquor Inventory Cloud</h1>
-    <select class="inp" id="coPick" style="width:auto;min-width:170px;padding:6px 10px;font-size:12.5px"></select>
-    <span class="pill live" id="savedPill"><i></i>SAVED</span>
-    <span class="grow"></span>
-    <span class="who" id="whoAmI"></span>
-    <button class="btn" id="btnReload">↻ Reload</button>
-    <button class="btn gold" id="btnSave">💾 Save to cloud</button>
-    <button class="btn" id="btnLogout">Sign out</button>
-  </div>
-  <div class="tabs" id="tabs"></div>
-  <main id="view"></main>
+<!-- ============ SHELL — same layout as the app ============ -->
+<div class="app shell" id="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">🍾</div>
+      <div class="name" id="brandName">Bar Liquor Inventory<span>Cloud console</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip">
+        <div class="avatar" id="meAvatar">·</div>
+        <div class="meta" id="meName">—<span>Signed in</span></div>
+      </div>
+      <button class="btn btn-ghost btn-block btn-sm mt-8" id="btnLogout">⏻ &nbsp;Sign out</button>
+    </div>
+  </aside>
+  <div class="scrim hidden" id="scrim"></div>
+  <main class="main">
+    <header class="topbar">
+      <button class="hamburger" id="btnBurger">☰</button>
+      <div><h2 id="pgTitle">Overview</h2><div class="crumb" id="pgCrumb">Cloud console</div></div>
+      <div class="topbar-actions">
+        <select class="input" id="coPick" style="width:auto;min-width:170px;padding:7px 11px;font-size:12.5px"></select>
+        <span class="pill live" id="savedPill"><i></i>SAVED</span>
+        <button class="icon-btn" id="btnReload" title="Reload from cloud">↻</button>
+        <button class="btn btn-gold btn-sm" id="btnSave">💾 Save to cloud</button>
+      </div>
+    </header>
+    <div class="content" id="view"></div>
+    <footer class="statusbar">
+      <span class="sb-on">● Online</span>
+      <span>☁️ <b id="sbCo">—</b></span>
+      <span>👤 <b id="sbUser">—</b></span>
+      <span class="sb-r" id="sbSaved">—</span>
+    </footer>
+  </main>
 </div>
 
 <div class="toast" id="toast"></div>
-
 <script>
 /* =========================================================
    0 · tiny helpers
@@ -392,18 +348,23 @@ async function saveCur(){
 }
 function fillCoPick(){
   $('coPick').innerHTML=ROWS.map(r=>`<option value="${esc(r.id)}"${r.id===CUR.id?' selected':''}>${esc(r.co||r.id)}</option>`).join('');
+  const nm=(CUR&&(CUR.co||CUR.id))||'—';
+  $('sbCo').textContent=nm;
+  $('brandName').innerHTML=esc(nm)+'<span>Cloud console</span>';
+  $('sbSaved').textContent=(CUR&&CUR.updated_at)?('Saved '+new Date(CUR.updated_at).toLocaleString()):'Not saved yet';
 }
 
 /* =========================================================
    3 · screens
    ========================================================= */
+/* Grouped exactly like the app's sidebar, and using the app's own page names. */
 const TABS=[
-  {k:'home',  t:'Overview'},
-  {k:'items', t:'Item Master', key:'rawdata2'},
-  {k:'purch', t:'Purchase',    key:'recv'},
-  {k:'issue', t:'Bar Stock Issue', key:'mr'},
-  {k:'brand', t:'Brands',      key:'tally'},
-  {k:'stock', t:'Stock & Rates', key:'inv'}
+  {k:'home',  t:'Overview',        grp:'Overview',         crumb:'Cloud console'},
+  {k:'items', t:'Item Master',     grp:'Inventory Center', key:'rawdata2', crumb:'Inventory Center'},
+  {k:'purch', t:'Purchase',        grp:'Inventory Center', key:'recv',     crumb:'Inventory Center'},
+  {k:'issue', t:'Bar Stock Issue', grp:'Inventory Center', key:'mr',       crumb:'Inventory Center'},
+  {k:'stock', t:'Stock & Rates',   grp:'Inventory Center', key:'inv',      crumb:'Inventory Center'},
+  {k:'brand', t:'Brands',          grp:'System',           key:'tally',    crumb:'System'}
 ];
 let TAB='home', Q='';
 
@@ -411,15 +372,33 @@ function tabCount(t){
   if(!t.key) return '';
   const v=getKey(t.key, t.key==='inv'?{}:[]);
   const n=Array.isArray(v)?v.length:Object.keys(v).length;
-  return n?`<span class="c">${n}</span>`:'';
+  return n?`<span class="badge">${n}</span>`:'';
 }
+/* the app's sidebar markup, so the same stylesheet renders it identically */
 function renderTabs(){
-  $('tabs').innerHTML=TABS.map(t=>`<button class="tab${t.k===TAB?' on':''}" data-tab="${t.k}">${t.t}${tabCount(t)}</button>`).join('');
+  let html='', last='';
+  TABS.forEach(t=>{
+    if(t.grp!==last){ html+=`<div class="nav-group-label">${esc(t.grp)}</div>`; last=t.grp; }
+    html+=`<div class="nav-item${t.k===TAB?' active':''}" data-tab="${t.k}">`
+        + `<span class="ico"></span><span>${esc(t.t)}</span>${tabCount(t)}</div>`;
+  });
+  $('nav').innerHTML=html;
 }
-function go(k){ TAB=k; Q=''; renderTabs(); render(); }
-
+function go(k){
+  TAB=k; Q='';
+  const t=TABS.find(x=>x.k===k)||TABS[0];
+  $('pgTitle').textContent=t.t;
+  $('pgCrumb').textContent=t.crumb||'';
+  renderTabs(); render();
+  if(window.innerWidth<900) burger(false);
+}
+function burger(open){
+  $('sidebar').classList.toggle('open', open);
+  $('scrim').classList.toggle('hidden', !open);
+}
 function searchBar(ph){
-  return `<div class="search"><span>🔎</span><input id="q" placeholder="${ph}" value="${esc(Q)}"></div>`;
+  return `<div class="bigsearch"><span style="font-size:19px">🔎</span>`
+       + `<input id="q" placeholder="${ph}" value="${esc(Q)}"></div>`;
 }
 function wireSearch(){
   const i=$('q'); if(!i) return;
@@ -581,23 +560,25 @@ function render(){
     const upd=CUR.updated_at?new Date(CUR.updated_at).toLocaleString():'never';
     const inv=getKey('inv',{})||{};
     v.innerHTML=`
-      <div class="card"><div class="chead"><div><h2>${esc(CUR.co||CUR.id)}</h2>
+      <div class="page-head"><div><h1>${esc(CUR.co||CUR.id)}</h1>
         <p>Cloud copy last saved: ${esc(upd)}</p></div></div>
-        <div class="stats">
-          <div><i>Brands</i><b class="num">${listOf('tally').length}</b></div>
-          <div><i>Item Master</i><b class="num">${listOf('rawdata2').length}</b></div>
-          <div><i>Purchases</i><b class="num">${listOf('recv').length}</b></div>
-          <div><i>Stock issues</i><b class="num">${listOf('mr').length}</b></div>
-          <div><i>Items with rates</i><b class="num">${Object.keys(inv).length}</b></div>
-          <div><i>POS rows</i><b class="num">${listOf('pos').length}</b></div>
-        </div></div>
-      <div class="card"><div class="chead"><div><h2>How this works</h2></div></div>
-        <div class="cbody muted" style="font-size:12.5px;line-height:1.9">
-          1 · Pick a company above, edit in the tabs, then press <b class="gold">💾 Save to cloud</b>.<br>
+      <div class="stat-strip" style="margin-bottom:16px">
+        <div class="s"><div class="l">Brands</div><div class="v">${listOf('tally').length}</div></div>
+        <div class="s"><div class="l">Item Master</div><div class="v">${listOf('rawdata2').length}</div></div>
+        <div class="s"><div class="l">Purchases</div><div class="v">${listOf('recv').length}</div></div>
+        <div class="s"><div class="l">Stock issues</div><div class="v">${listOf('mr').length}</div></div>
+        <div class="s"><div class="l">Items with rates</div><div class="v">${Object.keys(inv).length}</div></div>
+        <div class="s"><div class="l">POS rows</div><div class="v">${listOf('pos').length}</div></div>
+      </div>
+      <div class="card"><div class="card-head"><div><h3>How this works</h3>
+        <p>Everything you change here reaches the app through Cloud Sync</p></div></div>
+        <div class="card-body muted" style="font-size:12.5px;line-height:1.9">
+          1 · Pick a company above, edit in the pages on the left, then press <b class="gold">💾 Save to cloud</b>.<br>
           2 · Open the app on any device → <b>Settings → ☁️ Cloud Sync → ⬇ Pull from cloud</b>.<br>
-          3 · The app replaces its data with this cloud copy and reloads.<br><br>
-          <span class="dim">Only the sheets shown here are edited. Aliases, cocktails, POS rows and settings
-          are carried through untouched, so nothing you set up in the app is lost.</span>
+          3 · The app takes in this cloud copy and reloads.<br><br>
+          <span style="color:var(--text-dim)">Only the pages shown here are edited. Aliases, cocktails, POS rows and
+          settings are carried through untouched, so nothing you set up in the app is lost. Several people can work
+          at the same time — each save keeps everyone's changes.</span>
         </div></div>`;
     return;
   }
@@ -605,14 +586,14 @@ function render(){
   const heads=(HEADS[t.key]||[]).map(h=>`<th${h==='Qty'||h==='Peg ml'?' class="r"':''}>${h}</th>`).join('');
   const stockHead=`<th>Brand</th><th class="r">Opening</th><th class="r">Closing</th><th class="r">LR Opening</th><th class="r">Landing ₹</th><th class="r">MRP ₹</th>`;
   v.innerHTML=`${datalists()}
+    <div class="page-head"><div><h1>${esc(t.t)}</h1><p>${
+      TAB==='stock'?'Opening / closing use the bottle.loose form — 2.35 means 2 bottles + 350 ml':
+      TAB==='items'?'The master list every purchase and stock issue is matched against':
+      'Edit any cell directly — changes are kept until you press Save'}</p></div></div>
     <div class="card">
-      <div class="chead"><div><h2>${t.t}</h2><p>${
-        TAB==='stock'?'Opening / closing are in bottle.loose form — 2.35 means 2 bottles + 350 ml':
-        TAB==='items'?'The master list every purchase and issue is matched against':
-        'Edit any cell directly — changes are kept until you press Save'}</p></div></div>
       ${addBar()}
-      <div class="cbody" style="padding-bottom:0">${searchBar('Search…')}</div>
-      <div class="twrap"><table>
+      <div class="card-body" style="padding-bottom:0">${searchBar('Search…')}</div>
+      <div class="twrap"><table class="tbl">
         <thead><tr>${TAB==='stock'?stockHead:heads}</tr></thead>
         <tbody id="tbody">${rowsHtml()}</tbody>
       </table></div>
@@ -623,7 +604,9 @@ function render(){
 /* =========================================================
    4 · events
    ========================================================= */
-$('tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-tab]'); if(b) go(b.dataset.tab); });
+$('nav').addEventListener('click',e=>{ const b=e.target.closest('[data-tab]'); if(b) go(b.dataset.tab); });
+$('btnBurger').addEventListener('click',()=>burger(true));
+$('scrim').addEventListener('click',()=>burger(false));
 $('view').addEventListener('click',e=>{
   const d=e.target.closest('[data-del]');
   if(d){ delRow(d.dataset.del, +d.dataset.i); renderTabs(); return; }
@@ -637,7 +620,7 @@ $('view').addEventListener('change',e=>{
 });
 $('coPick').addEventListener('change',e=>{
   if(DIRTY && !confirm('You have unsaved changes. Switch company and lose them?')){ fillCoPick(); return; }
-  CUR=ROWS.find(r=>r.id===e.target.value)||ROWS[0]; snapshotBase(); markClean(); renderTabs(); render();
+  CUR=ROWS.find(r=>r.id===e.target.value)||ROWS[0]; snapshotBase(); markClean(); fillCoPick(); go(TAB);
 });
 $('btnSave').addEventListener('click',saveCur);
 $('btnReload').addEventListener('click',async()=>{
@@ -696,10 +679,13 @@ function showGate(){
 async function start(){
   $('gate').style.display='none';
   $('shell').style.display='flex';
-  $('whoAmI').textContent=sess().email||'';
+  const who=sess().email||'';
+  $('meName').innerHTML=esc(who.split('@')[0]||'User')+'<span>Signed in</span>';
+  $('meAvatar').textContent=(who.slice(0,2)||'··').toUpperCase();
+  $('sbUser').textContent=who;
   try{ await loadAll(); }
   catch(e){ toast(e.message,'err'); }
-  renderTabs(); render();
+  go(TAB);
 }
 (function boot(){
   const c=conn();
