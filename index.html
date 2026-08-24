@@ -70,7 +70,9 @@ td .ci.r{text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:900px){ .sidebar{position:fixed;left:-260px;transition:left .2s} .sidebar.open{left:0} }
 </style>
 </head>
-<body class="app-body t-emlux a-fade a-rows a-hover a-toast a-theme">
+<!-- `a-rows` is deliberately left off: it animates EVERY table row, and these sheets
+     run to hundreds of rows, which makes scrolling and typing feel sluggish. -->
+<body class="app-body t-emlux a-fade a-hover a-toast a-theme">
 
 <!-- ============ GATE : setup + sign in ============ -->
 <div class="gate" id="gate">
@@ -166,7 +168,10 @@ const fmt=n=>{ n=Math.round((+n||0)*100)/100;
 const norm=s=>String(s==null?'':s).toUpperCase().replace(/["'.,]/g,'').replace(/\s+/g,' ').trim();
 const today=()=>new Date().toISOString().slice(0,10);
 let _tt;
-function toast(m,kind){ const t=$('toast'); t.textContent=m; t.className='toast on'+(kind?' '+kind:'');
+function toast(m,kind){ const t=$('toast');
+  m=String(m==null?'':m).trim();
+  if(!m){ t.className='toast'; return; }          // never flash an empty box
+  t.textContent=m; t.className='toast on'+(kind?' '+kind:'');
   clearTimeout(_tt); _tt=setTimeout(()=>t.className='toast',2600); }
 
 /* =========================================================
@@ -541,10 +546,18 @@ function doAdd(){
   toast('Added — remember to Save');
 }
 
+/* Built only for the pages whose add-bar actually uses them — rebuilding hundreds of
+   <option>s on every render is wasted work and makes the page feel heavy. */
 function datalists(){
-  const items=listOf('rawdata2').slice(0,900).map(r=>`<option value="${esc(r.item)}">`).join('');
-  const cats=[...new Set(listOf('tally').map(b=>b.category).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
-  return `<datalist id="dlItems">${items}</datalist><datalist id="dlCats">${cats}</datalist>`;
+  if(TAB==='purch' || TAB==='issue'){
+    const items=listOf('rawdata2').slice(0,900).map(r=>`<option value="${esc(r.item)}">`).join('');
+    return `<datalist id="dlItems">${items}</datalist>`;
+  }
+  if(TAB==='brand'){
+    const cats=[...new Set(listOf('tally').map(b=>b.category).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
+    return `<datalist id="dlCats">${cats}</datalist>`;
+  }
+  return '';
 }
 
 const HEADS={
