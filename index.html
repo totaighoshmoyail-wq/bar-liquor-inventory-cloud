@@ -60,19 +60,19 @@ td .ci.r{text-align:right;font-variant-numeric:tabular-nums}
 .addbar .fld.sm{max-width:140px;flex:none}
 .fld{margin-bottom:12px}
 .fld label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
-.toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--border);
+.bktoast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--border);
   border-left:3px solid var(--gold);border-radius:10px;padding:12px 16px;font-size:12.5px;
   box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);
   transition:.2s;pointer-events:none;max-width:330px;z-index:90}
-.toast.on{opacity:1;transform:none}
-.toast.err{border-left-color:var(--red)} .toast.ok{border-left-color:var(--green)}
-@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+.bktoast.on{opacity:1;transform:none}
+.bktoast.err{border-left-color:var(--red)} .bktoast.ok{border-left-color:var(--green)}
+@media (prefers-reduced-motion:reduce){.bktoast{transition:none}}
 @media(max-width:900px){ .sidebar{position:fixed;left:-260px;transition:left .2s} .sidebar.open{left:0} }
 </style>
 </head>
 <!-- `a-rows` is deliberately left off: it animates EVERY table row, and these sheets
      run to hundreds of rows, which makes scrolling and typing feel sluggish. -->
-<body class="app-body t-emlux a-fade a-hover a-toast a-theme">
+<body class="app-body t-emlux a-fade a-hover a-theme">
 
 <!-- ============ GATE : setup + sign in ============ -->
 <div class="gate" id="gate">
@@ -151,7 +151,7 @@ td .ci.r{text-align:right;font-variant-numeric:tabular-nums}
   </main>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="bktoast" id="bktoast"></div>
 <script>
 /* =========================================================
    0 · tiny helpers
@@ -168,11 +168,11 @@ const fmt=n=>{ n=Math.round((+n||0)*100)/100;
 const norm=s=>String(s==null?'':s).toUpperCase().replace(/["'.,]/g,'').replace(/\s+/g,' ').trim();
 const today=()=>new Date().toISOString().slice(0,10);
 let _tt;
-function toast(m,kind){ const t=$('toast');
+function toast(m,kind){ const t=$('bktoast');
   m=String(m==null?'':m).trim();
-  if(!m){ t.className='toast'; return; }          // never flash an empty box
-  t.textContent=m; t.className='toast on'+(kind?' '+kind:'');
-  clearTimeout(_tt); _tt=setTimeout(()=>t.className='toast',2600); }
+  if(!m){ t.className='bktoast'; return; }          // never flash an empty box
+  t.textContent=m; t.className='bktoast on'+(kind?' '+kind:'');
+  clearTimeout(_tt); _tt=setTimeout(()=>t.className='bktoast',2600); }
 
 /* =========================================================
    1 · connection + session
