@@ -329,7 +329,7 @@ $('f').addEventListener('submit', async e=>{
     TOKEN=j.access_token;
     rememberSave($('em').value.trim());
     /* hand the session to the app so its Cloud Sync is already signed in */
-    localStorage.setItem('tg2_cloud', JSON.stringify({url:CFG.url,key:CFG.key,auto:false}));
+    localStorage.setItem('tg2_cloud', JSON.stringify({url:CFG.url,key:CFG.key,auto:true}));
     localStorage.setItem('tg2_cloudsess', JSON.stringify({token:j.access_token,
       refresh:j.refresh_token||'', email:(j.user&&j.user.email)||$('em').value.trim(),
       exp:Date.now()+((j.expires_in||3600)-60)*1000}));

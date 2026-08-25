@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.25.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.26.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -283,7 +283,7 @@ async function cloudPush(silent){
     const r=await fetch(_cloudBase(),{method:'POST',headers:{..._cloudWriteHead(),'Prefer':'resolution=merge-duplicates'},
       body:JSON.stringify([{id:ACTIVE_CO, co:co, data:keys, updated_at:stamp}])});
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+(t?' · '+t.slice(0,120):'')); }
-    try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp})); }catch(e){}
+    try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false})); }catch(e){}
     if(!silent){ toast('Cloud saved','Company data pushed to the cloud','ok'); if(location.hash==='#settings') route(); }
     return true;
   }catch(e){
@@ -309,7 +309,7 @@ async function cloudPull(){
         Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
         /* remember WHICH cloud version we now hold, so a later Push can tell whether
            anyone else has saved in the meantime */
-        localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at}));
+        localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false}));
       }catch(e){ toast('Restore failed','Storage error','err'); return; }
       location.reload();
     });
@@ -340,20 +340,51 @@ async function cloudTest(){
   }catch(e){ _cldSay('❌ The request did not go through — '+(e&&e.message||'network error')
       +'. Check the internet connection on this computer.'); }
 }
-var _cloudTimer=null;   // var (not let): bsv → cloudMark can fire during file load
+/* ---------------- Live sync (v2.26.0) ----------------
+   What the client asked for: work on the computer or on the website and see the same figures
+   in both, without pressing anything. Two halves make that true.
+
+   PUSHING is always safe, so it is automatic: every tracked save schedules a push 20 s later,
+   and switching away from the window pushes straight away.
+
+   PULLING replaces everything on this device, so it happens on its own ONLY when nothing here
+   is still waiting to go up AND nobody is in the middle of typing. If this device has unpushed
+   edits and the cloud has moved on too, the two cannot be merged — a push replaces one whole
+   company copy — so it stops and asks. That is the case that would otherwise destroy work.
+
+   `auto` is opt-OUT (`!==false`), so a company that never touched the setting is live. */
+function cloudLive(){ const c=cloudCfg(); return !!(c.url && c.key && c.auto!==false); }
+function _cloudSetMeta(patch){
+  const m=_cloudMeta(); Object.keys(patch).forEach(k=>{ m[k]=patch[k]; });
+  try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify(m)); }catch(e){}
+}
+function cloudDirty(){ return !!_cloudMeta().dirty; }
+var _cloudTimer=null;   // var (not let): bsv -> cloudMark can fire during file load
 function cloudMark(k){
   if(!(k==='tally'||k==='alias'||k==='cocktails'||k==='cocktailAlias'||k==='pos'||k==='namemap'
      ||k==='inv'||k==='mr'||k==='recv'||k==='rawdata2'||k==='period'||k==='cfg'||k==='users'
      ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k.indexOf('inv2_')===0)) return;
-  const c=cloudCfg(); if(!c.url||!c.key||!c.auto) return;
+  if(!cloudOn()) return;
+  _cloudSetMeta({dirty:true});                       // survives a reload
+  try{ sbFill(); }catch(e){}
+  if(!cloudLive()) return;
   if(_cloudTimer) clearTimeout(_cloudTimer);
-  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true); }, 60000);
+  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 20000);
 }
-/* ---------------- Cloud watch ----------------
-   The client asked to be ASKED, never to have the screen replaced under them, so this only
-   ever raises a bar with a button — it never pulls on its own. Runs on a timer and again
-   whenever the tab is brought back to the front. */
-var _cloudSeenAt=null, _cloudWatchT=null;
+/* leaving the window is the moment work most often moves to the other device */
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden){
+    if(cloudLive() && cloudDirty()){
+      if(_cloudTimer){ clearTimeout(_cloudTimer); _cloudTimer=null; }
+      cloudPush(true);
+    }
+  } else cloudCheck();
+});
+
+/* ---------------- Cloud watch ---------------- */
+var _cloudSeenAt=null, _cloudWatchT=null, _lastAct=0;   // 0 = nothing touched since load
+['keydown','pointerdown','wheel'].forEach(ev=>document.addEventListener(ev, ()=>{ _lastAct=Date.now(); }, true));
+function _cloudIdle(){ return (Date.now()-_lastAct) > 15000 && !document.getElementById('modalBack'); }
 function _agoTxt(iso){
   const s=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/1000));
   if(s<90) return 'just now';
@@ -361,18 +392,36 @@ function _agoTxt(iso){
   const h=Math.round(m/60); if(h<24) return h+' hour'+(h>1?'s':'')+' ago';
   return Math.round(h/24)+' day(s) ago';
 }
-function cloudBanner(stamp){
+function cloudBanner(stamp, clash){
   let b=document.getElementById('cloudNew');
   if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
-  b.innerHTML='<span class="cn-i">☁️</span>'
-    +'<div class="cn-t"><b>Newer data is in the cloud</b>'
-    +'<span>Saved '+esc(_agoTxt(stamp))+' — from the backend or another device</span></div>'
-    +'<button class="btn btn-gold btn-sm" onclick="cloudPullNow()">⬇ Bring it in</button>'
-    +'<button class="cn-x" title="Not now" onclick="cloudBannerHide()">✕</button>';
+  b.innerHTML='<span class="cn-i">'+(clash?'&#9888;&#65039;':'&#9729;&#65039;')+'</span>'
+    +'<div class="cn-t"><b>'+(clash?'Both sides have changes':'Newer data is in the cloud')+'</b>'
+    +'<span>'+(clash
+        ? 'Saved elsewhere '+esc(_agoTxt(stamp))+' — and this device has edits that have not gone up yet. Bringing it in would replace them.'
+        : 'Saved '+esc(_agoTxt(stamp))+' — from the website, the backend or another device')+'</span></div>'
+    +'<button class="btn btn-gold btn-sm" onclick="cloudPullNow()">&#11015; Bring it in</button>'
+    +'<button class="cn-x" title="Not now" onclick="cloudBannerHide()">&#10005;</button>';
   b.classList.add('on');
 }
 function cloudBannerHide(){ const b=document.getElementById('cloudNew'); if(b) b.classList.remove('on'); }
 async function cloudPullNow(){ cloudBannerHide(); try{ await cloudPull(); }catch(e){} }
+/* the safe path: nothing of ours is waiting, so take the cloud copy without a dialog */
+async function cloudPullAuto(){
+  try{
+    await cloudEnsureSession();
+    const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=co,data,updated_at',{headers:_cloudHead()});
+    if(!r.ok) return false;
+    const j=await r.json().catch(()=>[]); const row=(j||[])[0];
+    if(!row||!row.data) return false;
+    _coSubKeys().forEach(sub=>localStorage.removeItem(CO_PREFIX+sub));
+    Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
+    localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false}));
+    try{ sessionStorage.setItem('tg2_autopulled','1'); }catch(e){}
+    location.reload();
+    return true;
+  }catch(e){ return false; }
+}
 async function cloudCheck(){
   if(!cloudOn()) return;
   try{
@@ -382,12 +431,21 @@ async function cloudCheck(){
     const stamp=j[0].updated_at, cloudT=new Date(stamp).getTime();
     const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
     // 2 minutes of slack so this device's own push never trips its own alarm
-    if(cloudT>localT+120000 && stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp); }
+    if(!(cloudT>localT+120000)) return;
+    if(cloudDirty()){                                   // cannot merge — must ask
+      if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,true); }
+      return;
+    }
+    if(cloudLive() && _cloudIdle()){ await cloudPullAuto(); return; }
+    if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,false); }
   }catch(e){}
 }
-function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT); _cloudWatchT=setInterval(cloudCheck,90000); }
-document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ cloudCheck(); cloudWatch(); },2500); });
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) cloudCheck(); });
+function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT); _cloudWatchT=setInterval(cloudCheck,45000); }
+document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{
+  try{ if(sessionStorage.getItem('tg2_autopulled')){ sessionStorage.removeItem('tg2_autopulled');
+    toast('Up to date','Brought in the newest data from the cloud','ok'); } }catch(e){}
+  cloudCheck(); cloudWatch();
+},2500); });
 
 /* ---------------- Smart Assistant · AI answers ----------------
    Optional. With no key the assistant stays exactly as it was: offline keyword matching,
@@ -896,7 +954,7 @@ function renderShell(){
         <span id="sbOnline" class="sb-on">● Online</span>
         <span>💾 Last Backup&nbsp;: <b id="sbBackup">—</b></span>
         <span>👤 <b>${esc((function(){ try{ const u=JSON.parse(sessionStorage.getItem('tg2_user')||'null'); if(u&&u.u) return u.u; }catch(e){} return cfg.admin||'Admin'; })())}</b> · ${esc((function(){ try{ const u=JSON.parse(sessionStorage.getItem('tg2_user')||'null'); if(u&&u.role) return u.role; }catch(e){} return 'admin'; })())}</span>
-        <span class="sb-r">${(typeof cloudOn==='function'&&cloudOn())?'☁️ Cloud ready · ':''}v${APP_VERSION}</span>
+        <span class="sb-r">${(function(){ if(typeof cloudOn!=='function'||!cloudOn()) return '';      try{ const m=_cloudMeta();        if(typeof cloudDirty==='function'&&cloudDirty()) return '☁️ Saving… · ';        return (typeof cloudLive==='function'&&cloudLive()?'☁️ Live sync':'☁️ Cloud')+(m.push?' · '+_agoTxt(m.push):'')+' · ';      }catch(e){ return '☁️ Cloud · '; } })()}v${APP_VERSION}</span>
       </footer>
     </main>`;
   $$('[data-nav]').forEach(n=>n.onclick=()=>go(n.dataset.nav));
@@ -2452,6 +2510,13 @@ VIEWS.settings = () => {
                return m ? ('https://supabase.com/dashboard/project/'+m[1]+'/settings/api-keys')
                         : 'https://supabase.com/dashboard/projects'; })()}">🔑 Where is my cloud key</a>
           <button class="btn btn-sm" onclick="cloudTest()">🔍 Test</button></div></div>
+      <label class="mt-8" style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:12px;color:var(--text-dim)">
+        <input type="checkbox" style="margin-top:2px;accent-color:var(--gold)" ${cloudLive()?'checked':''}
+          onchange="var c=cloudCfg();c.auto=this.checked;cloudSave(c);toast(this.checked?'Live sync on':'Live sync off',this.checked?'This computer and the website will keep each other up to date':'You will push and pull by hand now','ok');route()">
+        <span><strong class="gold">Keep this computer and the website in step automatically</strong><br>
+          Your changes go up on their own about 20 seconds after you make them, and again the moment you switch away.
+          New data from the other side comes down by itself <em>only</em> when nothing here is still waiting to go up and
+          you are not typing — otherwise the app stops and asks, so nobody's work is ever replaced without a click.</span></label>
       <div class="muted" id="cldStat" style="font-size:12px;min-height:16px">${(function(){
         const kp=cloudOn()?cloudKeyProblem(cloudCfg().key):'';
         if(kp) return '❌ The saved key is not usable — '+esc(kp)+'. Clear the API-key box below and paste the whole key again.';
