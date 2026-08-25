@@ -2296,7 +2296,7 @@ VIEWS.dashboard = () => {
       <div class="card-body">
         <div class="amhead">
           <h3>Smart Assistant</h3>
-          <div class="ameta"><span class="dot"></span>${typeof aiOn==='function'&&aiOn()?((aiCfg().prov==='anthropic'?'CLAUDE':'CHATGPT')+' · ONLINE'):'OFFLINE'} · READY · ${tallyItems.length} BRANDS · ${rawData.length} ITEMS<span id="asstMs">${_asstMs?' · '+_asstMs+' MS':''}</span>
+          <div class="ameta"><span class="dot" style="${navigator.onLine?'':'background:var(--red)'}"></span>${navigator.onLine?'ONLINE':'NO INTERNET'} · ${typeof aiOn==='function'&&aiOn()?(aiCfg().prov==='anthropic'?'CLAUDE':'CHATGPT'):'LOCAL ANSWERS'} · ${tallyItems.length} BRANDS · ${rawData.length} ITEMS<span id="asstMs">${_asstMs?' · '+_asstMs+' MS':''}</span>
             <button class="btn btn-sm" onclick="asstClear()" title="Clear the chat">🗑 Clear</button></div>
         </div>
         <div id="asstLog" class="alog">${asstRender()}</div>

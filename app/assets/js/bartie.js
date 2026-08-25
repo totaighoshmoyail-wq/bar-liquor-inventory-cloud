@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.24.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.25.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -1174,6 +1174,116 @@ AFTER.dashboard = () => {
 /* ============================================================
    POS UPLOAD
    ============================================================ */
+/* ---------------- Corridor POS → this app (v2.25.0) ----------------
+   The billing app (Desktop\corridor) keeps every bill in localStorage under `cb_bills` as
+   {no, ts, items:[{n,p,g,qty,note}], …}. Two file:// pages share one localStorage in the same
+   browser (checked), so when both are opened on the same computer this app can simply read
+   the bills — no export, no upload. Away from that computer, the POS's own
+   "Export for Inventory" button writes the same array to a file and posBillFile() takes it.
+
+   What comes out is exactly what a Petpooja sheet gives: [{name, qty}] handed to setPos().
+   Nothing else in the engine is involved — names still travel through the alias table, and a
+   name that matches nothing still lands in the Error Queue, as it always has. */
+var _posBills=null;
+function posBillsRead(){
+  let raw=null;
+  try{ raw=localStorage.getItem('cb_bills'); }catch(e){}
+  if(!raw) return null;
+  try{ const a=JSON.parse(raw); return Array.isArray(a)&&a.length?a:null; }catch(e){ return null; }
+}
+function posBillsAll(){ return _posBills || posBillsRead(); }
+function _bday(ts){ const d=new Date(ts); return isNaN(d)?'':
+  d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function posBillSpan(bills){
+  let lo='', hi='';
+  (bills||[]).forEach(b=>{ const d=_bday(b.ts); if(!d) return; if(!lo||d<lo) lo=d; if(!hi||d>hi) hi=d; });
+  return {from:lo, to:hi};
+}
+/* one row per item name, quantities added up — the same shape the Excel upload produces */
+function posFromBills(bills, from, to){
+  const map={}, out={rows:[], bills:0, qty:0, lines:0};
+  (bills||[]).forEach(b=>{
+    const d=_bday(b.ts);
+    if(from && d && d<from) return;
+    if(to && d && d>to) return;
+    out.bills++;
+    (b.items||[]).forEach(l=>{
+      const n=String(l.n||'').trim(); const q=+l.qty||0;
+      if(!n || !q) return;
+      map[n]=(map[n]||0)+q; out.qty+=q; out.lines++;
+    });
+  });
+  out.rows=Object.keys(map).sort().map(n=>({name:n, qty:map[n]}));
+  return out;
+}
+function posBillPreview(){
+  const bills=posBillsAll();
+  if(!bills){ posBillHelp(); return; }
+  const from=($('#pbFrom')&&$('#pbFrom').value)||'', to=($('#pbTo')&&$('#pbTo').value)||'';
+  const r=posFromBills(bills, from, to);
+  if(!r.rows.length){ toast('Nothing in that range','No bills between those two dates','err'); return; }
+  let ok=0, ck=0, bad=[];
+  r.rows.forEach(x=>{ if(resolveCocktailName(x.name)) ck++;
+    else if(resolvePosToTally(x.name)) ok++;
+    else bad.push(x); });
+  modal(`🍽️ POS sales — ${fmt(r.bills)} bills`, `
+    <div class="stat-strip" style="margin-bottom:12px">
+      <div class="s"><div class="l">Bills</div><div class="v">${fmt(r.bills)}</div></div>
+      <div class="s"><div class="l">Item rows</div><div class="v">${fmt(r.rows.length)}</div></div>
+      <div class="s"><div class="l">Total qty</div><div class="v">${fmt(r.qty)}</div></div>
+      <div class="s"><div class="l">Matched</div><div class="v" style="color:var(--green)">${fmt(ok+ck)}</div></div>
+      <div class="s"><div class="l">Unmatched</div><div class="v" style="color:var(--red)">${fmt(bad.length)}</div></div>
+    </div>
+    ${bad.length?`<p class="muted" style="font-size:11.5px;margin:0 0 8px">${fmt(bad.length)} name(s) match no brand or cocktail yet.
+      They will load anyway and wait for you in the <b>Error Queue</b> (Smart Mapping Center), same as an Excel upload:
+      <span class="gold">${bad.slice(0,8).map(x=>esc(x.name)).join(' · ')}${bad.length>8?' …':''}</span></p>`:''}
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto"><table class="tbl">
+      <thead><tr><th>#</th><th>POS item</th><th class="right">Qty</th><th>Match</th></tr></thead>
+      <tbody>${r.rows.map((x,i)=>{ const c=resolveCocktailName(x.name); const t=c?null:resolvePosToTally(x.name);
+        return `<tr><td class="muted">${i+1}</td><td>${esc(x.name)}</td><td class="num">${fmt(x.qty)}</td>
+          <td>${c?'<span class="pill blue">cocktail</span>':(t?'<span class="pill gold">brand</span>':'<span class="pill red">none</span>')}</td></tr>`;
+      }).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:11.5px;margin:10px 0 0">Loading replaces the POS rows currently in the app
+      (${fmt(posData.length)} rows) — the same as uploading a fresh sheet. Your bills are not changed.</p>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-gold" onclick="posBillLoad()">⬇ Load these ${fmt(r.rows.length)} rows</button>`);
+}
+function posBillLoad(){
+  const bills=posBillsAll(); if(!bills){ posBillHelp(); return; }
+  const from=($('#pbFrom')&&$('#pbFrom').value)||'', to=($('#pbTo')&&$('#pbTo').value)||'';
+  const r=posFromBills(bills, from, to);
+  if(!r.rows.length){ toast('Nothing to load','No bills in that range','err'); return; }
+  closeModal();
+  setPos(r.rows);   // the ordinary POS loader — cache invalidation, re-render and all
+  toast('POS sales loaded', `${fmt(r.bills)} bills · ${fmt(r.rows.length)} items · qty ${fmt(r.qty)}`, 'ok');
+}
+function posBillHelp(){
+  modal('🍽️ No POS bills found yet', `
+    <p style="font-size:12.5px;line-height:1.8;margin:0 0 10px">This app looks for the Corridor billing app's own saved bills.
+      Nothing was found in this browser, which normally means one of these:</p>
+    <ol style="font-size:12.5px;line-height:1.9;margin:0 0 12px;padding-left:20px">
+      <li><b>The billing app has not been opened in this browser.</b> Open <span class="gold">Corridor Billing</span> once
+        in the same browser on this computer, then come back and press the button again.</li>
+      <li><b>You are on the website version.</b> A website cannot read a program's files on your computer.
+        Use the billing app's <span class="gold">Export for Inventory</span> button and load the file below.</li>
+      <li><b>No bills have been saved yet</b> in the billing app.</li>
+    </ol>
+    <label class="btn btn-gold" style="cursor:pointer">📂 Load a POS export file
+      <input type="file" accept=".json" style="display:none" onchange="posBillFile(this)"></label>`,
+    `<button class="btn" onclick="closeModal()">Close</button>`);
+}
+function posBillFile(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    let a=null;
+    try{ const j=JSON.parse(e.target.result); a=Array.isArray(j)?j:(j.bills||null); }catch(err){}
+    if(!Array.isArray(a)||!a.length){ toast('Could not read that file','It should be the billing app\'s own export file','err'); return; }
+    _posBills=a; closeModal(); route();
+    toast('POS file read', fmt(a.length)+' bills — check the range, then Preview', 'ok');
+  };
+  rd.readAsText(f);
+}
 VIEWS.upload = () => {
   const lay=pageLay('upload');
   const cls=p=>{ if(resolveCocktailName(p.name)) return 'ck'; return resolvePosToTally(p.name)?'ok':'err'; };
@@ -1207,6 +1317,19 @@ VIEWS.upload = () => {
       <div class="s"><div class="l">Matched</div><div class="v" style="color:var(--green)">${fmt(posData.length-errorRows().length)}</div></div>
       <div class="s"><div class="l">Errors (unmatched)</div><div class="v" style="color:var(--red)">${fmt(errorRows().length)}</div></div>
     </div></div>
+  ${(()=>{ const bl=posBillsAll(), sp=bl?posBillSpan(bl):null;
+    return `<div class="card mt-16"><div class="card-head"><h3>🍽️ Corridor POS — bring the billing straight in</h3>
+      <span class="muted" style="font-size:12px">${bl?(fmt(bl.length)+' bills found'+(sp&&sp.from?(' · '+sp.from+' → '+sp.to):'')):'no bills found in this browser'}</span></div>
+      <div class="card-body">
+        <p class="muted" style="font-size:11.5px;margin:0 0 10px">Every bill saved in the billing app is added up per item and loaded here — no Excel in between.
+          Names go through the alias table exactly as an uploaded sheet does, so anything unknown still waits in the Error Queue.</p>
+        <div class="flex gap-8 items-end" style="flex-wrap:wrap">
+          <div class="field" style="margin:0"><label>From</label><input class="input" type="date" id="pbFrom" value="${esc(period.from)}"></div>
+          <div class="field" style="margin:0"><label>To</label><input class="input" type="date" id="pbTo" value="${esc(period.to)}"></div>
+          <button class="btn btn-gold btn-sm" onclick="posBillPreview()">👁 Preview &amp; load</button>
+          <label class="btn btn-sm" style="cursor:pointer">📂 From an export file<input type="file" accept=".json" style="display:none" onchange="posBillFile(this)"></label>
+        </div>
+      </div></div>`; })()}
   ${listHtml}`;
 };
 AFTER.upload = () => {
