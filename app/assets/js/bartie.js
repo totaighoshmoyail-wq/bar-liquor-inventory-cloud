@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.25.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.25.1';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -2402,6 +2402,28 @@ VIEWS.settings = () => {
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
         <button class="btn btn-gold btn-sm" onclick="aiSaveForm()">💾 Save</button>
         <button class="btn btn-sm" onclick="aiTest()">🔌 Test the key</button></div>
+      <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
+        <a class="btn btn-sm" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+           title="Claude keys — sign in, then Create Key">🔑 Get a Claude key</a>
+        <a class="btn btn-sm" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+           title="ChatGPT keys — sign in, then Create new secret key">🔑 Get a ChatGPT key</a></div>
+      <details style="margin-top:10px">
+        <summary class="gold" style="cursor:pointer;font-size:12px">Where do I get the key? — step by step</summary>
+        <div class="muted" style="font-size:11.5px;line-height:1.9;margin-top:8px">
+          <strong class="gold">Claude (Anthropic)</strong><br>
+          1. Open <b>console.anthropic.com</b> and sign in (or create the account there).<br>
+          2. Left menu → <b>API keys</b> → <b>Create Key</b>. Give it any name.<br>
+          3. Copy the key — it starts with <b>sk-ant-</b>. It is shown once only.<br>
+          4. Billing → add a card and put a small amount of credit in, or the key answers nothing.<br>
+          5. Paste it above, pick <b>Claude (Anthropic)</b>, press Save, then Test.<br><br>
+          <strong class="gold">ChatGPT (OpenAI)</strong><br>
+          1. Open <b>platform.openai.com/api-keys</b> and sign in.<br>
+          2. <b>Create new secret key</b> → copy it — it starts with <b>sk-</b>.<br>
+          3. Billing → add credit, same as above.<br>
+          4. Paste it, pick <b>ChatGPT (OpenAI)</b>, Save, Test.<br><br>
+          <strong class="gold">This is not the cloud key.</strong> The Supabase key that syncs your data lives in
+          Settings → <b>Cloud Sync</b> and is a different thing — one key does not work in the other's box.
+        </div></details>
       <div class="muted" id="aiStat" style="font-size:12px;min-height:16px;margin-top:8px"></div>
       <div class="field mt-8"><label>Voice</label>
         <label class="muted" style="font-size:12px;display:flex;gap:8px;align-items:center;cursor:pointer">
@@ -2424,6 +2446,11 @@ VIEWS.settings = () => {
       <div class="flex between items-center" style="margin-bottom:10px"><p class="muted" style="font-size:11.5px;margin:0">${cloudOn()?'Cloud connected — this company syncs its own copy':'Optional — a free Supabase account keeps a live cloud copy'}</p>
         <div class="flex gap-8">
           <a class="btn btn-sm" href="cloud-setup.html" target="_blank" rel="noopener" title="Opens the one-click setup page — it fills in the URL and key for you">🩹 Fix / Set up</a>
+          <a class="btn btn-sm" target="_blank" rel="noopener" title="Opens your own Supabase project's API-keys page"
+             href="${(function(){ const u=(cloudCfg().url||'').trim();
+               const m=u.match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
+               return m ? ('https://supabase.com/dashboard/project/'+m[1]+'/settings/api-keys')
+                        : 'https://supabase.com/dashboard/projects'; })()}">🔑 Where is my cloud key</a>
           <button class="btn btn-sm" onclick="cloudTest()">🔍 Test</button></div></div>
       <div class="muted" id="cldStat" style="font-size:12px;min-height:16px">${(function(){
         const kp=cloudOn()?cloudKeyProblem(cloudCfg().key):'';
