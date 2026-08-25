@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.22.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.24.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -78,7 +78,7 @@ function _coSubKeys(){ // this company's storage sub-keys (main prefix shares tg
     // `cloud` (url+key) and `cloudsess` (the signed-in ACCESS TOKEN) are global, not
     // per-company — and pushing cloudsess would publish a usable write token into a row
     // that anyone holding the anon key can read. Never include them in a backup or push.
-    if(CO_PREFIX==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$)/.test(sub)) continue;
+    if(CO_PREFIX==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$|ai$|lastUser$)/.test(sub)) continue;
     out.push(sub); }
   return out;
 }
@@ -349,18 +349,118 @@ function cloudMark(k){
   if(_cloudTimer) clearTimeout(_cloudTimer);
   _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true); }, 60000);
 }
-// Boot notice: if the cloud row is newer than this device's last push/pull, suggest a Pull.
-document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(async ()=>{
+/* ---------------- Cloud watch ----------------
+   The client asked to be ASKED, never to have the screen replaced under them, so this only
+   ever raises a bar with a button — it never pulls on its own. Runs on a timer and again
+   whenever the tab is brought back to the front. */
+var _cloudSeenAt=null, _cloudWatchT=null;
+function _agoTxt(iso){
+  const s=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/1000));
+  if(s<90) return 'just now';
+  const m=Math.round(s/60); if(m<60) return m+' minute'+(m>1?'s':'')+' ago';
+  const h=Math.round(m/60); if(h<24) return h+' hour'+(h>1?'s':'')+' ago';
+  return Math.round(h/24)+' day(s) ago';
+}
+function cloudBanner(stamp){
+  let b=document.getElementById('cloudNew');
+  if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
+  b.innerHTML='<span class="cn-i">☁️</span>'
+    +'<div class="cn-t"><b>Newer data is in the cloud</b>'
+    +'<span>Saved '+esc(_agoTxt(stamp))+' — from the backend or another device</span></div>'
+    +'<button class="btn btn-gold btn-sm" onclick="cloudPullNow()">⬇ Bring it in</button>'
+    +'<button class="cn-x" title="Not now" onclick="cloudBannerHide()">✕</button>';
+  b.classList.add('on');
+}
+function cloudBannerHide(){ const b=document.getElementById('cloudNew'); if(b) b.classList.remove('on'); }
+async function cloudPullNow(){ cloudBannerHide(); try{ await cloudPull(); }catch(e){} }
+async function cloudCheck(){
   if(!cloudOn()) return;
   try{
     const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
     if(!r.ok) return;
     const j=await r.json(); if(!Array.isArray(j)||!j.length) return;
-    const cloudT=new Date(j[0].updated_at).getTime();
-    const m=_cloudMeta(); const localT=m.push?new Date(m.push).getTime():0;
-    if(cloudT>localT+120000) toast('☁️ Cloud has newer data','Settings → Cloud Sync → ⬇ Pull to load it','ok');
+    const stamp=j[0].updated_at, cloudT=new Date(stamp).getTime();
+    const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
+    // 2 minutes of slack so this device's own push never trips its own alarm
+    if(cloudT>localT+120000 && stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp); }
   }catch(e){}
-}, 2500); });
+}
+function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT); _cloudWatchT=setInterval(cloudCheck,90000); }
+document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ cloudCheck(); cloudWatch(); },2500); });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) cloudCheck(); });
+
+/* ---------------- Smart Assistant · AI answers ----------------
+   Optional. With no key the assistant stays exactly as it was: offline keyword matching,
+   no network, no cost. With a key it sends a SMALL SUMMARY of the figures (never the whole
+   database) plus the offline engine's own computed answer, and asks the model to phrase a
+   reply using only those numbers — so it explains, it does not invent.
+
+   The key lives in the global `tg2_ai`, is excluded from `_coSubKeys()`, and therefore never
+   reaches a backup or the cloud row (the v2.19.3 lesson: a secret in the pushed blob is
+   readable by anyone holding the anon key).
+   Written as plain fetch because this project has no build step and no npm — the same reason
+   every other library here is vendored. */
+function aiCfg(){ try{ return JSON.parse(localStorage.getItem('tg2_ai')||'null')||{}; }catch(e){ return {}; } }
+function aiSave(c){ try{ localStorage.setItem('tg2_ai', JSON.stringify(c)); }catch(e){} }
+function aiOn(){ const c=aiCfg(); return !!(c.prov && c.prov!=='off' && c.key); }
+const AI_DEF={openai:'gpt-4o-mini', anthropic:'claude-opus-5'};
+function aiModel(c){ return (c.model||'').trim() || AI_DEF[c.prov] || ''; }
+function aiSaveForm(){
+  const prov=$('#aiProv').value, key=cloudClean($('#aiKey').value), model=$('#aiModel').value.trim();
+  aiSave({prov:prov, key:key, model:model});
+  if(prov!=='off' && key){ const p=aiKeyProblem(key); if(p){ toast('Check the key',p,'err'); return; } }
+  toast('Saved', prov==='off'?'AI is off — the assistant stays offline':'AI is on for the Smart Assistant','ok');
+  route();
+}
+/* keys are pasted, and pasting is where invisible characters get in (see v2.19.1/2) */
+function aiKeyProblem(k){
+  for(let i=0;i<k.length;i++){ const c=k.charCodeAt(i);
+    if(c>255) return 'The key contains the character “'+k[i]+'” (U+'+c.toString(16).toUpperCase().padStart(4,'0')
+      +') at position '+(i+1)+'. Copy it again from the provider’s page.'; }
+  if(k.length<20) return 'That key looks too short — copy the whole thing.';
+  return '';
+}
+async function aiAsk(question, facts){
+  const c=aiCfg(), model=aiModel(c);
+  const sys='You are the assistant inside a bar liquor inventory system. Answer ONLY from the figures given below. '
+    +'Never invent a number: if a figure is not in the data, say it is not in the data. Amounts are Indian rupees; '
+    +'write them Indian style (1,04,250). Be brief — under 120 words, plain sentences, no markdown headings. '
+    +'If the question is in Bengali, answer in Bengali.\n\nDATA:\n'+facts;
+  if(c.prov==='anthropic'){
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':c.key,'anthropic-version':'2023-06-01',
+               'anthropic-beta':'server-side-fallback-2026-07-01',
+               'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:model, max_tokens:2000, system:sys, fallbacks:'default',
+        output_config:{effort:'low'}, messages:[{role:'user',content:question}]})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+    if(j.stop_reason==='refusal') throw new Error('The model declined to answer that one.');
+    const t=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+    if(!t) throw new Error('Empty answer.');
+    return t;
+  }
+  const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
+    body:JSON.stringify({model:model, max_tokens:2000,
+      messages:[{role:'system',content:sys},{role:'user',content:question}]})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+  const t=(((j.choices||[])[0]||{}).message||{}).content||'';
+  if(!t.trim()) throw new Error('Empty answer.');
+  return t.trim();
+}
+async function aiTest(){
+  const s=$('#aiStat'); if(s) s.innerHTML='Checking…';
+  if(!aiOn()){ if(s) s.innerHTML='Pick a provider and paste a key first.'; return; }
+  try{
+    const t=await aiAsk('Reply with the two words: connection ok','(no figures — this is a connection test)');
+    const el=$('#aiStat'); if(el) el.innerHTML='✅ Working — '+esc(String(t).slice(0,60));
+  }catch(e){
+    const el=$('#aiStat'); if(el) el.innerHTML='❌ '+esc(e&&e.message||'failed')
+      +'<br><span class="muted">The assistant keeps working offline whatever this says.</span>';
+  }
+}
 /* ---------------- WhatsApp report ---------------- */
 function waReport(){
   const {totalC,totalS}=calcGrandTotals();
@@ -2159,6 +2259,43 @@ VIEWS.settings = () => {
       </div>
       <div class="field mt-8"><label>WhatsApp number for reports (with country code, e.g. 917001468453)</label>
         <input class="input" value="${esc(cfg.waNumber||'')}" placeholder="91XXXXXXXXXX" onchange="cfg.waNumber=this.value.trim();bsv('cfg',cfg)"></div>`},
+
+    {k:'ai', ico:'🤖', t:'Smart Assistant', s:(()=>{ const c=aiCfg();
+        return aiOn()?((c.prov==='anthropic'?'Claude':'ChatGPT')+' · '+esc(aiModel(c))):'Offline answers only'; })(), body:`
+      <p class="muted" style="font-size:11.5px;margin:0 0 10px">The assistant already answers offline, free, with no internet.
+        A provider key is <strong>optional</strong> — it lets it answer in sentences and understand questions worded freely.</p>
+      <div class="field"><label>Answer engine</label>
+        <select class="input" id="aiProv">
+          <option value="off"${aiCfg().prov&&aiCfg().prov!=='off'?'':' selected'}>Offline only — free, no internet, no key</option>
+          <option value="openai"${aiCfg().prov==='openai'?' selected':''}>ChatGPT (OpenAI) — needs your paid key</option>
+          <option value="anthropic"${aiCfg().prov==='anthropic'?' selected':''}>Claude (Anthropic) — needs your paid key</option>
+        </select></div>
+      <div class="field mt-8"><label>API key (stays on this computer)</label>
+        <input class="input" id="aiKey" type="password" autocomplete="new-password" placeholder="paste the key here"
+          value="${esc(aiCfg().key||'')}" onchange="this.value=cloudClean(this.value)"></div>
+      <div class="field mt-8"><label>Model (leave blank for the default)</label>
+        <input class="input" id="aiModel" value="${esc(aiCfg().model||'')}"
+          placeholder="${esc(AI_DEF[aiCfg().prov]||'gpt-4o-mini / claude-opus-5')}"></div>
+      <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
+        <button class="btn btn-gold btn-sm" onclick="aiSaveForm()">💾 Save</button>
+        <button class="btn btn-sm" onclick="aiTest()">🔌 Test the key</button></div>
+      <div class="muted" id="aiStat" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+      <div class="field mt-8"><label>Voice</label>
+        <label class="muted" style="font-size:12px;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <input type="checkbox" ${pref.asstSpeak?'checked':''} onchange="pref.asstSpeak=this.checked;bsv('pref',pref)">
+          Read the answer out loud (works without internet)</label>
+        <select class="input mt-8" onchange="pref.asstLang=this.value;bsv('pref',pref)">
+          <option value="en-US"${pref.asstLang==='bn-IN'?'':' selected'}>Speak &amp; listen in English</option>
+          <option value="bn-IN"${pref.asstLang==='bn-IN'?' selected':''}>বাংলা — Bengali</option>
+        </select></div>
+      <p class="muted" style="font-size:11px;margin-top:10px;line-height:1.75">
+        <strong class="gold">Read this before turning it on.</strong><br>
+        • The key is <strong>yours and paid</strong> — the provider bills you for every question.<br>
+        • With AI on, a <strong>short summary of your figures</strong> (totals, top brands, low stock, the item you asked about)
+          is sent to ${'OpenAI or Anthropic'}. Your full database is never sent. Offline mode sends nothing at all.<br>
+        • The key is stored only on this computer. It is left out of backups and never pushed to the cloud.<br>
+        • Anyone who can open this computer's browser tools can read the key — do not use it on a shared machine.<br>
+        • No internet, key refused, or provider down → the assistant quietly answers offline instead.</p>`},
 
     {k:'cloud', ico:'☁️', t:'Cloud Sync', s:cloudOn()?'Connected':'Not connected', body:`
       <div class="flex between items-center" style="margin-bottom:10px"><p class="muted" style="font-size:11.5px;margin:0">${cloudOn()?'Cloud connected — this company syncs its own copy':'Optional — a free Supabase account keeps a live cloud copy'}</p>

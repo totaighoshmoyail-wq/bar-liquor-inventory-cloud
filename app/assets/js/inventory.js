@@ -2080,17 +2080,102 @@ function asstAnswer(q){
   }catch(e){ return '⚠ Could not compute that right now — try a quick button.'; }
   return `Didn't catch that — try <b>top brands</b> · <b>top cocktails</b> · <b>low stock</b> · <b>variance</b> · <b>totals</b> · <b>stock value</b> · <b>purchases</b>`;
 }
-function asstAsk(q){
+/* ---- the summary handed to the AI ----------------------------------------
+   Deliberately small: totals, a few leaders, the low list, the worst variances — plus the
+   offline engine's OWN answer to this very question. The model is told to use only these
+   numbers, so it phrases and explains but never computes, and the whole database stays here. */
+function asstFacts(q, offHtml){
+  const L=[], R=x=>Math.round(x||0);
+  const plain=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&[a-z]+;/g,' ').replace(/\s+/g,' ').trim();
+  try{ L.push('Company: '+((typeof cfg!=='undefined'&&cfg.company)||'-')+' | Period: '+period.from+' to '+period.to); }catch(e){}
+  try{ const g=calcGrandTotals();
+    L.push('Consumption: cocktail '+R(g.totalC)+' ml, straight '+R(g.totalS)+' ml'); }catch(e){}
+  try{ const D=biRoyalData().tot;
+    L.push('Beverage control in rupees: opening '+R(D.open)+', receipt '+R(D.rec)+', closing '+R(D.close)
+      +', consumption '+R(D.cons)+', sale '+R(D.sale)+', variance '+R(D.varv)); }catch(e){}
+  try{ const t=lrTotals();
+    L.push('Liquor room in rupees: opening '+R(t.opV)+', received '+R(t.rvV)+', issued '+R(t.isV)+', closing '+R(t.clV)
+      +' ('+t.n+' items)'); }catch(e){}
+  try{ const rows=[];
+    tallyItems.forEach(t=>{ const Rw=barRow(t); if(!(Rw.sale>0)) return; const A=biAmt(t,Rw);
+      rows.push([t.name, R(A.sale), R(A.varv)]); });
+    rows.sort((a,b)=>b[1]-a[1]);
+    if(rows.length) L.push('Top brands by sale value (name, sale Rs, variance Rs): '
+      +rows.slice(0,8).map(r=>r[0]+' '+r[1]+' / '+r[2]).join('; '));
+    const v=rows.slice().sort((a,b)=>Math.abs(b[2])-Math.abs(a[2]));
+    if(v.length) L.push('Biggest variances (name, Rs): '+v.slice(0,8).map(r=>r[0]+' '+r[2]).join('; '));
+  }catch(e){}
+  try{ const low=lowStockList();
+    if(low.length) L.push('Low or out of stock ('+low.length+' items): '
+      +low.slice(0,12).map(x=>x.name+' '+x.status).join('; ')); }catch(e){}
+  try{ L.push('Counts: '+tallyItems.length+' brands, '+rawData.length+' master items, '
+      +cocktails.length+' cocktails'); }catch(e){}
+  const off=plain(offHtml);
+  if(off) L.push('\nThe system already calculated this answer for the question — use these exact figures:\n'+off.slice(0,1400));
+  return L.join('\n');
+}
+/* ---- voice ---------------------------------------------------------------
+   Listening needs the internet (the browser sends the audio away to be recognised) — that is
+   Chrome's design, not ours. Reading the answer out loud is local and works offline. */
+var _asstRec=null, _asstListening=false;
+function asstLang(){ return pref.asstLang==='bn-IN' ? 'bn-IN' : 'en-US'; }
+function asstMicUI(on){ const b=$('#asstMic'); if(b){ b.classList.toggle('on',!!on); b.textContent=on?'⏹':'🎤'; } }
+function asstMic(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast('Voice not available','This browser cannot listen. Chrome or Edge can.','err'); return; }
+  if(_asstListening && _asstRec){ try{ _asstRec.stop(); }catch(e){} return; }
+  const r=new SR(); _asstRec=r; r.lang=asstLang(); r.interimResults=false; r.maxAlternatives=1;
+  r.onstart=()=>{ _asstListening=true; asstMicUI(true); };
+  r.onend=()=>{ _asstListening=false; asstMicUI(false); };
+  r.onerror=e=>{ _asstListening=false; asstMicUI(false);
+    const k=e&&e.error;
+    if(k==='not-allowed'||k==='service-not-allowed')
+      toast('Microphone blocked','Allow the microphone for this page (the icon in the address bar), then press the mic again.','err');
+    else if(k==='network')
+      toast('Listening needs internet','Speaking to the computer is recognised online. Type the question instead — the answers themselves work offline.','err');
+    else if(k==='audio-capture')
+      toast('No microphone found','Plug one in, or check the Windows sound settings.','err');
+    else if(k!=='aborted' && k!=='no-speech') toast('Voice stopped',String(k||''),'err');
+  };
+  r.onresult=e=>{ const t=((((e.results||[])[0]||[])[0])||{}).transcript||'';
+    const i=$('#asstQ'); if(i) i.value=t; if(t.trim()) asstAsk(t.trim()); };
+  try{ r.start(); }catch(e){ toast('Voice','Could not start listening — '+((e&&e.message)||''),'err'); }
+}
+function asstSpeak(html){
+  if(!pref.asstSpeak || !window.speechSynthesis) return;
+  const txt=String(html).replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&[a-z]+;/g,' ').replace(/\s+/g,' ').trim();
+  if(!txt) return;
+  try{ speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(txt.slice(0,400)); u.lang=asstLang(); speechSynthesis.speak(u);
+  }catch(e){}
+}
+function asstPaint(){
+  const l=$('#asstLog'); if(l){ l.innerHTML=asstRender(); l.scrollTop=l.scrollHeight; }
+  const m=$('#asstMs'); if(m) m.textContent=' · '+_asstMs+' MS';
+}
+async function asstAsk(q){
   q=(q!=null?q:($('#asstQ')?$('#asstQ').value:'')).trim(); if(!q) return;
   _asstLog.push({w:'u',h:esc(q)});
+  const i=$('#asstQ'); if(i){ i.value=''; i.focus(); }
   const t0=performance.now();
-  const ans=asstAnswer(q);
+  const off=asstAnswer(q);          // always computed — every figure in the reply comes from here
   _asstMs=Math.max(1,Math.round(performance.now()-t0));   // REAL measured time, not a decoration
+  let ans=off;
+  const useAI=(typeof aiOn==='function') && aiOn() && navigator.onLine;
+  if(useAI){
+    _asstLog.push({w:'a',h:'<span class="muted">Thinking…</span>'}); asstPaint();
+    try{
+      const txt=await aiAsk(q, asstFacts(q,off));
+      ans=esc(txt).replace(/\n/g,'<br>')
+        +'<div class="asrc">answered by '+(aiCfg().prov==='anthropic'?'Claude':'ChatGPT')+'</div>';
+    }catch(e){
+      ans=off+'<div class="asrc">offline answer — '+esc((e&&e.message)||'the AI did not respond')+'</div>';
+    }
+    _asstLog.pop();
+  }
   _asstLog.push({w:'a',h:ans});
   if(_asstLog.length>40) _asstLog.splice(0,_asstLog.length-40);
-  const l=$('#asstLog'); if(l){ l.innerHTML=asstRender(); l.scrollTop=l.scrollHeight; }
-  const m=$('#asstMs'); if(m) m.textContent=' · '+_asstMs+' MS';   // updated in place, no re-render
-  const i=$('#asstQ'); if(i){ i.value=''; i.focus(); }
+  asstPaint(); asstSpeak(ans);
 }
 function asstQuick(k){
   const map={top:'top brands', ck:'top cocktails', low:'low stock', varr:'variance', tot:'totals', stock:'stock value', pur:'purchases'};
@@ -2211,20 +2296,20 @@ VIEWS.dashboard = () => {
       <div class="card-body">
         <div class="amhead">
           <h3>Smart Assistant</h3>
-          <div class="ameta"><span class="dot"></span>OFFLINE · READY · ${tallyItems.length} BRANDS · ${rawData.length} ITEMS<span id="asstMs">${_asstMs?' · '+_asstMs+' MS':''}</span>
+          <div class="ameta"><span class="dot"></span>${typeof aiOn==='function'&&aiOn()?((aiCfg().prov==='anthropic'?'CLAUDE':'CHATGPT')+' · ONLINE'):'OFFLINE'} · READY · ${tallyItems.length} BRANDS · ${rawData.length} ITEMS<span id="asstMs">${_asstMs?' · '+_asstMs+' MS':''}</span>
             <button class="btn btn-sm" onclick="asstClear()" title="Clear the chat">🗑 Clear</button></div>
         </div>
         <div id="asstLog" class="alog">${asstRender()}</div>
         <div class="amin"><span class="sp">✦</span>
           <input id="asstQ" placeholder="Ask about any item or total…" onkeydown="if(event.key==='Enter')asstAsk()">
-          <button class="asend" onclick="asstAsk()" title="Ask">➤</button></div>
+          <button class="amic" id="asstMic" onclick="asstMic()" title="Ask by voice — needs a microphone and the internet">🎤</button><button class="asend" onclick="asstAsk()" title="Ask">➤</button></div>
         <div class="amrow">${[['top','🏆','Top Brands','Best selling'],['ck','🍹','Top Cocktails','Most popular'],
             ['low','🚨','Low Stock','Running low'],['varr','⚖️','Variance','Plus / minus'],['tot','Σ','Totals','Overall'],
             ['stock','💰','Stock Value','Current value'],['pur','📦','Purchases','Recent buys']]
             .map(c=>`<button onclick="asstQuick('${c[0]}')"><b>${c[1]} ${c[2]}</b><span>${c[3]}</span></button>`).join('')}</div>
         <div class="amfoot"><span>Period <b>${esc(period.from)} → ${esc(period.to)}</b></span>
           <span>Try <b>“carlsberg stock”</b></span><span>Try <b>“negative variance”</b></span>
-          <span>Bengali works — <b>“মোট বিক্রি”</b></span></div>
+          <span>Bengali works — <b>“মোট বিক্রি”</b></span><span>Press <b>🎤</b> to speak</span></div>
       </div></div>
     <div class="grid-2" style="gap:10px">
       ${tcard('🏆','Top 15 Cocktails — High & Low',

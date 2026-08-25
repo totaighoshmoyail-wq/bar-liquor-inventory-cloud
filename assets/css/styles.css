@@ -1525,3 +1525,26 @@ body.r-staff .btn-danger { display:none !important; }
 .royal-band .rb-title { font-family:Georgia,'Times New Roman',serif; font-size:30px; color:var(--gold);
   letter-spacing:5px; text-transform:uppercase; font-weight:700; }
 .royal-band .rb-sub { font-size:10.5px; color:var(--text-muted); letter-spacing:2px; margin-top:3px; text-transform:uppercase; }
+
+/* ---- cloud watch bar (v2.24.0): raised when someone else has saved newer data ---- */
+.cloudnew{position:fixed;left:50%;bottom:26px;transform:translate(-50%,140%);z-index:80;
+  display:flex;align-items:center;gap:13px;max-width:min(560px,92vw);
+  padding:11px 13px 11px 15px;border-radius:14px;
+  background:var(--panel);border:1px solid var(--gold);box-shadow:0 18px 46px rgba(0,0,0,.55);
+  opacity:0;pointer-events:none;transition:transform .3s cubic-bezier(.2,.8,.3,1),opacity .3s}
+.cloudnew.on{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.cloudnew .cn-i{font-size:21px;line-height:1;flex:none}
+.cloudnew .cn-t{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.cloudnew .cn-t b{font-size:13px;color:var(--text)}
+.cloudnew .cn-t span{font-size:11.5px;color:var(--text-dim)}
+.cloudnew .cn-x{background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:4px 6px;flex:none}
+.cloudnew .cn-x:hover{color:var(--gold)}
+@media print{.cloudnew{display:none!important}}
+
+/* ---- Smart Assistant: microphone + which engine answered ---- */
+.asst .amin .amic{background:none;border:none;cursor:pointer;font-size:16px;line-height:1;
+  padding:4px 6px;opacity:.7;transition:.15s;flex:none}
+.asst .amin .amic:hover{opacity:1;transform:scale(1.08)}
+.asst .amin .amic.on{opacity:1;color:var(--red);animation:micPulse 1s ease-in-out infinite}
+@keyframes micPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.16)}}
+.asst .asrc{margin-top:7px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-dim)}
