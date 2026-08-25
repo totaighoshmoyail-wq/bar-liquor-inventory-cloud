@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bar Liquor Inventory Cloud</title>
+<link rel="icon" type="image/png" href="assets/img/icon-192.png">
+<link rel="stylesheet" href="assets/css/styles.css">
+<style>
+/* ===========================================================
+   Sign-in gate for the HOSTED app.
+   The offline app ships a fixed username/password in its own index.html —
+   fine on one private computer, unusable on a public address. This page
+   replaces it with the real Supabase account, and pulls the company's
+   cloud copy in before the app opens, so nobody ever sees demo data.
+   =========================================================== */
+.gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 18px}
+.gcard{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--border-soft);
+  border-radius:16px;padding:30px 28px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.crest{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:25px;border:2px solid var(--gold);margin-bottom:16px;
+  background:radial-gradient(circle at 50% 40%,var(--gold-dim),transparent 70%)}
+.gcard h1{font-family:Georgia,'Times New Roman',serif;font-size:23px;margin:0 0 4px;color:var(--gold);font-weight:600}
+.gcard .s{font-size:12.5px;color:var(--text-muted);margin:0 0 22px}
+.fld{margin-bottom:13px}
+.fld label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
+.msg{font-size:12px;margin-top:14px;min-height:18px;line-height:1.6}
+.msg.err{color:var(--red)} .msg.ok{color:var(--green)}
+.co{margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
+.co label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
+.foot{margin-top:18px;font-size:11px;color:var(--text-dim);text-align:center;line-height:1.7}
+.foot a{color:var(--gold)}
+</style>
+</head>
+<body class="app-body t-emlux">
+
+<div class="gate">
+  <div class="gcard">
+    <div class="crest">🍾</div>
+    <h1>Bar Liquor Inventory</h1>
+    <p class="s">Sign in to open the system with your live data</p>
+
+    <form id="f" autocomplete="on">
+      <div class="fld"><label for="em">Email</label>
+        <input class="input" id="em" type="email" autocomplete="username" required></div>
+      <div class="fld"><label for="pw">Password</label>
+        <input class="input" id="pw" type="password" autocomplete="current-password" required></div>
+      <button class="btn btn-gold btn-block" id="go" type="submit">Sign in</button>
+    </form>
+
+    <div class="msg" id="msg"></div>
+
+    <div class="co hide" id="coBox">
+      <label for="coSel">Which company do you want to open?</label>
+      <select class="input" id="coSel"></select>
+      <button class="btn btn-gold btn-block mt-8" id="open">Open</button>
+    </div>
+
+    <p class="foot">Data entry only? Use the <a href="../">quick console</a>.</p>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+/* baked so staff never handle the project details — safe because the cloud's read rule
+   requires a signed-in user, so the key on its own opens nothing */
+const CFG={url:'https://svpbxsbwbwuxnmgcqgfy.supabase.co',
+  key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cGJ4c2J3Ynd1eG5tZ2NxZ2Z5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1MDM1MjIsImV4cCI6MjEwMzA3OTUyMn0.Ctli-IKRmcMg2S3N54uAzZ9-pg11h5dt2jvE3et_woA'};
+const REST=CFG.url+'/rest/v1/blis_sync';
+let TOKEN='', ROWS=[];
+
+function say(t,k){ const m=$('msg'); m.className='msg'+(k?' '+k:''); m.innerHTML=t; }
+function head(){ return {apikey:CFG.key,'Content-Type':'application/json','Authorization':'Bearer '+TOKEN}; }
+
+$('f').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const b=$('go'); b.disabled=true; say('Signing in…');
+  try{
+    const r=await fetch(CFG.url+'/auth/v1/token?grant_type=password',
+      {method:'POST',headers:{apikey:CFG.key,'Content-Type':'application/json'},
+       body:JSON.stringify({email:$('em').value.trim(),password:$('pw').value})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error_description||j.msg||j.message||('HTTP '+r.status));
+    TOKEN=j.access_token;
+    /* hand the session to the app so its Cloud Sync is already signed in */
+    localStorage.setItem('tg2_cloud', JSON.stringify({url:CFG.url,key:CFG.key,auto:false}));
+    localStorage.setItem('tg2_cloudsess', JSON.stringify({token:j.access_token,
+      refresh:j.refresh_token||'', email:(j.user&&j.user.email)||$('em').value.trim(),
+      exp:Date.now()+((j.expires_in||3600)-60)*1000}));
+    sessionStorage.setItem('tg2_user', JSON.stringify({u:((j.user&&j.user.email)||'').split('@')[0],role:'admin'}));
+    $('pw').value='';
+    say('Loading your companies…');
+    const g=await fetch(REST+'?select=id,co,updated_at&order=co',{headers:head()});
+    if(!g.ok) throw new Error('Could not read the cloud ('+g.status+')');
+    ROWS=await g.json();
+    if(!ROWS.length) throw new Error('Nothing in the cloud yet — push once from the office computer first.');
+    $('coSel').innerHTML=ROWS.map(r=>`<option value="${esc(r.id)}">${esc(r.co||r.id)}</option>`).join('');
+    $('f').classList.add('hide'); $('coBox').classList.remove('hide');
+    say(ROWS.length===1?'One company found.':(ROWS.length+' companies found.'),'ok');
+    if(ROWS.length===1) $('open').focus();
+  }catch(err){
+    say('❌ '+(/Invalid login/i.test(err.message)?'Wrong email or password.'
+        :(/confirm/i.test(err.message)?'This user is not confirmed yet — tick “Auto Confirm User” in Supabase.'
+        :esc(err.message))),'err');
+  }
+  b.disabled=false;
+});
+
+$('open').addEventListener('click', async ()=>{
+  const id=$('coSel').value, row=ROWS.find(r=>r.id===id);
+  const b=$('open'); b.disabled=true; say('Bringing your data in…');
+  try{
+    const g=await fetch(REST+'?id=eq.'+encodeURIComponent(id)+'&select=co,data,updated_at',{headers:head()});
+    if(!g.ok) throw new Error('Could not read that company ('+g.status+')');
+    const j=await g.json();
+    if(!j.length||!j[0].data) throw new Error('That company has no cloud copy yet.');
+    const d=j[0], pfx=(id==='main')?'tg2_':('tg2_'+id+'_');
+    /* clear this company's old copy, then lay the cloud copy in — same shape the app writes */
+    for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i);
+      if(k && k.indexOf(pfx)===0){
+        const sub=k.slice(pfx.length);
+        if(pfx==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$)/.test(sub)) continue;
+        localStorage.removeItem(k);
+      } }
+    Object.keys(d.data).forEach(sub=>localStorage.setItem(pfx+sub, d.data[sub]));
+    localStorage.setItem(pfx+'cloudmeta', JSON.stringify({push:d.updated_at, cloudAt:d.updated_at}));
+    /* make sure the app opens THIS company */
+    let list=[]; try{ list=JSON.parse(localStorage.getItem('tg2_companies')||'[]')||[]; }catch(e){}
+    if(id!=='main' && !list.some(c=>c.id===id)){ list.push({id:id,name:d.co||id}); localStorage.setItem('tg2_companies', JSON.stringify(list)); }
+    localStorage.setItem('tg2_activeCo', JSON.stringify(id));
+    say('Opening…','ok');
+    location.href='app.html';
+  }catch(err){ say('❌ '+esc(err.message),'err'); b.disabled=false; }
+});
+
+/* already signed in on this device? skip straight to the company step */
+(function(){
+  try{
+    const s=JSON.parse(localStorage.getItem('tg2_cloudsess')||'null');
+    if(s && s.email) $('em').value=s.email;
+  }catch(e){}
+  $('em').focus();
+})();
+</script>
+</body>
+</html>
