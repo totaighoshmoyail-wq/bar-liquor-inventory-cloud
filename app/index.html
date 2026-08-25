@@ -40,11 +40,11 @@
     <h1>Bar Liquor Inventory</h1>
     <p class="s">Sign in to open the system with your live data</p>
 
-    <form id="f" autocomplete="on">
+    <form id="f" autocomplete="off">
       <div class="fld"><label for="em">Email</label>
-        <input class="input" id="em" type="email" autocomplete="username" required></div>
+        <input class="input" id="em" type="email" autocomplete="off" placeholder="you@example.com" required></div>
       <div class="fld"><label for="pw">Password</label>
-        <input class="input" id="pw" type="password" autocomplete="current-password" required></div>
+        <input class="input" id="pw" type="password" autocomplete="new-password" placeholder="your password" required></div>
       <button class="btn btn-gold btn-block" id="go" type="submit">Sign in</button>
     </form>
 
@@ -134,14 +134,9 @@ $('open').addEventListener('click', async ()=>{
   }catch(err){ say('❌ '+esc(err.message),'err'); b.disabled=false; }
 });
 
-/* already signed in on this device? skip straight to the company step */
-(function(){
-  try{
-    const s=JSON.parse(localStorage.getItem('tg2_cloudsess')||'null');
-    if(s && s.email) $('em').value=s.email;
-  }catch(e){}
-  $('em').focus();
-})();
+/* Nothing is pre-filled and nothing is remembered: this address is used on shared
+   phones and computers, so each person types their own email and password. */
+$("em").focus();
 </script>
 </body>
 </html>
