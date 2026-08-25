@@ -1,1 +1,1 @@
-{ "version": "2.21.3", "date": "2026-08-24", "notes": "Fixed the empty box that sat in the corner of the cloud console — its message popup shared a class name with the app's own and an app rule kept it on screen." }
+{ "version": "2.22.1", "date": "2026-08-25", "notes": "The login no longer fills itself in. The username and password used to be typed into the fields for you — anyone opening the app could just press Sign in. Now every sign-in is typed by the person doing it, online and offline." }
