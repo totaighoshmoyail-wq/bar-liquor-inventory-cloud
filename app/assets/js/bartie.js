@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.26.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.26.1';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -942,6 +942,7 @@ function renderShell(){
         <button class="hamburger" onclick="toggleSidebar(true)">☰</button>
         <div><h2 id="pgTitle">Dashboard</h2><div class="crumb" id="pgCrumb"></div></div>
         <div class="topbar-actions">
+          <div class="tbstat" id="tbStat"><span id="sbOnline" class="sb-on">● Online</span><span class="sync" id="tbSync"></span></div>
           <div class="clk"><span class="t" id="clkT">--:--:--</span><span class="d" id="clkD"></span></div>
           <button class="icon-btn" title="Companies — switch / add" onclick="openCompanies()">🏢</button>
           <button class="icon-btn" id="themeToggle" title="Switch theme · Aurora ⇄ Emerald" onclick="toggleTheme()">${pref.theme==='t-aurora'?'🌙':'☀️'}</button>
@@ -951,10 +952,9 @@ function renderShell(){
       </header>
       <div class="content" id="view"></div>
       <footer class="statusbar">
-        <span id="sbOnline" class="sb-on">● Online</span>
         <span>💾 Last Backup&nbsp;: <b id="sbBackup">—</b></span>
         <span>👤 <b>${esc((function(){ try{ const u=JSON.parse(sessionStorage.getItem('tg2_user')||'null'); if(u&&u.u) return u.u; }catch(e){} return cfg.admin||'Admin'; })())}</b> · ${esc((function(){ try{ const u=JSON.parse(sessionStorage.getItem('tg2_user')||'null'); if(u&&u.role) return u.role; }catch(e){} return 'admin'; })())}</span>
-        <span class="sb-r">${(function(){ if(typeof cloudOn!=='function'||!cloudOn()) return '';      try{ const m=_cloudMeta();        if(typeof cloudDirty==='function'&&cloudDirty()) return '☁️ Saving… · ';        return (typeof cloudLive==='function'&&cloudLive()?'☁️ Live sync':'☁️ Cloud')+(m.push?' · '+_agoTxt(m.push):'')+' · ';      }catch(e){ return '☁️ Cloud · '; } })()}v${APP_VERSION}</span>
+        <span class="sb-r">v${APP_VERSION}</span>
       </footer>
     </main>`;
   $$('[data-nav]').forEach(n=>n.onclick=()=>go(n.dataset.nav));
@@ -969,9 +969,21 @@ function sbFill(){
     el.textContent=t?new Date(t).toLocaleString():'—'; }
   const on=$('#sbOnline');
   if(on){ const o=navigator.onLine!==false; on.textContent=o?'● Online':'● Offline'; on.className=o?'sb-on':'sb-off'; }
+  /* the live-sync line lives in the topbar now, next to Online/Offline */
+  const sy=$('#tbSync');
+  if(sy){ let t='';
+    try{
+      if(typeof cloudOn==='function' && cloudOn()){
+        const m=_cloudMeta();
+        if(typeof cloudDirty==='function' && cloudDirty()) t='☁️ Saving…';
+        else t=((typeof cloudLive==='function'&&cloudLive())?'☁️ Live sync':'☁️ Cloud')+(m.push?' · '+_agoTxt(m.push):'');
+      }
+    }catch(e){ t='☁️ Cloud'; }
+    sy.textContent=t; }
 }
 window.addEventListener('online', ()=>sbFill());
 window.addEventListener('offline', ()=>sbFill());
+setInterval(()=>{ try{ sbFill(); }catch(e){} }, 30000);   // keeps the ' 4 minutes ago ' honest
 /* ---- 🔔 notification centre: unmatched POS + low stock + big variance in one place ---- */
 function openNotifs(){
   const errs=errorRows();
