@@ -5,61 +5,233 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bar Liquor Inventory Cloud</title>
 <link rel="icon" type="image/png" href="assets/img/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/styles.css">
 <style>
 /* ===========================================================
-   Sign-in gate for the HOSTED app.
+   Sign-in gate for the HOSTED app, wearing the same "Cloud Royal" face as the
+   offline login (index.html, design 11) so both front doors match.
+
    The offline app ships a fixed username/password in its own index.html —
    fine on one private computer, unusable on a public address. This page
    replaces it with the real Supabase account, and pulls the company's
    cloud copy in before the app opens, so nobody ever sees demo data.
+
+   Every class invented here is g-prefixed: this page borrows the app's
+   stylesheet, so an unprefixed name would collide with the app's own rules.
    =========================================================== */
-.gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 18px}
-.gcard{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--border-soft);
-  border-radius:16px;padding:30px 28px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
-.crest{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-size:25px;border:2px solid var(--gold);margin-bottom:16px;
-  background:radial-gradient(circle at 50% 40%,var(--gold-dim),transparent 70%)}
-.gcard h1{font-family:Georgia,'Times New Roman',serif;font-size:23px;margin:0 0 4px;color:var(--gold);font-weight:600}
-.gcard .s{font-size:12.5px;color:var(--text-muted);margin:0 0 22px}
-.fld{margin-bottom:13px}
-.fld label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
-.msg{font-size:12px;margin-top:14px;min-height:18px;line-height:1.6}
-.msg.err{color:var(--red)} .msg.ok{color:var(--green)}
-.co{margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
-.co label{display:block;font-size:11.5px;color:var(--text-muted);margin:0 0 6px}
-.foot{margin-top:18px;font-size:11px;color:var(--text-dim);text-align:center;line-height:1.7}
-.foot a{color:var(--gold)}
-/* the shell stylesheet has no .hide — this page needs its own */
-.hide{display:none!important}
+.hide{display:none !important}
+body.gbody{margin:0;background:#070605;font-family:'Inter',sans-serif;color:#f0e9da}
+.gwrap{display:flex;flex-wrap:wrap;gap:14px;margin:13px;padding:13px;box-sizing:border-box;
+  min-height:calc(100vh - 26px);border:1px solid rgba(201,164,95,.42);border-radius:22px;background:#0a0908;
+  box-shadow:0 0 0 1px rgba(201,164,95,.1) inset,0 26px 80px rgba(0,0,0,.75)}
+/* ---- left: the bar ---- */
+.gbrand{flex:1 1 520px;min-height:592px;border-radius:16px;overflow:hidden;position:relative;
+  padding:42px 38px 250px;display:flex;flex-direction:column;justify-content:center;background:#0d0b09}
+.gbrand > *{position:relative;z-index:2}
+.gscene{position:absolute;inset:0;z-index:0}
+.gscene svg{width:100%;height:100%;display:block}
+.gscene .grade{position:absolute;inset:0;
+  background:linear-gradient(100deg,rgba(6,4,3,.87) 0%,rgba(6,4,3,.6) 46%,rgba(6,4,3,.82) 100%),
+             radial-gradient(120% 95% at 26% 42%,transparent 20%,rgba(0,0,0,.62) 100%)}
+body.hasbar .gscene svg{display:none}
+body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;background-position:center}
+.gcrest{width:76px;height:84px;border-radius:13px 13px 46% 46%/11px 11px 62% 62%;position:relative;
+  border:2px solid #e0c078;background:rgba(10,8,6,.5);box-shadow:0 0 28px rgba(224,192,120,.28);
+  display:flex;align-items:center;justify-content:center;flex:none;align-self:flex-start}
+.gcrest .in{position:absolute;inset:5px;border-radius:10px 10px 46% 46%/9px 9px 62% 62%;
+  border:1px solid rgba(224,192,120,.45)}
+.gcrest b{font-family:'Cormorant Garamond',Georgia,serif;font-size:34px;color:#eed49a;letter-spacing:1px;font-weight:600}
+.gcrest:before{content:'\265B';position:absolute;top:-25px;left:50%;transform:translateX(-50%);
+  font-size:19px;color:#e0c078;text-shadow:0 0 14px rgba(224,192,120,.7)}
+.gname{font-family:'Cormorant Garamond',Georgia,serif;font-size:clamp(32px,4.2vw,52px);color:#f7f2e7;
+  letter-spacing:2px;text-transform:uppercase;line-height:1.02;margin-top:24px;font-weight:600;
+  text-shadow:0 4px 30px rgba(0,0,0,.9)}
+.gname .l2{display:block;color:#e0c078;font-size:.62em;letter-spacing:12px;margin-top:6px}
+.gtag{font-size:11px;letter-spacing:5px;color:#b6a686;margin-top:13px;text-transform:uppercase}
+.ghair{width:min(330px,68%);height:1px;margin-top:19px;position:relative;
+  background:linear-gradient(90deg,transparent,#c9a45f,transparent)}
+.ghair:after{content:'\2756';position:absolute;top:-9px;left:50%;transform:translateX(-50%);color:#c9a45f;font-size:11px}
+.gmotto{font-size:12px;letter-spacing:4.5px;color:#dfc48a;margin-top:15px;font-weight:600;text-transform:uppercase}
+.gaddr{font-size:11px;color:#8c8574;margin-top:16px;line-height:1.8}
+.gcards{position:absolute;left:38px;bottom:34px;width:min(322px,74%);z-index:3;box-sizing:border-box;
+  background:rgba(13,11,9,.74);border:1px solid rgba(201,164,95,.26);border-radius:14px;padding:6px 16px;
+  backdrop-filter:blur(7px)}
+.gcards .r{display:flex;gap:12px;align-items:flex-start;padding:11px 0}
+.gcards .r + .r{border-top:1px solid rgba(201,164,95,.13)}
+.gcards .ic{width:34px;height:34px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  border:1px solid rgba(201,164,95,.32);background:rgba(201,164,95,.08)}
+.gcards h4{margin:0 0 2px;font-family:'Cormorant Garamond',Georgia,serif;font-size:15px;font-weight:600;
+  letter-spacing:1.7px;text-transform:uppercase;color:#e0c078}
+.gcards p{margin:0;font-size:11.5px;color:#a59c89;line-height:1.5}
+/* ---- right: the sign-in card ---- */
+.gform{flex:1 1 420px;min-height:592px;border-radius:16px;background:#101012;padding:34px 30px;
+  border:1px solid rgba(201,164,95,.34);position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+.gform:before{content:'\2767';position:absolute;top:12px;right:22px;font-size:30px;
+  color:rgba(201,164,95,.4);pointer-events:none;line-height:1}
+.gcard{width:100%;max-width:400px;position:relative;z-index:2}
+.gcloud{display:flex;justify-content:center;margin-bottom:16px}
+.gcard h1{font-family:'Cormorant Garamond',Georgia,serif;font-size:31px;font-weight:600;color:#f4ecd9;
+  text-align:center;letter-spacing:.6px;margin:0}
+.gcard .sub{text-align:center;font-size:12.5px;color:#8d8778;margin:6px 0 22px}
+.gfld{margin-bottom:14px}
+.gfld label{display:block;font-size:10.5px;letter-spacing:2.4px;text-transform:uppercase;color:#bda978;margin-bottom:7px}
+.giw{position:relative}
+.giw .ii{position:absolute;left:14px;top:50%;transform:translateY(-50%);line-height:0;pointer-events:none}
+.giw .input{padding-left:42px;height:46px;border-radius:11px;background:#171718;border-color:#33322c;color:#f0e9da}
+.giw .input:focus{border-color:#d8bd7f;background:#1b1b1c}
+.grow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 0 18px;
+  font-size:12px;color:#9a9384}
+.grow label{display:flex;align-items:center;gap:8px;cursor:pointer}
+.grow input{accent-color:#c9a45f;width:15px;height:15px;cursor:pointer}
+.glink{background:none;border:none;color:#c9a45f;font-size:12px;cursor:pointer;padding:0;font-family:inherit}
+.gbtn{width:100%;height:52px;border:none;border-radius:12px;cursor:pointer;color:#1c1608;font-weight:700;
+  font-family:'Cormorant Garamond',Georgia,serif;font-size:19px;letter-spacing:1.2px;
+  background:linear-gradient(100deg,#f0dda9,#d9b76c 52%,#c9a45f);box-shadow:0 10px 26px rgba(201,164,95,.24)}
+.gbtn:disabled{opacity:.6;cursor:default}
+.msg{font-size:12px;margin-top:14px;min-height:18px;line-height:1.6;text-align:center}
+.msg.err{color:#e08b7e} .msg.ok{color:#7ad1a5}
+.gco{margin-top:18px;padding-top:14px;border-top:1px solid rgba(201,164,95,.2)}
+.gco label{display:block;font-size:10.5px;letter-spacing:2.4px;text-transform:uppercase;color:#bda978;margin-bottom:7px}
+.gcopy{margin-top:22px;text-align:center;font-size:10.5px;color:#6f6959;line-height:1.9}
+.gcopy a{color:#c9a45f}
+/* ---- bottom strip ---- */
+.gstrip{flex:1 1 100%;display:flex;flex-wrap:wrap;padding:12px 8px;box-sizing:border-box;
+  border:1px solid rgba(201,164,95,.28);border-radius:16px;background:rgba(14,12,10,.62)}
+.gstrip .c{flex:1 1 210px;display:flex;gap:13px;align-items:center;padding:7px 18px;min-width:0}
+.gstrip .c + .c{border-left:1px solid rgba(201,164,95,.15)}
+.gstrip .ic{flex:none;line-height:0}
+.gstrip h5{margin:0 0 2px;font-family:'Cormorant Garamond',Georgia,serif;font-size:13.5px;font-weight:600;
+  letter-spacing:1.7px;text-transform:uppercase;color:#e0c078}
+.gstrip p{margin:0;font-size:11px;color:#9c947f;line-height:1.45}
+@media (max-width:700px){
+  .gstrip .c + .c{border-left:none;border-top:1px solid rgba(201,164,95,.15)}
+  .grow{flex-wrap:wrap}
+  .gwrap{margin:8px;padding:8px}
+  .gbrand,.gform{padding-left:22px;padding-right:22px}
+}
+@media (max-width:1080px){
+  .gcards{position:static;width:auto;margin-top:26px;backdrop-filter:none}
+  .gbrand{padding-bottom:42px}
+  .gbrand,.gform{min-height:0}
+}
 </style>
 </head>
-<body class="app-body t-emlux">
+<body class="gbody">
 
-<div class="gate">
-  <div class="gcard">
-    <div class="crest">🍾</div>
-    <h1>Bar Liquor Inventory</h1>
-    <p class="s">Sign in to open the system with your live data</p>
+<div class="gwrap">
 
-    <form id="f" autocomplete="off">
-      <div class="fld"><label for="em">Email</label>
-        <input class="input" id="em" type="email" autocomplete="off" placeholder="you@example.com" required></div>
-      <div class="fld"><label for="pw">Password</label>
-        <input class="input" id="pw" type="password" autocomplete="new-password" placeholder="your password" required></div>
-      <button class="btn btn-gold btn-block" id="go" type="submit">Sign in</button>
-    </form>
-
-    <div class="msg" id="msg"></div>
-
-    <div class="co hide" id="coBox">
-      <label for="coSel">Which company do you want to open?</label>
-      <select class="input" id="coSel"></select>
-      <button class="btn btn-gold btn-block mt-8" id="open">Open</button>
+  <!-- the bar. Drawn here so the page needs no image file; drop assets/img/bar.jpg in
+       and barPhoto() finds it and uses the photograph instead. -->
+  <div class="gbrand">
+    <div class="gscene" aria-hidden="true">
+      <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#191309"/><stop offset="1" stop-color="#080604"/></linearGradient>
+          <linearGradient id="shelfLight" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#e0a445" stop-opacity=".55"/>
+            <stop offset="1" stop-color="#e0a445" stop-opacity="0"/></linearGradient>
+          <linearGradient id="ctr" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#54401f"/><stop offset="1" stop-color="#150e07"/></linearGradient>
+          <radialGradient id="halo"><stop offset="0" stop-color="#ffcf80" stop-opacity=".85"/>
+            <stop offset="1" stop-color="#ffcf80" stop-opacity="0"/></radialGradient>
+          <symbol id="btl" viewBox="0 0 20 60">
+            <path d="M7 1h6v13c0 3 5 6 5 12v29a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V26c0-6 5-9 5-12z"/></symbol>
+        </defs>
+        <rect width="800" height="600" fill="url(#wall)"/>
+        <g>
+          <rect x="0" y="56" width="800" height="336" fill="#0f0b06"/>
+          <rect x="0" y="70" width="800" height="72" fill="url(#shelfLight)"/>
+          <rect x="0" y="180" width="800" height="72" fill="url(#shelfLight)"/>
+          <rect x="0" y="290" width="800" height="72" fill="url(#shelfLight)"/>
+          <rect x="0" y="140" width="800" height="4" fill="#c99a4e" opacity=".55"/>
+          <rect x="0" y="250" width="800" height="4" fill="#c99a4e" opacity=".55"/>
+          <rect x="0" y="360" width="800" height="4" fill="#c99a4e" opacity=".55"/>
+        </g>
+        <g id="bottles" fill="#d99a45" opacity=".75"></g>
+        <g id="bulbs"></g>
+        <rect x="0" y="404" width="800" height="196" fill="#0a0705"/>
+        <rect x="0" y="392" width="800" height="34" fill="url(#ctr)"/>
+        <rect x="0" y="392" width="800" height="2.5" fill="#f0c477" opacity=".65"/>
+        <rect x="0" y="398" width="800" height="9" fill="#e6b366" opacity=".12"/>
+        <rect x="0" y="426" width="800" height="30" fill="#e6b366" opacity=".05"/>
+        <g id="stools" fill="#241809"></g>
+      </svg>
+      <span class="grade"></span>
     </div>
 
-    <p class="foot">Data entry only? Use the <a href="../">quick console</a>.</p>
+    <div class="gcrest"><span class="in"></span><b>BL</b></div>
+    <div class="gname">Bar Liquor<span class="l2">Inventory</span></div>
+    <div class="gtag">Premium Inventory Management System</div>
+    <div class="ghair"></div>
+    <div class="gmotto">Track. Manage. Analyze. Succeed.</div>
+    <div class="gaddr">Signed-in access &middot; live cloud data</div>
+
+    <div class="gcards">
+      <div class="r"><div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 18a4 4 0 0 1 .4-8 6 6 0 0 1 11.3-1A3.8 3.8 0 0 1 18 18z"/></svg></div>
+        <div><h4>Cloud Secured</h4><p>Your data opens only after you sign in.</p></div></div>
+      <div class="r"><div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14-4M4 13a8 8 0 0 0 14 4"/><path d="M6 3.5v4h4M18 20.5v-4h-4"/></svg></div>
+        <div><h4>Cloud Sync</h4><p>The same figures on every device you work on.</p></div></div>
+      <div class="r"><div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+        <div><h4>Smart Reports</h4><p>Nine ready reports, exportable to Excel or print.</p></div></div>
+    </div>
   </div>
+
+  <!-- the sign-in card -->
+  <div class="gform">
+    <div class="gcard">
+      <div class="gcloud" aria-hidden="true">
+        <svg width="84" height="56" viewBox="0 0 84 56" fill="none" style="filter:drop-shadow(0 0 11px rgba(216,189,127,.45))">
+          <path d="M23 43a13 13 0 0 1 1.4-25.9A18 18 0 0 1 58 13.5 12 12 0 0 1 63 36" stroke="#d8bd7f" stroke-width="1.8" stroke-linecap="round"/>
+          <rect x="32" y="30" width="21" height="17" rx="3.5" stroke="#e8cf95" stroke-width="1.8"/>
+          <path d="M36.5 30v-4.5a6 6 0 0 1 12 0V30" stroke="#e8cf95" stroke-width="1.8"/>
+          <circle cx="42.5" cy="38.5" r="2.1" fill="#e8cf95"/>
+        </svg>
+      </div>
+      <h1>Welcome Back</h1>
+      <p class="sub">Sign in to access your Bar Liquor Inventory System</p>
+
+      <form id="f" autocomplete="off">
+        <div class="gfld"><label for="em">Email address</label>
+          <div class="giw"><span class="ii"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9a8a63" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>
+            <input class="input" id="em" type="email" autocomplete="off" placeholder="you@example.com" required></div></div>
+        <div class="gfld"><label for="pw">Password</label>
+          <div class="giw"><span class="ii"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9a8a63" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+            <input class="input" id="pw" type="password" autocomplete="new-password" placeholder="your password" required></div></div>
+        <div class="grow">
+          <label><input type="checkbox" id="rmb"> Remember me</label>
+          <button type="button" class="glink" id="fgBtn">Forgot password?</button>
+        </div>
+        <button class="gbtn" id="go" type="submit">Sign In &rarr;</button>
+      </form>
+
+      <div class="msg" id="msg"></div>
+
+      <div class="gco hide" id="coBox">
+        <label for="coSel">Which company do you want to open?</label>
+        <select class="input" id="coSel"></select>
+        <button class="gbtn" id="open" style="margin-top:10px">Open</button>
+      </div>
+
+      <p class="gcopy">Data entry only? Use the <a href="../">quick console</a>.<br>
+        &copy; 2026 Bar Liquor Inventory. All rights reserved.</p>
+    </div>
+  </div>
+
+  <div class="gstrip">
+    <div class="c"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6z"/><path d="M9.4 12l1.9 1.9L15 10"/></svg></span>
+      <div><h5>Locked Down</h5><p>Nothing opens without a signed-in account.</p></div></div>
+    <div class="c"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="13" height="10" rx="1.5"/><path d="M5 18h7"/><rect x="16.5" y="9" width="5.5" height="11" rx="1.5"/></svg></span>
+      <div><h5>Access Anywhere</h5><p>Desktop, tablet or mobile &mdash; same live data.</p></div></div>
+    <div class="c"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-5h4v5"/></svg></span>
+      <div><h5>Multi-Outlet</h5><p>Every outlet kept separate, one engine behind them.</p></div></div>
+    <div class="c"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></svg></span>
+      <div><h5>Always Current</h5><p>Opens with the latest copy pulled from the cloud.</p></div></div>
+  </div>
+
 </div>
 
 <script>
@@ -75,6 +247,76 @@ let TOKEN='', ROWS=[];
 function say(t,k){ const m=$('msg'); m.className='msg'+(k?' '+k:''); m.innerHTML=t; }
 function head(){ return {apikey:CFG.key,'Content-Type':'application/json','Authorization':'Bearer '+TOKEN}; }
 
+/* ---- the drawn bar; a photograph at assets/img/bar.* replaces it with no code change ---- */
+function scene(){
+  const g=$('bottles'); if(!g) return;
+  const tone=['#d99a45','#b8762e','#8e6a2a','#c98a3a','#7d5a25','#e0ae5c'];
+  let s='', i=0;
+  [86,196,306].forEach(function(y){
+    for(let x=6;x<790;x+=22+((i*7)%12)){
+      const w=12+((i*5)%6), h=52-((i*3)%15);
+      s+='<use href="#btl" x="'+x+'" y="'+(y+(54-h))+'" width="'+w+'" height="'+h+'" fill="'
+        +tone[i%tone.length]+'" opacity="'+(0.5+((i%4)*0.12)).toFixed(2)+'"/>';
+      i++;
+    }
+  });
+  g.innerHTML=s;
+  let t='';
+  [92,168,256,350,438,522,612,692].forEach(function(x,k){
+    const y=96+((k%3)*44);
+    t+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+(y-12)+'" stroke="#5a4a2c" stroke-width="1.2"/>'
+      +'<circle cx="'+x+'" cy="'+y+'" r="33" fill="url(#halo)" opacity=".45"/>'
+      +'<ellipse cx="'+x+'" cy="'+y+'" rx="6.5" ry="9" fill="#ffd894"/>';
+  });
+  $('bulbs').innerHTML=t;
+  let u='';
+  [120,262,404,546,688].forEach(function(x){
+    u+='<ellipse cx="'+x+'" cy="450" rx="41" ry="13"/>'
+      +'<rect x="'+(x-5)+'" y="450" width="10" height="84"/>'
+      +'<ellipse cx="'+x+'" cy="536" rx="25" ry="8"/>';
+  });
+  $('stools').innerHTML=u;
+}
+function barPhoto(){
+  const names=['assets/img/bar.jpg','assets/img/bar.png','assets/img/bar.webp'];
+  (function tryOne(i){
+    if(i>=names.length) return;
+    const im=new Image();
+    im.onload=function(){ document.body.style.setProperty('--barphoto','url("'+names[i]+'")');
+      document.body.classList.add('hasbar'); };
+    im.onerror=function(){ tryOne(i+1); };
+    im.src=names[i];
+  })(0);
+}
+scene(); barPhoto();
+
+/* Remember me keeps the E-MAIL only, and only once it is ticked. The password is never
+   stored — this address is opened on shared phones. */
+function rememberLoad(){
+  let v=''; try{ v=localStorage.getItem('tg2_lastEmail')||''; }catch(e){}
+  if(v){ $('rmb').checked=true; $('em').value=v; }
+}
+function rememberSave(v){
+  try{ if($('rmb').checked) localStorage.setItem('tg2_lastEmail',v);
+       else localStorage.removeItem('tg2_lastEmail'); }catch(e){}
+}
+
+/* A real reset — Supabase sends the mail. Whatever it answers is shown as it is. */
+$('fgBtn').addEventListener('click', async ()=>{
+  const em=$('em').value.trim();
+  if(!em){ say('Type your e-mail address first, then press this again.','err'); $('em').focus(); return; }
+  say('Asking for a reset link…');
+  try{
+    const r=await fetch(CFG.url+'/auth/v1/recover',
+      {method:'POST',headers:{apikey:CFG.key,'Content-Type':'application/json'},
+       body:JSON.stringify({email:em})});
+    if(r.ok) say('If that address has an account, a reset link is on its way to it.','ok');
+    else{ const j=await r.json().catch(()=>({}));
+      say('❌ '+esc(j.msg||j.error_description||j.message||('HTTP '+r.status))
+        +'<br>The owner can also set a new password in the Supabase dashboard.','err'); }
+  }catch(err){ say('❌ '+esc(err.message),'err'); }
+});
+
 $('f').addEventListener('submit', async e=>{
   e.preventDefault();
   const b=$('go'); b.disabled=true; say('Signing in…');
@@ -85,6 +327,7 @@ $('f').addEventListener('submit', async e=>{
     const j=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error_description||j.msg||j.message||('HTTP '+r.status));
     TOKEN=j.access_token;
+    rememberSave($('em').value.trim());
     /* hand the session to the app so its Cloud Sync is already signed in */
     localStorage.setItem('tg2_cloud', JSON.stringify({url:CFG.url,key:CFG.key,auto:false}));
     localStorage.setItem('tg2_cloudsess', JSON.stringify({token:j.access_token,
@@ -122,7 +365,7 @@ $('open').addEventListener('click', async ()=>{
     for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i);
       if(k && k.indexOf(pfx)===0){
         const sub=k.slice(pfx.length);
-        if(pfx==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$)/.test(sub)) continue;
+        if(pfx==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$|lastEmail$)/.test(sub)) continue;
         localStorage.removeItem(k);
       } }
     Object.keys(d.data).forEach(sub=>localStorage.setItem(pfx+sub, d.data[sub]));
@@ -136,9 +379,10 @@ $('open').addEventListener('click', async ()=>{
   }catch(err){ say('❌ '+esc(err.message),'err'); b.disabled=false; }
 });
 
-/* Nothing is pre-filled and nothing is remembered: this address is used on shared
-   phones and computers, so each person types their own email and password. */
-$("em").focus();
+/* The password is never remembered or pre-filled: this address is opened on shared
+   phones and computers, so each person types it themselves. */
+rememberLoad();
+$($('em').value?'pw':'em').focus();
 </script>
 </body>
 </html>
