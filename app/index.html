@@ -345,6 +345,15 @@ $('f').addEventListener('submit', async e=>{
     say(ROWS.length===1?'One company found.':(ROWS.length+' companies found.'),'ok');
     if(ROWS.length===1) $('open').focus();
   }catch(err){
+    /* "Failed to fetch" = the request never reached the cloud. On the free plan the usual cause is
+       the project having PAUSED after a week without use — the address itself stops answering. */
+    if(/failed to fetch|networkerror|load failed|network request failed/i.test(err.message||'')){
+      say('❌ The cloud is not answering. <b>The Supabase project has most likely gone to sleep</b> — '
+         +'on the free plan it pauses after a week without use.<br>'
+         +'Open <a href="https://supabase.com/dashboard/project/svpbxsbwbwuxnmgcqgfy" target="_blank" rel="noopener">the Supabase dashboard</a>, '
+         +'press <b>Restore project</b>, wait two or three minutes, then sign in again. Your data is kept while it sleeps.<br>'
+         +'<span style="opacity:.75">If the dashboard shows the project running, check this device’s internet instead.</span>','err');
+      b.disabled=false; return; }
     say('❌ '+(/Invalid login/i.test(err.message)?'Wrong email or password.'
         :(/confirm/i.test(err.message)?'This user is not confirmed yet — tick “Auto Confirm User” in Supabase.'
         :esc(err.message))),'err');
