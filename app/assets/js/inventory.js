@@ -2520,12 +2520,21 @@ async function _pdfText(buf){
   const re=/stream\r?\n/g; let m;
   while((m=re.exec(s))){
     const start=m.index+m[0].length; const end=s.indexOf('endstream',start); if(end<0) break;
+    // Prefer the exact byte count the PDF itself declares (<< /Length N >> just before "stream"):
+    // trimming whitespace up to "endstream" is a guess, and the zlib checksum can legitimately
+    // END in 0x0a — invoice (37) did, the guess ate that byte, and every stream failed to decode.
+    let sub=null;
+    { const head=s.slice(Math.max(0,m.index-400), m.index); const d=head.lastIndexOf('<<');
+      const lm = d>=0 ? /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(head.slice(d)) : null;
+      const n = lm ? +lm[1] : 0; if(n>0 && start+n<=end) sub=bytes.subarray(start,start+n); }
     let end2=end;                                    // strip trailing \r\n/space before "endstream" —
     while(end2>start && (bytes[end2-1]===0x0d||bytes[end2-1]===0x0a||bytes[end2-1]===0x20)) end2--;
-    const sub=bytes.subarray(start,end2);            //  the strict browser decoder rejects trailing junk
+    if(!sub) sub=bytes.subarray(start,end2);         //  the strict browser decoder rejects trailing junk
     let dec=null;
     try{ dec=await new Response(new Blob([sub]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer(); }
-    catch(e){ try{ dec=await new Response(new Blob([sub.subarray(2)]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer(); }catch(e2){} }
+    catch(e){ // raw deflate = zlib body without its 2-byte header and 4-byte Adler trailer; then the looser form
+      try{ dec=await new Response(new Blob([sub.subarray(2,Math.max(2,sub.length-4))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer(); }
+      catch(e2){ try{ dec=await new Response(new Blob([sub.subarray(2)]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer(); }catch(e3){} } }
     if(dec){
       const u=new Uint8Array(dec); let t='';
       for(let i=0;i<u.length;i+=CH){ t+=String.fromCharCode.apply(null,u.subarray(i,Math.min(i+CH,u.length))); }
