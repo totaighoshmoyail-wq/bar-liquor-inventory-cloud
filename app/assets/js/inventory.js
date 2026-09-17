@@ -997,14 +997,16 @@ VIEWS.liquorroom = () => {
   const passB=v=> lrBlank==='none' || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0);
   let tVal=0;
   const rowHtml=(name,idx,grpKnown,op,rv,is,cl)=>{
-    const land=invGet(name).land, mrp=invGet(name).mrp;
+    const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
+    const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
     return `<tr class="${grpKnown?'':'row-alert'}">
-      <td><strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
-      <td class="num"><input class="cell-input" style="width:64px;color:var(--gold)" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (auto-set by BEVCO invoice; falls back to MRP)" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\\'")}','land',this.value)`}"></td>
-      <td class="num"><input class="cell-input" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" onchange="${idx>=0?`invSetRaw(${idx},'lrOpen',this.value)`:`invSet('${esc(name).replace(/'/g,"\\'")}','lrOpen',this.value)`};route()"></td>
-      <td class="num" style="color:var(--green)">+${rv}</td>
-      <td class="num" style="color:var(--red)">−${is}</td>
-      <td class="num"><strong class="${cl<0?'':'gold'}" style="${cl<0?'color:var(--red)':''}">${cl}</strong></td>
+      <td class="lrname"><strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
+      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (auto-set by BEVCO invoice; edit to override)" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','land',this.value)`}"></td>
+      <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${idx>=0?`invSetRaw(${idx},'lrOpen',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','lrOpen',this.value)`}"></td>
+      <td class="num">${sgn(rv,'plus','+')}</td>
+      <td class="num">${sgn(is,'minus','−')}</td>
+      <td class="num"><strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong></td>
+      <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
       <td>${cl<0?'<span class="pill red">negative</span>':cl===0?'<span class="pill gray">empty</span>':cl<5?'<span class="pill amber">low</span>':'<span class="pill green">ok</span>'}</td></tr>`; };
   const calc=name=>{ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op,rv,is,cl:op+rv-is}; };
   let body=groups.map(g=>{
@@ -1015,22 +1017,24 @@ VIEWS.liquorroom = () => {
       tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
       return rowHtml(r.item, rawData.indexOf(r), true, v.op,v.rv,v.is,v.cl); }).join('');
     if(!rows) return '';
-    // per-group separate totals: Opening · Received · Issued · Closing
-    const sub=`<tr style="background:var(--gold-dim)"><td colspan="2" class="right" style="font-size:11px"><strong>${g.group} — TOTAL</strong></td>
-      <td class="num"><strong>${fmt(gO)}</strong></td><td class="num" style="color:var(--green)"><strong>+${fmt(gR)}</strong></td>
-      <td class="num" style="color:var(--red)"><strong>−${fmt(gI)}</strong></td><td class="num"><strong class="gold">${fmt(gC)}</strong></td><td></td></tr>`;
-    return `<tr class="grp-row"><td colspan="7">${g.group}</td></tr>${rows}${sub}`;
+    // per-group separate totals: Opening · Received · Issued · Closing · Value
+    const gV=g.items.reduce((a,r)=>{ const v=calc(r.item); return (pass(v.cl)&&passB(v)) ? a+v.cl*landOf(r.item) : a; },0);
+    const sub=`<tr class="lrsub"><td colspan="2" class="right"><strong>${g.group} — TOTAL</strong></td>
+      <td class="num"><strong>${fmt(gO)}</strong></td><td class="num"><strong class="lrsg ${gR>0?'plus':'zero'}">${gR>0?'+':''}${fmt(gR)}</strong></td>
+      <td class="num"><strong class="lrsg ${gI>0?'minus':'zero'}">${gI>0?'−':''}${fmt(gI)}</strong></td><td class="num"><strong class="lrclose">${fmt(gC)}</strong></td>
+      <td class="num"><strong class="lrval">₹ ${fmt(Math.round(gV))}</strong></td><td></td></tr>`;
+    return `<tr class="grp-row lrgrp"><td colspan="8"><span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
   }).join('');
   const extra=unmatchedNames().filter(n=> !q || norm(n).includes(norm(q)));
   if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return '';
       const m=landOf(n);
       tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
       return rowHtml(n,-1,false,v.op,v.rv,v.is,v.cl); }).join('');
-    if(erows) body += `<tr class="grp-row"><td colspan="7" style="color:var(--red)">⚠ NOT IN ITEM MASTER — add these to Item Master</td></tr>`+erows; }
+    if(erows) body += `<tr class="grp-row"><td colspan="8" style="color:var(--red)">⚠ NOT IN ITEM MASTER — add these to Item Master</td></tr>`+erows; }
   const ftab=(id,lbl)=>`<div class="tab ${lrFilter===id?'active':''}" onclick="lrFilter='${id}';route()">${lbl}</div>`;
   const lay=pageLay('liquorroom');
   const defCard=`<div class="card"><div class="table-wrap" style="max-height:600px;overflow-y:auto"><table class="tbl rawhead">
-      <thead><tr><th>Item</th><th class="right" style="width:84px">Landing ₹</th><th class="right" style="width:96px">Opening</th><th class="right" style="width:90px">Received</th><th class="right" style="width:90px">Issued</th><th class="right" style="width:90px">Closing</th><th style="width:86px">Status</th></tr></thead>
+      <thead><tr><th>Item</th><th class="right nowrap" style="width:112px">Landing ₹/bot</th><th class="right" style="width:96px">Opening</th><th class="right" style="width:90px">Received</th><th class="right" style="width:90px">Issued</th><th class="right" style="width:96px">Closing</th><th class="right" style="width:112px">Value ₹</th><th style="width:86px">Status</th></tr></thead>
       <tbody>${body}</tbody></table></div></div>`;
   let bodyHtml;
   if(lay==='def') bodyHtml=defCard;
@@ -1098,12 +1102,20 @@ VIEWS.liquorroom = () => {
       <select class="input" style="width:auto;padding:5px 8px;font-size:12px;margin-left:10px" title="Blank / zero filter" onchange="lrBlank=this.value;route()">
         ${[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']].map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
       </select></div>
-    <div class="stat-strip" style="margin-bottom:16px">
-      <div class="s"><div class="l">Total Opening</div><div class="v">${fmt(tOpen)}</div><div class="muted" style="font-size:10.5px;margin-top:2px">₹ ${fmt(tValO)}</div></div>
-      <div class="s"><div class="l">Total Received</div><div class="v" style="color:var(--green)">+${fmt(tRecv)}</div><div class="muted" style="font-size:10.5px;margin-top:2px">₹ ${fmt(tValR)}</div></div>
-      <div class="s"><div class="l">Total Issued</div><div class="v" style="color:var(--red)">−${fmt(tIss)}</div><div class="muted" style="font-size:10.5px;margin-top:2px">₹ ${fmt(tValI)}</div></div>
-      <div class="s"><div class="l">Total Closing (stock)</div><div class="v gold">${fmt(tClose)}</div><div class="muted" style="font-size:10.5px;margin-top:2px">₹ ${fmt(tVal)}</div></div>
-      <div class="s"><div class="l">Closing Value</div><div class="v gold">₹ ${fmt(tVal)}</div></div>
+    <div class="card lrflow">
+      <div class="lrf-head"><div class="t">Liquor Room</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
+      <div class="lrf-body">
+        <div class="lrf-steps">
+          <div class="st op"><div class="ic">🏛️</div><div class="l">Opening</div><div class="v">${fmt(tOpen)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tValO))}</div></div>
+          <div class="arr">+</div>
+          <div class="st rv"><div class="ic">📦</div><div class="l">Received</div><div class="v">${fmt(tRecv)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tValR))}</div></div>
+          <div class="arr">−</div>
+          <div class="st is"><div class="ic">🍸</div><div class="l">Issued to Bar</div><div class="v">${fmt(tIss)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tValI))}</div></div>
+          <div class="arr">=</div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Closing Stock</div><div class="v">${fmt(tClose)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tVal))}</div></div>
+        </div>
+        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${groups.reduce((a,g)=>a+g.items.filter(r=>{const v=calc(r.item);return pass(v.cl)&&passB(v)&&v.cl!==0;}).length,0)} items</div></div></div></div>
+      </div>
     </div>
     ${lrRoyal}
     <div class="card noprint" style="margin-bottom:12px;border-color:var(--gold-dim)"><div class="card-body" style="padding:12px 14px">
