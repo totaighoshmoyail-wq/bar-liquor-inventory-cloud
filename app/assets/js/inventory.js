@@ -235,16 +235,28 @@ function rvGrpToggle(g){ rvGrpOpen=(rvGrpOpen===g?'':g); route(); }
 // Landing rate per bottle (what you actually PAY — from the BEVCO invoice).
 // Falls back to MRP when no landing rate is known yet, so older entries keep showing values.
 function landOf(name){ const v=invGet(name).land; if(v!=null&&v!=='') return +v||0; return +invGet(name).mrp||0; }
+/* A purchase entry carries ITS OWN landing rate (`land`, set by the BEVCO import from that invoice's own
+   fee share) — the item-level `land` is only the CURRENT rate used to value stock. Before v2.34.1 every
+   entry was valued at the item's latest rate, so an item bought in several invoices at slightly different
+   landed rates (SPF / round-off differ per invoice) made the Purchase total drift from the invoices'
+   own totals (+₹11,240 on the client's 18 September invoices). Entries without their own rate
+   (manual / Excel) still fall back to the item rate. */
+function recvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):landOf(r?r.item:''); }
+function recvVal(r){ return fnum(r&&r.qty)*recvLand(r); }
+function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return; const n=fnum(v);
+  if(v===''||v==null){ delete r.land; } else r.land=n;
+  bsv('recv',receivedStock); if(n>0) invSet(r.item,'land',n);   // a corrected purchase rate is also the item's current rate
+  route(); }
 VIEWS.received = () => {
   const total=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
-  const totalVal=receivedStock.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);   // LANDING value = the main amount
+  const totalVal=receivedStock.reduce((a,r)=>a+recvVal(r),0);   // LANDING value = the main amount (each entry at its own invoice rate)
   const unmatched=receivedStock.filter(r=>!inRaw(r.item)).length;
   const rows=receivedStock.map((r,i)=>({r,i})).filter(x=>{ const ok=inRaw(x.r.item);
     if(iq.rv && !norm(x.r.item).includes(norm(iq.rv))) return false;
     return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok); });
   // one sheet row — same figures as before (qty, MRP, landing ₹/bot, qty × landing), royal styling only
   const rowHtml=({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
-    const q=fnum(r.qty), val=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty);
+    const q=fnum(r.qty), val=recvVal(r), qd=Number.isInteger(q)?fmt(q):String(r.qty); const eland=recvLand(r);
     return `<tr class="${ok?'':'row-alert'}">
       <td class="nowrap">${r.date||'—'}</td>
       <td title="${esc(r.inv||'')}">${r.inv?`<span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:'<span class="muted">—</span>'}</td>
@@ -252,7 +264,7 @@ VIEWS.received = () => {
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
       <td class="num"><span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span></td>
       <td class="num"><input class="cell-input" style="width:60px" value="${mrp!=null?mrp:''}" placeholder="₹" title="MRP (₹) — printed on the bottle / invoice" onchange='invSet(${JSON.stringify(r.item)},"mrp",this.value);route()'></td>
-      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (what you pay — auto-set by BEVCO invoice)" onchange='invSet(${JSON.stringify(r.item)},"land",this.value);route()'></td>
+      <td class="num"><input class="cell-input lrland" value="${eland||''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle for THIS entry (set by its BEVCO invoice, fees included) — editing also makes it the item's current rate" onchange="recvSetLand(${i},this.value)"></td>
       <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
       <td class="right nowrap">${ok?'':`<button class="btn btn-gold btn-sm" onclick='openAddToRaw(${JSON.stringify(r.item)})'>＋ Item Master</button> `}<button class="btn btn-danger btn-sm" onclick="delRecv(${i})">✕</button></td></tr>`; };
   // the sheet reads like a purchase register: entries grouped under their invoice (first-seen order = import order),
@@ -262,7 +274,7 @@ VIEWS.received = () => {
   rows.forEach(x=>{ const k=x.r.inv?String(x.r.inv):''; if(rvIx[k]==null){ rvIx[k]=rvGroups.length; rvGroups.push({k,items:[]}); } rvGroups[rvIx[k]].items.push(x); });
   const flat = rvGroups.length===1 && rvGroups[0].k==='';
   const body=rvGroups.map(g=>{
-    const its=g.items, gQ=its.reduce((a,x)=>a+fnum(x.r.qty),0), gV=its.reduce((a,x)=>a+fnum(x.r.qty)*landOf(x.r.item),0);
+    const its=g.items, gQ=its.reduce((a,x)=>a+fnum(x.r.qty),0), gV=its.reduce((a,x)=>a+recvVal(x.r),0);
     const d0=its[0].r.date||'';
     const head=flat?'':`<tr class="grp-row lrgrp"><td colspan="9"><span class="g">${g.k?'🧾 Invoice '+esc(g.k):'✍️ Manual · Excel entries'}</span><span class="n">${d0?esc(d0)+' · ':''}${its.length} item${its.length===1?'':'s'}</span></td></tr>`;
     const sub=flat?'':`<tr class="lrsub"><td colspan="4" class="right"><strong>${g.k?esc(String(g.k).split('/').slice(-3).join('/')):'Manual · Excel'} — TOTAL</strong></td>
@@ -271,13 +283,13 @@ VIEWS.received = () => {
     return head+its.map(rowHtml).join('')+sub;
   }).join('')
     || '<tr><td colspan="9" class="center muted" style="padding:24px">Nothing here yet — upload a 🧾 BEVCO invoice, the liquor-receive Excel, or ＋ Add an entry.</td></tr>';
-  const shownVal=rows.reduce((a,x)=>a+fnum(x.r.qty)*landOf(x.r.item),0);
+  const shownVal=rows.reduce((a,x)=>a+recvVal(x.r),0);
   const ft=(id,l)=>`<div class="tab ${recvFilter===id?'active':''}" onclick="recvFilter='${id}';route()">${l}</div>`;
   // ---- Royal looks (charts driven by the same real data) ----
   const look=pref.recvLook||'def';
   const SER="font-family:Georgia,'Times New Roman',serif";
   const byGroup={}, byDay={}; let mVal=0;
-  receivedStock.forEach(r=>{ const ok=inRaw(r.item); const v=fnum(r.qty)*landOf(r.item);
+  receivedStock.forEach(r=>{ const ok=inRaw(r.item); const v=recvVal(r);
     const g=ok?findRaw(r.item).group:'⚠ unmatched'; byGroup[g]=(byGroup[g]||0)+v;
     const d=r.date||'—'; byDay[d]=(byDay[d]||0)+v; if(ok) mVal+=v; });
   const gTop=Object.entries(byGroup).sort((a,b)=>b[1]-a[1]);
@@ -294,7 +306,7 @@ VIEWS.received = () => {
       <div class="flex between items-center" style="padding:5px 0;cursor:pointer;gap:8px" onclick='rvGrpToggle(${jatt(g)})'>
         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12px"><span class="muted">${open?'▾':'▸'}</span> <strong>${esc(g)}</strong> <span class="muted" style="font-size:10.5px">· ${its.length} entr${its.length===1?'y':'ies'}</span></span>
         <strong class="gold" style="font-size:12px">₹ ${fmt(val)}</strong></div>
-      ${open?its.map(r=>`<div class="flex between" style="padding:3px 0 3px 18px;font-size:11.5px;color:var(--text-muted);gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${r.item} <span style="font-size:10px">· ${r.date||'—'}</span></span><span class="nowrap">${fmt(r.qty)} × ₹${fmt(landOf(r.item))} = <strong class="gold">₹ ${fmt(Math.round(fnum(r.qty)*landOf(r.item)))}</strong></span></div>`).join(''):''}
+      ${open?its.map(r=>`<div class="flex between" style="padding:3px 0 3px 18px;font-size:11.5px;color:var(--text-muted);gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${r.item} <span style="font-size:10px">· ${r.date||'—'}</span></span><span class="nowrap">${fmt(r.qty)} × ₹${fmt(recvLand(r))} = <strong class="gold">₹ ${fmt(Math.round(recvVal(r)))}</strong></span></div>`).join(''):''}
     </div>`; }).join('')||'<span class="muted" style="font-size:12px">no entries</span>';
   let royalHtml='';
   if(look==='donut'){
@@ -376,7 +388,7 @@ function setRecvLook(v){ pref.recvLook=v; bsv('pref',pref); route(); }
 AFTER.received = () => {
   if(typeof Chart==='undefined') return;
   const byGroup={}, byDay={}; let mVal=0, tVal=0, mQty=0, uQty=0;
-  receivedStock.forEach(r=>{ const ok=inRaw(r.item); const v=fnum(r.qty)*landOf(r.item);
+  receivedStock.forEach(r=>{ const ok=inRaw(r.item); const v=recvVal(r);
     const g=ok?findRaw(r.item).group:'⚠ unmatched'; byGroup[g]=(byGroup[g]||0)+v;
     const d=r.date||'—'; byDay[d]=(byDay[d]||0)+v; tVal+=v;
     if(ok){ mVal+=v; mQty+=fnum(r.qty); } else uQty+=fnum(r.qty); });
@@ -1613,7 +1625,7 @@ function reportAoa(id){
   if(id==='recv'){ const a=meta(['Date','Item','Group','Qty','Landing ₹/bot','Value ₹','Invoice']);
     let tq=0,tv=0;
     receivedStock.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{
-      const m=landOf(r.item), q=fnum(r.qty), v=q*m; tq+=q; tv+=v;
+      const m=recvLand(r), q=fnum(r.qty), v=q*m; tq+=q; tv+=v;
       a.push([r.date,r.item,r.group||'',q,m||'',Math.round(v),r.inv?String(r.inv).split('/').slice(-3).join('/'):'']); });
     a.push(['TOTAL','','',tq,'',Math.round(tv),'']); return a; }
   if(id==='mrd'){ const a=meta(['Date','Item','Group','Qty Issued']);
@@ -2141,7 +2153,7 @@ function asstAnswer(q){
     }
     if(has('purchase','received','invoice','কেনা','রিসিভ')){
       const tq=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
-      const tv=receivedStock.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
+      const tv=receivedStock.reduce((a,r)=>a+recvVal(r),0);
       const inv=(typeof invoices!=='undefined')?invoices.length:0;
       const last=receivedStock.slice().sort((x,y)=>String(y.date).localeCompare(String(x.date)))[0];
       return `<b>📦 Purchases (this period)</b>`+asstRows([['Entries · bottles', fmt(receivedStock.length)+' · '+fmt(tq)],['Landing amount','₹ '+fmt(R2(tv))],['BEVCO invoices', fmt(inv)]])+(last?`<div class="ar"><span>Last receive — ${esc(last.item)}</span><b>${esc(last.date||'')}</b></div>`:'');
@@ -2879,7 +2891,8 @@ function bevcoConfirm(){
       const gsel=$('#bevGrp'+i); const group=((gsel&&gsel.value.trim())||bevcoGuessGroup(x.name)||'BEVCO IMPORT');
       rawData.push({item:mapped, group}); rebuildRawIdx(); rawAdded++; newNames.push(mapped); }
     const g=findRawExact(mapped);
-    receivedStock.push({date:inv.date||new Date().toISOString().slice(0,10), item:mapped, qty:qty, group:g?g.group:'', inv:inv.no||''});
+    const landE=Math.round(x.amount*factor/(x.bots||1)*10000)/10000;   // this line's landed rate, fee share included
+    receivedStock.push({date:inv.date||new Date().toISOString().slice(0,10), item:mapped, qty:qty, group:g?g.group:'', inv:inv.no||'', land:landE});
     invSet(mapped,'mrp',x.mrp);                                                  // price → the ONE key every page reads (Item Master · Liquor Room · Purchase · Beverage Control)
     invSet(mapped,'land', Math.round(x.amount*factor/(x.bots||1)*100)/100);     // landing ₹/bottle incl. fee share
     added++;
@@ -2929,3 +2942,24 @@ function bevcoList(){
     <div class="flex between" style="border-top:1px solid var(--gold-dim);margin-top:8px;padding-top:8px"><strong>Total purchases (landing)</strong><strong class="gold" style="font-size:15px">₹ ${fmt(tot)}</strong></div>`,
     `<button class="btn" onclick="closeModal()">Close</button>`);
 }
+
+/* ---- one-time heal (v2.34.1): purchase entries imported from BEVCO before entries carried their own landing
+   rate get it back from the invoice register — the same invoice line, the same fee share — so the Purchase
+   total equals the invoices' own totals again. Direct localStorage write (load time), no push needed: every
+   device heals its own copy identically. Entries whose invoice line cannot be found are left as they are. */
+(function(){ try{
+  if(typeof invoices==='undefined' || !Array.isArray(receivedStock)) return;
+  let changed=0;
+  receivedStock.forEach(r=>{
+    if(!r || !r.inv || (r.land!=null && r.land!=='')) return;
+    const v=invoices.find(x=>String(x.no)===String(r.inv)); if(!v||!v.items) return;
+    const grand=(v.fees&&v.fees.total)||(v.calc&&v.calc.total)||0, base=(v.calc&&v.calc.base)||0;
+    const factor=(base>0&&grand>0)?grand/base:1;
+    const want=norm(r.item);
+    const hits=v.items.filter(x=>{ const m=bevMap[norm(x.name)]; return (m&&norm(m)===want) || norm(bevcoCleanName(x.name))===want || norm(x.name)===want; });
+    if(hits.length!==1) return;
+    const x=hits[0]; if(!(x.bots>0)) return;
+    r.land=Math.round(x.amount*factor/x.bots*10000)/10000; changed++;
+  });
+  if(changed){ localStorage.setItem(CO_PREFIX+'recv', JSON.stringify(receivedStock)); }
+}catch(e){} })();
