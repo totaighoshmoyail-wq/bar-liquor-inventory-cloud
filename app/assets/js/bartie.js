@@ -6,9 +6,11 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.33.2';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.34.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
+// which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
+const IS_WEB = (location.protocol!=='file:');
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -86,6 +88,7 @@ function _coSubKeys(){ // this company's storage sub-keys (main prefix shares tg
     // `cloud` (url+key) and `cloudsess` (the signed-in ACCESS TOKEN) are global, not
     // per-company — and pushing cloudsess would publish a usable write token into a row
     // that anyone holding the anon key can read. Never include them in a backup or push.
+    if(/^(cloudmeta|cloudbase)$/.test(sub)) continue;   // this device's own sync bookkeeping — never company data (v2.34.0)
     if(CO_PREFIX==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$|ai$|lastUser$)/.test(sub)) continue;
     out.push(sub); }
   return out;
@@ -250,14 +253,57 @@ async function cloudLogin(){
 function cloudSignOut(){ try{ localStorage.removeItem('tg2_cloudsess'); }catch(e){} toast('Signed out','Cloud writing is now locked','ok'); route(); }
 function _cloudBase(){ return cloudCfg().url.replace(/\/+$/,'')+'/rest/v1/blis_sync'; }
 function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudmeta')||'{}'); }catch(e){ return {}; } }
-// force=true (Settings → "Replace the cloud copy") skips the cloud-is-newer guard: the deliberate way out
-// when THIS device holds the real figures and the cloud holds an older/emptier copy that Pull would bury them under
+/* ---- Merge sync (v2.34.0) ----
+   The client's rule: "work in ONE place and it must be in BOTH". Until now a push replaced the whole
+   company copy, so when both sides had edits the app could only refuse and ask. Now a push MERGES:
+   the cloud's copy is the base, every sheet edited on this device (cloudmeta.dirtyKeys) is laid on
+   top, and the append-style sheets — Purchase, Bar Stock Issue, the invoice register — are merged
+   entry by entry (cloud's list − what this device deleted + what this device added), the same
+   three-way merge the Backend Console has used since v2.21.0. The write is conditional on the
+   cloud's updated_at, so two devices saving at the same moment cannot bury each other: the loser
+   simply merges again. Afterwards the other side's sheets are laid into THIS device and the page
+   reloads as soon as the person is idle. */
+const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1};
+function _cloudBaseGet(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudbase')||'{}')||{}; }catch(e){ return {}; } }
+function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).forEach(k=>{ if(data&&data[k]!=null) b[k]=data[k]; });
+  try{ localStorage.setItem(CO_PREFIX+'cloudbase', JSON.stringify(b)); }catch(e){} }
+function _cloudParseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+/* identity of one entry — content based, since rows carry no id (an invoice-register row has its number) */
+function _cloudEntryKey(e){ if(!e||typeof e!=='object') return String(e); if(e.no!=null) return 'no:'+String(e.no);
+  return [e.date,e.item,e.group,e.qty,e.inv].map(x=>x==null?'':String(x)).join(''); }
+function cloudMergeList(serverStr, baseStr, mineStr){
+  const server=_cloudParseArr(serverStr), base=_cloudParseArr(baseStr), mine=_cloudParseArr(mineStr);
+  const baseSet={}; base.forEach(e=>{ baseSet[_cloudEntryKey(e)]=1; });
+  const mineSet={}; mine.forEach(e=>{ mineSet[_cloudEntryKey(e)]=1; });
+  const iRemoved={}; base.forEach(e=>{ const k=_cloudEntryKey(e); if(!mineSet[k]) iRemoved[k]=1; });
+  const out=[], seen={};
+  server.forEach(e=>{ const k=_cloudEntryKey(e); if(iRemoved[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  mine.forEach(e=>{ const k=_cloudEntryKey(e); if(baseSet[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  return JSON.stringify(out);
+}
+/* lay a merged copy into this device: only keys that differ; returns true when memory is now stale */
+function _cloudApplyLocal(data, skip){
+  let changed=false;
+  Object.keys(data||{}).forEach(k=>{ if(skip&&skip[k]) return; const v=data[k]; if(typeof v!=='string') return;
+    if(/^(cloudmeta|cloudbase|cloud|cloudsess|ai|lastUser|companies|activeCo|logo|sysname|sysaddr|loginDesign|smsgw)$/.test(k)) return;   // device/global keys never come from the cloud
+    if(localStorage.getItem(CO_PREFIX+k)!==v){ try{ localStorage.setItem(CO_PREFIX+k, v); changed=true; }catch(e){} } });
+  return changed;
+}
+function _cloudReloadWhenIdle(){
+  try{ sessionStorage.setItem('tg2_merged','1'); }catch(e){}
+  if(_cloudIdle()){ location.reload(); return; }
+  try{ sessionStorage.setItem('tg2_needReload','1'); }catch(e){}
+}
+// force=true (Settings → "Replace the cloud copy") skips the merge: this device's copy becomes the cloud's,
+// whatever the cloud holds — the way out when the cloud copy is an old or empty one
 async function cloudPush(silent, force){
   if(!cloudOn()){ if(!silent) toast('Not set up','Enter the cloud URL and key first','err'); return false; }
   const _kp=cloudKeyProblem(cloudCfg().key);
   if(_kp){ if(!silent){ _cldSay('❌ The saved key is not usable — '+_kp+'.'); toast('Bad key',_kp,'err'); } return false; }
   if(!cloudSignedIn() || !(await cloudEnsureSession())){
-    if(!silent) toast('Sign in first','Writing to the cloud needs your email + password (below)','err'); return false; }
+    if(!silent) toast('Sign in first','Writing to the cloud needs your email + password (below)','err');
+    else if(cloudLive()) { try{ cloudSignBanner(); }catch(e){} }     // automatic push blocked — the person must know (v2.34.0)
+    return false; }
   const co=(coList().find(c=>c.id===ACTIVE_CO)||{}).name||ACTIVE_CO;
   const keys={}; _coSubKeys().forEach(sub=>{ keys[sub]=localStorage.getItem(CO_PREFIX+sub); });
   /* A key that was never edited is still sitting on its seed defaults — it exists in
@@ -272,30 +318,55 @@ async function cloudPush(silent, force){
     try{ const v=_live[k](); if(v!=null) keys[k]=JSON.stringify(v); }catch(e){}
   });
   try{
-    /* A push replaces the whole company copy, so it must not silently bury work that
-       someone else saved after we last synced. Look at what is in the cloud now: if it
-       moved on since our last Pull/Push, stop and tell the user to Pull first. */
-    const seen=(_cloudMeta().cloudAt||null);
-    const cur=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
-    if(cur.ok){
-      const rows=await cur.json().catch(()=>[]);
+    const meta=_cloudMeta(), seen=(meta.cloudAt||null), dk=(meta.dirtyKeys||[]);
+    let done=false, mergedNote='', stale=false;
+    for(let attempt=0; attempt<4 && !done; attempt++){
+      /* what is in the cloud now? */
+      const cur=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
+      const rows=cur.ok?await cur.json().catch(()=>[]):[];
       const theirs=(rows[0]||{}).updated_at||null;
-      if(theirs && seen && theirs!==seen && !force){
-        const when=new Date(theirs).toLocaleString();
-        if(!silent){
-          _cldSay('⚠️ Someone else saved to the cloud at '+esc(when)+'. Press ⬇ Pull from cloud first, then Push — otherwise their work would be replaced.'
-            +'<br>If <strong>this device</strong> has the right figures and the cloud copy is the old/empty one, use <strong>⬆ Replace the cloud copy</strong> instead.', true);
-          toast('Cloud is newer','Pull first, then Push — or Replace the cloud copy','err');
+      const stamp=new Date().toISOString();
+      let payload=keys;
+      if(theirs && theirs!==seen && !force){
+        /* the cloud moved on since this device last synced → merge instead of replace */
+        if(meta.dirty && !dk.length){          // legacy dirty flag with no key list (pre-2.34 device): cannot tell what changed here
+          if(!silent){ _cldSay('⚠️ Someone else saved to the cloud at '+esc(new Date(theirs).toLocaleString())+' and this device cannot tell which sheets it changed. Press ⬇ Pull from cloud (this device\'s edits are replaced) or ⬆ Replace the cloud copy (the cloud is replaced).', true);
+            toast('Cloud is newer','Pull, or Replace the cloud copy','err'); }
+          return false; }
+        const rr=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=data',{headers:_cloudHead()});
+        const rrows=rr.ok?await rr.json().catch(()=>[]):[]; const cloud=(rrows[0]||{}).data||null;
+        if(cloud){
+          const baseSnap=_cloudBaseGet(), dset={}; dk.forEach(k=>{ dset[k]=1; });
+          const merged=Object.assign({},cloud);
+          Object.keys(keys).forEach(k=>{
+            if(dset[k]) merged[k]=CLOUD_LISTKEYS[k]?cloudMergeList(cloud[k],baseSnap[k],keys[k]):keys[k];   // my sheet · my entries + theirs
+            else if(merged[k]==null) merged[k]=keys[k];                                                    // the cloud never had it
+          });
+          payload=merged;
+          /* conditional write — if anyone saved in the gap, PostgREST matches no row and we merge again */
+          const p=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&updated_at=eq.'+encodeURIComponent(theirs),
+            {method:'PATCH',headers:{..._cloudWriteHead(),'Prefer':'return=representation'},body:JSON.stringify({co:co, data:payload, updated_at:stamp})});
+          if(!p.ok){ const t=await p.text().catch(()=>''); throw new Error('HTTP '+p.status+(t?' · '+t.slice(0,120):'')); }
+          const back=await p.json().catch(()=>[]);
+          if(!back.length) continue;                 // the row moved under us — loop and merge onto the newer copy
+          /* their sheets come down to this device now: untouched keys wholesale, merged lists as merged */
+          stale=_cloudApplyLocal(payload, null);
+          try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false, dirtyKeys:[]})); }catch(e){}
+          _cloudBaseSave(payload);
+          mergedNote=' · merged with the other side\'s changes';
+          done=true; break;
         }
-        return false;
       }
+      const r=await fetch(_cloudBase(),{method:'POST',headers:{..._cloudWriteHead(),'Prefer':'resolution=merge-duplicates'},
+        body:JSON.stringify([{id:ACTIVE_CO, co:co, data:payload, updated_at:stamp}])});
+      if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+(t?' · '+t.slice(0,120):'')); }
+      try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false, dirtyKeys:[]})); }catch(e){}
+      _cloudBaseSave(payload);
+      done=true;
     }
-    const stamp=new Date().toISOString();
-    const r=await fetch(_cloudBase(),{method:'POST',headers:{..._cloudWriteHead(),'Prefer':'resolution=merge-duplicates'},
-      body:JSON.stringify([{id:ACTIVE_CO, co:co, data:keys, updated_at:stamp}])});
-    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+(t?' · '+t.slice(0,120):'')); }
-    try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false})); }catch(e){}
-    if(!silent){ toast('Cloud saved','Company data pushed to the cloud','ok'); if(location.hash==='#settings') route(); }
+    if(!done) throw new Error('the cloud kept changing while saving — try again');
+    if(!silent){ toast('Cloud saved','Company data pushed to the cloud'+mergedNote,'ok'); if(location.hash==='#settings') route(); }
+    if(stale) _cloudReloadWhenIdle();
     return true;
   }catch(e){
     if(!silent){
@@ -332,7 +403,8 @@ async function cloudPull(){
         Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
         /* remember WHICH cloud version we now hold, so a later Push can tell whether
            anyone else has saved in the meantime */
-        localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false}));
+        localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false, dirtyKeys:[]}));
+        _cloudBaseSave(row.data);
       }catch(e){ toast('Restore failed','Storage error','err'); return; }
       location.reload();
     });
@@ -396,7 +468,8 @@ function cloudMark(k){
      ||k==='inv'||k==='mr'||k==='recv'||k==='rawdata2'||k==='period'||k==='cfg'||k==='users'
      ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k.indexOf('inv2_')===0)) return;
   if(!cloudOn()) return;
-  _cloudSetMeta({dirty:true});                       // survives a reload
+  { const m=_cloudMeta(); const dk=Array.isArray(m.dirtyKeys)?m.dirtyKeys.slice():[]; if(dk.indexOf(k)<0) dk.push(k);
+    _cloudSetMeta({dirty:true, dirtyKeys:dk}); }        // survives a reload; the key list is what lets a push MERGE (v2.34.0)
   try{ sbFill(); }catch(e){}
   if(!cloudLive()) return;
   if(_cloudTimer) clearTimeout(_cloudTimer);
@@ -427,11 +500,24 @@ function cloudBanner(stamp, clash){
   let b=document.getElementById('cloudNew');
   if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
   b.innerHTML='<span class="cn-i">'+(clash?'&#9888;&#65039;':'&#9729;&#65039;')+'</span>'
-    +'<div class="cn-t"><b>'+(clash?'Both sides have changes':'Newer data is in the cloud')+'</b>'
+    +'<div class="cn-t"><b>'+(clash?'This device could not send its work up':'Newer data is in the cloud')+'</b>'
     +'<span>'+(clash
-        ? 'Saved elsewhere '+esc(_agoTxt(stamp))+' — and this device has edits that have not gone up yet. Bringing it in would replace them.'
+        ? 'The cloud was saved '+esc(_agoTxt(stamp))+' and this device has edits waiting. They merge on their own once the cloud sign-in works — open Cloud Sync and sign in. Bringing it in now would replace this device’s edits.'
         : 'Saved '+esc(_agoTxt(stamp))+' — from the website, the backend or another device')+'</span></div>'
-    +'<button class="btn btn-gold btn-sm" onclick="cloudPullNow()">&#11015; Bring it in</button>'
+    +(clash?'<button class="btn btn-gold btn-sm" onclick="cloudBannerHide();location.hash=\'#settings\';setTimeout(function(){ try{ setSetTab(\'cloud\'); }catch(e){} },50)">&#128273; Cloud Sync</button>':'')
+    +'<button class="btn btn-sm'+(clash?'':' btn-gold')+'" onclick="cloudPullNow()">&#11015; Bring it in</button>'
+    +'<button class="cn-x" title="Not now" onclick="cloudBannerHide()">&#10005;</button>';
+  b.classList.add('on');
+}
+/* a silent (automatic) push that cannot go up because nobody is signed in — say so once, loudly enough */
+var _cloudSignSaid=false;
+function cloudSignBanner(){
+  if(_cloudSignSaid) return; _cloudSignSaid=true;
+  let b=document.getElementById('cloudNew');
+  if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
+  b.innerHTML='<span class="cn-i">&#128273;</span><div class="cn-t"><b>Cloud sign-in needed</b>'
+    +'<span>Your work is being kept on this device only — it will not reach the website until you sign in to the cloud.</span></div>'
+    +'<button class="btn btn-gold btn-sm" onclick="cloudBannerHide();location.hash=\'#settings\';setTimeout(function(){ try{ setSetTab(\'cloud\'); }catch(e){} },50)">&#128273; Sign in</button>'
     +'<button class="cn-x" title="Not now" onclick="cloudBannerHide()">&#10005;</button>';
   b.classList.add('on');
 }
@@ -447,7 +533,8 @@ async function cloudPullAuto(){
     if(!row||!row.data) return false;
     _coSubKeys().forEach(sub=>localStorage.removeItem(CO_PREFIX+sub));
     Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
-    localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false}));
+    localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false, dirtyKeys:[]}));
+    _cloudBaseSave(row.data);
     try{ sessionStorage.setItem('tg2_autopulled','1'); }catch(e){}
     location.reload();
     return true;
@@ -455,6 +542,7 @@ async function cloudPullAuto(){
 }
 async function cloudCheck(){
   if(!cloudOn()) return;
+  try{ if(sessionStorage.getItem('tg2_needReload') && _cloudIdle()){ sessionStorage.removeItem('tg2_needReload'); location.reload(); return; } }catch(e){}
   try{
     const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
     if(!r.ok) return;
@@ -463,8 +551,9 @@ async function cloudCheck(){
     const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
     // 2 minutes of slack so this device's own push never trips its own alarm
     if(!(cloudT>localT+120000)) return;
-    if(cloudDirty()){                                   // cannot merge — must ask
-      if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,true); }
+    if(cloudDirty()){                                   // both sides changed → a push now MERGES (v2.34.0)
+      if(cloudLive() && cloudSignedIn()){ if(_cloudTimer){ clearTimeout(_cloudTimer); _cloudTimer=null; } const ok=await cloudPush(true); if(ok){ try{ sbFill(); }catch(e){} return; } }
+      if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,true); }   // could not go up (signed out / no connection) — ask
       return;
     }
     if(cloudLive() && _cloudIdle()){ await cloudPullAuto(); return; }
@@ -475,6 +564,8 @@ function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT); _cloudWatch
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{
   try{ if(sessionStorage.getItem('tg2_autopulled')){ sessionStorage.removeItem('tg2_autopulled');
     toast('Up to date','Brought in the newest data from the cloud','ok'); } }catch(e){}
+  try{ if(sessionStorage.getItem('tg2_merged')){ sessionStorage.removeItem('tg2_merged'); sessionStorage.removeItem('tg2_needReload');
+    toast('Merged','Your edits went up and the other side’s changes came down — both are here now','ok'); } }catch(e){}
   cloudCheck(); cloudWatch();
 },2500); });
 
@@ -947,6 +1038,8 @@ const TITLES = {
 };
 
 function boot(){ if(!location.hash) location.hash='#dashboard'; applyAppearance();
+  document.body.classList.add(IS_WEB?'env-web':'env-pc');
+  try{ document.title=(cfg.company||'Bar Liquor Inventory')+' — '+(IS_WEB?'Website':'Desktop'); }catch(e){}
   try{ const su=JSON.parse(sessionStorage.getItem('tg2_user')||'null');
     if(su&&su.role==='manager') document.body.classList.add('r-mgr');
     if(su&&su.role==='staff')   document.body.classList.add('r-staff'); }catch(e){}
@@ -960,7 +1053,7 @@ function renderShell(){
   `).join('');
   $('#app').innerHTML = `
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><div class="logo">${cfg.logo?`<img src="${cfg.logo}">`:'🍾'}</div><div class="name">${esc(cfg.company)}<span>${esc(cfg.subtitle||'')}</span></div></div>
+      <div class="brand"><div class="logo">${cfg.logo?`<img src="${cfg.logo}">`:'🍾'}</div><div class="name">${esc(cfg.company)}<span>${esc(cfg.subtitle||'')}</span><b class="envtag ${IS_WEB?'web':'pc'}" title="${IS_WEB?'You are on the WEBSITE (cloud copy)':'You are in the DESKTOP app on this computer'}">${IS_WEB?'🌐 Website':'🖥️ Desktop'}</b></div></div>
       <nav class="nav">${nav}</nav>
       <div class="sidebar-foot">
         <div class="user-chip" data-nav="settings"><div class="avatar">${cfg.photo?`<img src="${cfg.photo}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`:initials(cfg.admin)}</div><div class="meta">${esc(cfg.admin)}<span>Administrator</span></div></div>

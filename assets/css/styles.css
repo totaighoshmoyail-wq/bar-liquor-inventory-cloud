@@ -1632,3 +1632,12 @@ body.r-staff .btn-danger { display:none !important; }
 .cell-input.bmap{min-width:200px}
 .cell-input.bmap-guess{border-color:var(--amber);background:var(--amber-dim);color:var(--text)}
 .cell-input.bmap-new{border-color:var(--red);background:var(--red-dim)}
+
+/* ---- which copy is this? (v2.34.0) — the desktop app and the website look identical by design, so a pill
+   under the company name says it in words: 🖥️ Desktop (green) vs 🌐 Website (gold) ---- */
+.brand .name .envtag{display:inline-block;margin-top:5px;font-size:8.5px;letter-spacing:1.8px;text-transform:uppercase;font-weight:700;
+  padding:2px 8px;border-radius:999px;border:1px solid var(--border-soft);color:var(--text-dim);font-family:'Inter',sans-serif}
+.brand .name .envtag.web{border-color:var(--gold);color:var(--gold);background:color-mix(in srgb,var(--gold) 12%,transparent)}
+.brand .name .envtag.pc{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
+@media print{ .brand .name .envtag{display:none} }

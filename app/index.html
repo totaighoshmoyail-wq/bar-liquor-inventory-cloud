@@ -50,6 +50,7 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
   text-shadow:0 4px 30px rgba(0,0,0,.9)}
 .gname .l2{display:block;color:#e0c078;font-size:.62em;letter-spacing:12px;margin-top:6px}
 .gtag{font-size:11px;letter-spacing:5px;color:#b6a686;margin-top:13px;text-transform:uppercase}
+.genv{display:inline-block;margin-top:10px;font-size:10px;letter-spacing:2.2px;text-transform:uppercase;font-weight:700;color:#e0c078;border:1px solid rgba(224,192,120,.6);background:rgba(224,192,120,.10);padding:4px 11px;border-radius:999px}
 .ghair{width:min(330px,68%);height:1px;margin-top:19px;position:relative;
   background:linear-gradient(90deg,transparent,#c9a45f,transparent)}
 .ghair:after{content:'\2756';position:absolute;top:-9px;left:50%;transform:translateX(-50%);color:#c9a45f;font-size:11px}
@@ -166,6 +167,7 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
     <div class="gcrest"><span class="in"></span><b>BL</b></div>
     <div class="gname">Bar Liquor<span class="l2">Inventory</span></div>
     <div class="gtag">Premium Inventory Management System</div>
+    <div class="genv" title="This is the website — the live cloud copy; the desktop app on the office computer is the other copy">&#127760; WEBSITE &middot; live cloud</div>
     <div class="ghair"></div>
     <div class="gmotto">Track. Manage. Analyze. Succeed.</div>
     <div class="gaddr">Signed-in access &middot; live cloud data</div>
@@ -389,7 +391,9 @@ $('open').addEventListener('click', async ()=>{
         localStorage.removeItem(k);
       } }
     Object.keys(d.data).forEach(sub=>localStorage.setItem(pfx+sub, d.data[sub]));
-    localStorage.setItem(pfx+'cloudmeta', JSON.stringify({push:d.updated_at, cloudAt:d.updated_at}));
+    localStorage.setItem(pfx+'cloudmeta', JSON.stringify({push:d.updated_at, cloudAt:d.updated_at, dirty:false, dirtyKeys:[]}));
+    /* base snapshot of the append-style sheets — what a later merge-push counts as 'already in the cloud' (v2.34.0) */
+    try{ const bs={}; ['recv','mr','invoices'].forEach(k=>{ if(d.data[k]!=null) bs[k]=d.data[k]; }); localStorage.setItem(pfx+'cloudbase', JSON.stringify(bs)); }catch(e){}
     localStorage.setItem('tg2_activeCo', id);   // raw string — the app reads it raw; JSON quotes made Canteen open as Traffic
     say('Opening…','ok');
     location.href='app.html';
