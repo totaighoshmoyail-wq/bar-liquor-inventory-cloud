@@ -28,9 +28,12 @@ function activeInv(){ const id=bevPageId(); if(!id) return invData;
 function activeInvSave(){ const id=bevPageId(); bsv(id?('inv2_'+id):'inv', activeInv()); }
 
 /* ---------------- master matching ---------------- */
-let _rawIdx=null;
-function rebuildRawIdx(){ _rawIdx=new Map(); rawData.forEach(r=>_rawIdx.set(norm(r.item), r)); }
+let _rawIdx=null, _rawIdxVer=0;
+function rebuildRawIdx(){ _rawIdx=new Map(); rawData.forEach(r=>_rawIdx.set(norm(r.item), r)); _rawIdxVer++; }
 rebuildRawIdx();
+// EXACT Item Master lookup (norm-equal only) — findRaw() below also has a contains-fallback, which is
+// right for matching receipts but wrong when deciding whether a BEVCO name is a NEW item (v2.33.0)
+function findRawExact(name){ if(!_rawIdx) rebuildRawIdx(); return _rawIdx.get(norm(name))||null; }
 function findRaw(name){ if(!_rawIdx) rebuildRawIdx(); const n=norm(name); if(_rawIdx.has(n)) return _rawIdx.get(n);
   // fallback: contains match (handles minor naming differences)
   return rawData.find(r=>{ const rn=norm(r.item); return rn.includes(n)||(n.length>5&&n.includes(rn)); }) || null; }
@@ -2662,14 +2665,100 @@ function bevcoParse(txt){
   if(!inv.fees.bots)     inv.fees.bots=inv.calc.bots;
   return inv;
 }
-function bevcoMapName(name){
-  const strip=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  const k=strip(name); if(!k) return '';
-  let best=''; let bestLen=0;
-  rawData.forEach(r=>{ const rk=strip(r.item);
-    if(rk===k) { best=r.item; bestLen=1e9; return; }
-    if((rk.indexOf(k)>=0||k.indexOf(rk)>=0) && rk.length>bestLen){ best=r.item; bestLen=rk.length; } });
-  return best;
+/* ---- BEVCO name ↔ Item Master smart matching (v2.33.0) ----
+   BEVCO prints the official product name ("Johnnie Walker Black Label Blended Scotch Whisky, 750 Ml.")
+   while the Item Master keeps the house short name ("J.W.BLACK LABEL 750 ML"). The old strip-fuzzy
+   matched 6 of the 64 names on the client's September invoices, so every other line had to be typed —
+   or was left blank and became a raw BEVCO-named item under "BEVCO IMPORT". This matcher tokenises
+   both sides, weights each token by how rare it is in the Item Master (IDF), tolerates spelling slips
+   (HOEGAARDEN/HOEGARDEN, SMRINOFF, CARLSBARG), refuses a different bottle size or kind of drink, and is
+   honest about confidence: sure (auto) · guess (amber — please check) · none (→ a NEW item is created). */
+const BEV_KINDS={WHISKY:'WHISKY',SCOTCH:'WHISKY',BOURBON:'WHISKY',RUM:'RUM',VODKA:'VODKA',GIN:'GIN',BEER:'BEER',LAGER:'BEER',PILSNER:'BEER',ALE:'BEER',WITBIER:'BEER',
+  WINE:'WINE',SPARKLING:'WINE',PROSECCO:'WINE',SHIRAZ:'WINE',CABERNET:'WINE',CHENIN:'WINE',CHARDONNAY:'WINE',MERLOT:'WINE',SAUVIGNON:'WINE',ZINFANDEL:'WINE',SOJU:'WINE',
+  BRANDY:'BRANDY',COGNAC:'BRANDY',TEQUILA:'LIQ',LIQUEUR:'LIQ',ABSENTA:'LIQ',ABSINTHE:'LIQ'};
+const BEV_FLUFF=new Set(['PREMIUM','LAGER','BLENDED','SCOTCH','ORIGINAL','TRIPLE','DISTILLED','FLAVOURED','FLAVOUR','FLAVOR','EXTRA','SUPER','FINEST','DELUXE','THE','SMOOTH','BALANCED','RECIPE','LIMITED','EDITION','GIFT','PACK','INTERNATIONAL','CONTEMPORARY','KENTUCKY','STRAIGHT','TENNESSEE','GRAIN','PREMIER','VATTED','VERY','ORDINARY','WORLD','CUP','FIFA','CLUB','SMALL','BATCH','AGED','OF','AND','IN','A','NEW','EXPERIMENTS','CITY','KING','BEERS','STRONG','SEMI','GERMAN','INDIAN','INDIA','IRISH','LONDON','DRY','SPARKLING','MALT','SINGLE','FIRE','TANGY','SELECT']);
+const BEV_PACK=new Set(['CAN','BOTTLE','BTL','PET','NIP','PINT','QUART','KEG','ML']);
+function bevTokens(s){
+  const u=String(s||'').toUpperCase()
+    .replace(/JOHNNIE\s+WALKER/g,'J W').replace(/\bJ\.?\s*W\.?(?=[A-Z ])/g,'J W ')
+    .replace(/WHISKEY/g,'WHISKY').replace(/\bBIER\b/g,'BEER').replace(/LIQUER\b/g,'LIQUEUR')
+    .replace(/(\d)\s*(ML)\b/g,'$1 $2').replace(/\b(\d+)\s*(YO|YRS?|YEARS?|Y)\b/g,'$1 YO')
+    .replace(/[’'\x60]/g,'').replace(/!/g,'I');
+  return u.split(/[^A-Z0-9%]+/).filter(t=>t && t.indexOf('%')<0);
+}
+function bevSize(s){ const u=String(s||'').toUpperCase(); const m=u.match(/(\d{2,5})\s*ML\b/); if(m) return +m[1]; const t=u.match(/\b(\d{3,5})\s*$/); return t?+t[1]:0; }   // "… 750 ML", or a trailing bare "… 750" (house names / typed text)
+function bevKind(toks){ for(const t of toks){ if(BEV_KINDS[t]) return BEV_KINDS[t]; } return ''; }
+function _bevLev(a,b){ if(a===b) return 0; const m=a.length,n=b.length; if(!m||!n) return m||n;
+  let prev=Array.from({length:n+1},(_,j)=>j), cur=new Array(n+1);
+  for(let i=1;i<=m;i++){ cur[0]=i; for(let j=1;j<=n;j++){ cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1)); } const t=prev; prev=cur; cur=t; }
+  return prev[n]; }
+function _bevTokEq(a,b){ if(a===b) return true; if(/^\d/.test(a)||/^\d/.test(b)) return false;
+  const L=Math.min(a.length,b.length); if(L<5) return false; const d=_bevLev(a,b); return d<=1 || (L>=7 && d<=2); }
+var _bevIdx=null, _bevIdxKey='';
+function bevIndex(){
+  const key=rawData.length+':'+_rawIdxVer;
+  if(_bevIdx && _bevIdxKey===key) return _bevIdx;
+  const df={}; const items=rawData.map(r=>{
+    const sz=bevSize(r.item)||bevSize(r.group)||0;
+    const toks=[...new Set(bevTokens(r.item).filter(t=>!BEV_PACK.has(t) && !(sz&&t===String(sz))))];
+    toks.forEach(t=>df[t]=(df[t]||0)+1);
+    let kind=bevKind(toks); if(!kind){ const gk=bevKind(bevTokens(r.group||'')); if(gk && gk!=='GIN' && gk!=='LIQ') kind=gk; }
+    return {r, toks, sz, kind}; });
+  const N=items.length; const w=t=>{ const d=df[t]||0; return d?Math.log((N+1)/(d+1))+0.15:0; };
+  _bevIdx={items, df, N, w}; _bevIdxKey=key; return _bevIdx;
+}
+// → {name, group, score, sure, alt}: name='' means "nothing close enough — treat as a new item"
+function bevcoMatch(name, opt){
+  opt=opt||{}; const ix=bevIndex(); const szReal=bevSize(name), szB=opt.ignoreSize?0:szReal;
+  const B=[...new Set(bevTokens(name).filter(t=>!BEV_PACK.has(t) && !(szReal&&t===String(szReal))))];
+  const none={name:'',group:'',score:0,sure:false,alt:'',top:null};
+  if(!B.length||!ix.N) return none;
+  const kindB=bevKind(B);
+  const scored=[];
+  ix.items.forEach(it=>{
+    if(szB && it.sz && it.sz!==szB) return;                                                // bottle size is law
+    if(kindB && it.kind && it.kind!==kindB && !(kindB==='LIQ'||it.kind==='LIQ')) return;   // whisky is not gin
+    let cw=0,cm=0, distinct=false, missDistinct=false;
+    it.toks.forEach(t=>{ const wt=ix.w(t); cw+=wt; const hit=B.some(b=>_bevTokEq(t,b)); const rare=(ix.df[t]||0)<=ix.N/10 && !BEV_KINDS[t];
+      if(hit){ cm+=wt; if(rare) distinct=true; } else if(rare) missDistinct=true; });
+    if(!cw||!distinct) return;
+    const recall=cm/cw;                                                                     // how much of the house name the BEVCO name explains
+    let bw=0,bm=0; B.forEach(b=>{ if(BEV_FLUFF.has(b)) return; const wt=ix.w(b); if(!wt) return; bw+=wt; if(it.toks.some(t=>_bevTokEq(t,b))) bm+=wt; });
+    const cover=bw?bm/bw:recall;                                                            // how much of the BEVCO name the house name explains
+    let s=0.65*recall+0.35*cover; if(szB && !it.sz) s*=0.95; if(missDistinct) s*=0.8;      // a sibling variant (WHITE vs LEMON) is not a match
+    if(recall>=0.5) scored.push({it,s,cover,missDistinct});
+  });
+  scored.sort((a,b)=> (Math.abs(b.s-a.s)<0.04 ? b.cover-a.cover : b.s-a.s));
+  if(!scored.length) return none;
+  const best=scored[0]; const second=scored.find(x=>x.it.r.item!==best.it.r.item); const gap=second?best.s-second.s:1;
+  // a sibling variant (the house has WHITE RUM, the invoice says SELECT RUM) may lend its GROUP to a new item but is never offered as the item itself
+  const sure=!best.missDistinct && ((best.s>=0.8 && gap>=0.12) || (best.s>=0.9 && gap>=0.06));
+  const guess=!best.missDistinct && best.s>=0.62;
+  return { name:guess?best.it.r.item:'', group:best.it.r.group||'', score:Math.round(best.s*100)/100, sure, alt:(second&&second.s>=0.55)?second.it.r.item:'', top:{name:best.it.r.item, group:best.it.r.group||'', score:best.s} };
+}
+function bevcoMapName(name){ return bevcoMatch(name).name; }   // kept for callers of the old strip-fuzzy
+// the house spelling for a brand-new BEVCO item: "Aperol, 750 Ml." → "APEROL 750 ML"
+function bevcoCleanName(name){
+  return String(name||'').toUpperCase().replace(/!/g,'I').replace(/,\s*(\d{2,5})\s*ML\.?\s*$/,' $1 ML').replace(/\.\s*$/,'').replace(/\s+/g,' ').trim();
+}
+// the Item Master group a new BEVCO item belongs in — same kind + same size as the client's own groups
+// ("IMFL RUM 750 ML", "OS WHISKY 700 ML", "DRAUGHT BEER 50"); a sibling of the same brand at another size
+// lends its group; only when nothing fits does it fall back to "BEVCO IMPORT"
+function bevcoGuessGroup(name){
+  const toks=bevTokens(name), kind=bevKind(toks), sz=bevSize(name);
+  const cnt={}; rawData.forEach(r=>{ const g=String(r.group||'').trim(); if(g) cnt[g]=(cnt[g]||0)+1; });
+  const groups=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]);
+  const swapSize=g=> sz ? (/\d{2,5}\s*ML\b/i.test(g) ? g.replace(/\d{2,5}\s*ML\b/i, sz+' ML') : g+' '+sz+' ML') : g;
+  if(sz>=5000){ const L=Math.round(sz/1000); const d=groups.find(g=>/DRAUGHT/i.test(g) && new RegExp('\\b'+L+'\\b').test(g)); return d || 'DRAUGHT BEER '+L; }
+  if(kind){
+    const isLiq=g=>{ const gt=bevTokens(g); return gt.indexOf('LIQ')>=0||gt.indexOf('LIQUEUR')>=0; };
+    let ofKind=groups.filter(g=>{ const gt=bevTokens(g); if(kind==='LIQ') return isLiq(g); if(kind==='GIN') return gt.indexOf('GIN')>=0; return bevKind(gt)===kind; });
+    if(kind==='GIN' && ofKind.some(g=>!isLiq(g))) ofKind=ofKind.filter(g=>!isLiq(g));   // a gin goes with the gins, not the tequila/liqueur shelf
+    if(ofKind.length){ const same=ofKind.find(g=>bevSize(g)===sz); return same || swapSize(ofKind[0]); }
+  }
+  const sib=bevcoMatch(name,{ignoreSize:true}).top;
+  if(sib && sib.score>=0.4 && sib.group){ const g=sib.group; const same=groups.find(x=>x===swapSize(g)); return same || (bevSize(g)&&sz&&bevSize(g)!==sz ? swapSize(g) : g); }
+  return 'BEVCO IMPORT';
 }
 /* ---- many invoices in one go (v2.30.0) ----
    The picker takes a whole folder of BEVCO PDFs. They are read one after another: each gets the
@@ -2709,13 +2798,28 @@ function bevcoPreview(inv){
   const ok=(a,b)=>Math.abs(a-b)<0.06;
   const chk=(lbl,parsed,calc)=>`<div class="flex between" style="font-size:11.5px;padding:2px 0"><span class="muted">${lbl}</span>
     <span>${fmt(parsed)} ${calc!=null?(ok(parsed,calc)?'<span style="color:var(--green)">✔</span>':`<span style="color:var(--red)" title="auto-calc says ${calc}">⚠ ${fmt(calc)}</span>`):''}</span></div>`;
-  const rows=inv.items.map((x,i)=>{ const mapped=bevMap[norm(x.name)]||bevcoMapName(x.name);
-    return `<tr><td style="font-size:11px">${esc(x.name)}<div style="margin-top:2px"><input class="cell-input" style="text-align:left;width:100%;color:${mapped?'var(--text-muted)':'var(--red)'}" list="rawItems" id="bevMap${i}" value="${esc(mapped)}" placeholder="↳ Item Master entry…"></div></td>
+  // per line: learned mapping (bevmap) → smart match → NEW item. Each state is visible: ✔ known / ? check / ＋ new
+  const groupOpts=(sel)=>{ const gs=[...new Set(rawData.map(r=>String(r.group||'').trim()).filter(Boolean))].sort();
+    if(sel && gs.indexOf(sel)<0) gs.unshift(sel); return gs.map(g=>`<option ${g===sel?'selected':''}>${esc(g)}</option>`).join(''); };
+  let nSure=0,nGuess=0,nNew=0;
+  const rows=inv.items.map((x,i)=>{
+    let learned=bevMap[norm(x.name)]||''; if(learned && !findRawExact(learned)) learned='';   // a remembered name that was since deleted
+    const m=learned?null:bevcoMatch(x.name);
+    const mapped=learned||(m&&m.name)||'';
+    const state=learned?'learned':(m&&m.sure?'sure':(mapped?'guess':'new'));
+    if(state==='new') nNew++; else if(state==='guess') nGuess++; else nSure++;
+    const clean=bevcoCleanName(x.name), ggrp=bevcoGuessGroup(x.name);
+    const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
+    return `<tr><td style="font-size:11px">${esc(x.name)} ${pill}
+        <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${state==='guess'?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(mapped)}" placeholder="↳ leave blank = NEW item: ${esc(clean)}" oninput="bevMapEdit(${i})"></div>
+        <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">Added to Item Master + Liquor Room as <strong style="color:var(--text)">${esc(clean)}</strong> in group</span>
+          <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px">${groupOpts(ggrp)}</select></div></td>
       <td class="num">₹${fmt(x.mrp)}</td><td class="num"><input class="cell-input" style="width:44px" id="bevQty${i}" value="${x.bots}"></td>
       <td class="num muted" style="font-size:10.5px">${esc(x.caseBot)}</td><td class="num gold">₹${fmt(x.amount)}</td></tr>`; }).join('');
+  const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
   modal('🧾 BEVCO Invoice — '+esc(inv.no||''),
-    `<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · MRP auto-sets · items → Purchase</div>
-     <div class="table-wrap" style="max-height:220px;overflow:auto"><table class="tbl">
+    `<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · landing ₹ &amp; MRP → Item Master, Liquor Room, Purchase &amp; Beverage Control · new names → Item Master automatically</div>
+     <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
        <thead><tr><th>Item (map to Item Master)</th><th class="right">MRP/Bot</th><th class="right">Bot.</th><th class="right">Case-Bot</th><th class="right">Amount</th></tr></thead>
        <tbody>${rows}
        <tr style="background:var(--gold-dim);font-weight:700"><td>TOTAL — ${inv.items.length} items</td><td></td>
@@ -2731,7 +2835,22 @@ function bevcoPreview(inv){
        <div class="flex between" style="font-size:13.5px;padding:4px 0"><strong>Total — Landing Amount (${inv.fees.bots||inv.calc.bots} bot.)</strong>
          <strong class="gold" style="font-size:15px">₹ ${fmt(inv.fees.total||inv.calc.total)} ${ok(inv.fees.total||inv.calc.total,inv.calc.total)?'<span style="color:var(--green);font-size:11px">✔ auto-calc matches</span>':'<span style="color:var(--red);font-size:11px">⚠ check</span>'}</strong></div>
      </div>`,
-    `<button class="btn" onclick="closeModal();_bevQueue=[]">Cancel${_bevQueue.length?' all':''}</button>${_bevQueue.length?`<button class="btn" onclick="closeModal();bevcoNext()" title="Leave this invoice out and go to the next">Skip →</button>`:''}<button class="btn btn-gold" onclick="bevcoConfirm()">✅ Add to Purchase + MRP${_bevQueue.length?' · next ('+_bevQueue.length+' more)':''}</button>`);
+    `<button class="btn" onclick="closeModal();_bevQueue=[]">Cancel${_bevQueue.length?' all':''}</button>${_bevQueue.length?`<button class="btn" onclick="closeModal();bevcoNext()" title="Leave this invoice out and go to the next">Skip →</button>`:''}<button class="btn btn-gold" onclick="bevcoConfirm()">✅ Add to Purchase · update prices${_bevQueue.length?' · next ('+_bevQueue.length+' more)':''}</button>`);
+}
+// typing in a mapping box: blank → the NEW-item row (name + group) shows; a name → it hides
+function bevMapEdit(i){ const inp=$('#bevMap'+i), nw=$('#bevNew'+i), st=$('#bevSt'+i); if(!inp) return;
+  const v=inp.value.trim(); if(nw) nw.style.display=v?'none':'';
+  inp.classList.toggle('bmap-new',!v); if(v) inp.classList.remove('bmap-guess');
+  if(st){ if(!v){ st.className='pill red'; st.textContent='＋ new item'; } else if(findRawExact(v)){ st.className='pill green'; st.textContent='✔ matched'; } else { st.className='pill amber'; st.textContent='? typed'; } } }
+// which Item Master entry a preview line lands on — exact name wins; a typed name that is a SURE fuzzy
+// match snaps to the house spelling; anything else becomes a NEW entry (the box empty → the clean BEVCO name)
+function bevcoResolve(x,i){
+  const typed=(($('#bevMap'+i)&&$('#bevMap'+i).value.trim())||'');
+  if(typed){ const ex=findRawExact(typed); if(ex) return {name:ex.item,isNew:false};
+    const m=bevcoMatch(typed); if(m.sure) return {name:m.name,isNew:false};
+    return {name:typed.toUpperCase(),isNew:true}; }
+  const clean=bevcoCleanName(x.name); const ex=findRawExact(clean);
+  return ex?{name:ex.item,isNew:false}:{name:clean,isNew:true};
 }
 function bevcoConfirm(){
   const inv=_bevInv; if(!inv) return;
@@ -2739,16 +2858,18 @@ function bevcoConfirm(){
   // so Σ(qty × landing) === the invoice's grand Total (the true landed cost)
   const grand=inv.fees.total||inv.calc.total||0;
   const factor=(inv.calc.base>0 && grand>0) ? grand/inv.calc.base : 1;
-  let added=0, rawAdded=0;
+  let added=0, rawAdded=0; const newNames=[];
   inv.items.forEach((x,i)=>{
-    const mapped=(($('#bevMap'+i)&&$('#bevMap'+i).value.trim())||x.name).toUpperCase();
+    const R=bevcoResolve(x,i); const mapped=R.name;
     const qty=fnum(($('#bevQty'+i)&&$('#bevQty'+i).value)||x.bots)||x.bots;
     bevMap[norm(x.name)]=mapped;                       // remember this mapping for every future invoice
-    if(!inRaw(mapped)){ rawData.push({item:mapped, group:'BEVCO IMPORT'}); rawAdded++; }   // keep Liquor Room / MR matching intact
-    const g=findRaw(mapped);
+    if(R.isNew){                                       // NEW item → Item Master (and therefore Liquor Room, MR search, Purchase matching) at once
+      const gsel=$('#bevGrp'+i); const group=((gsel&&gsel.value.trim())||bevcoGuessGroup(x.name)||'BEVCO IMPORT');
+      rawData.push({item:mapped, group}); rebuildRawIdx(); rawAdded++; newNames.push(mapped); }
+    const g=findRawExact(mapped);
     receivedStock.push({date:inv.date||new Date().toISOString().slice(0,10), item:mapped, qty:qty, group:g?g.group:'', inv:inv.no||''});
-    invSet(mapped,'mrp',x.mrp);
-    invSet(mapped,'land', Math.round(x.amount*factor/(x.bots||1)*100)/100);   // landing ₹/bottle incl. fee share
+    invSet(mapped,'mrp',x.mrp);                                                  // price → the ONE key every page reads (Item Master · Liquor Room · Purchase · Beverage Control)
+    invSet(mapped,'land', Math.round(x.amount*factor/(x.bots||1)*100)/100);     // landing ₹/bottle incl. fee share
     added++;
   });
   bsv('bevmap',bevMap);
@@ -2757,7 +2878,8 @@ function bevcoConfirm(){
   invoices.unshift({no:inv.no,date:inv.date,ts:new Date().toLocaleString(),items:inv.items,fees:inv.fees,calc:inv.calc});
   if(invoices.length>100) invoices.length=100;
   bsv('invoices',invoices);
-  closeModal(); route(); toast('Invoice added',added+' items → Purchase · MRP set'+(rawAdded?' · '+rawAdded+' new Item Master entry'+(rawAdded>1?'s':''):'')+' · mapping remembered','ok');
+  closeModal(); route();
+  toast('Invoice added', added+' items → Purchase · landing ₹ + MRP updated everywhere'+(rawAdded?' · '+rawAdded+' NEW in Item Master + Liquor Room: '+newNames.slice(0,3).join(', ')+(newNames.length>3?' …':''):''),'ok');
   if(_bevQueue.length) bevcoNext();                    // straight on to the next invoice in the folder
 }
 function bevcoList(){
