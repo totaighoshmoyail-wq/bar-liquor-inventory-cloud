@@ -6,7 +6,9 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.30.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.30.1';  // keep in sync with version.json when releasing an update
+// the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
+const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -2461,7 +2463,7 @@ VIEWS.settings = () => {
         <button class="btn btn-gold btn-sm" onclick="checkUpdate()">🔄 Check for Update</button></div>
       <div class="muted" id="updStat" style="font-size:12px;min-height:16px"></div>
       <div class="field mt-8"><label>Update server URL (folder that holds version.json)</label>
-        <input class="input" id="updUrl" value="${esc(cfg.updateUrl||'')}" placeholder="https://yourname.github.io/barliquor" onchange="cfg.updateUrl=this.value.trim();bsv('cfg',cfg)"></div>
+        <input class="input" id="updUrl" value="${esc(cfg.updateUrl||'')}" placeholder="${UPDATE_URL_DEFAULT} (used when empty)" onchange="cfg.updateUrl=this.value.trim();bsv('cfg',cfg)"></div>
       <p class="muted" style="font-size:11px;margin-top:6px">Online / Store install: the newest files load automatically — this button confirms it and force-refreshes. Offline zip install: it tells you when a newer version exists so you can get the new files.</p>`},
 
     {k:'backup', ico:'💾', t:'Backup &amp; Restore', s:'Export, restore, WhatsApp report', body:`
@@ -2687,7 +2689,7 @@ function userDel(i){ const u=users[i]; if(!u) return;
   confirmAsk('Remove user "<strong>'+esc(u.u)+'</strong>"?', ()=>{ users.splice(i,1); bsv('users',users); route(); toast('Removed',u.u,'err'); }); }
 /* ---------- System Update: compare version.json on the update server ---------- */
 async function checkUpdate(){
-  const s=$('#updStat'); const base=(cfg.updateUrl||'').replace(/\/+$/,'');
+  const s=$('#updStat'); const base=(cfg.updateUrl||UPDATE_URL_DEFAULT).replace(/\/+$/,'');
   if(!base){ if(s) s.textContent='Set the update server URL below first (your hosted app folder).'; return; }
   if(s) s.textContent='Checking…';
   try{
