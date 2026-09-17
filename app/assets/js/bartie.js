@@ -2714,7 +2714,8 @@ async function checkUpdate(){
   if(s) s.textContent='Checking…';
   try{
     const r=await fetch(base+'/version.json?t='+Date.now(),{cache:'no-store'});
-    const j=await r.json();
+    if(!r.ok){ if(s) s.textContent='The update server answered HTTP '+r.status+' for version.json — check the URL.'; return; }
+    let j=null; try{ j=await r.json(); }catch(e){ if(s) s.textContent='version.json on the server is not valid JSON — the published file is damaged, not your internet.'; return; }
     if(j && j.version && j.version!==APP_VERSION){
       if(s) s.innerHTML='New version <strong class="gold">v'+esc(j.version)+'</strong> available!';
       modal('🔄 Update available',
