@@ -2766,7 +2766,9 @@ function confirmFresh(){
   confirmAsk(`Start <strong>${esc(co)}</strong> fresh?<br><br>
     <span class="muted">Goes to zero:</span> Opening &amp; Closing stock, Liquor Room opening, Purchase entries, Bar Stock Issue entries, POS sales, month history, invoice register, audit log.<br>
     <span class="muted">Stays exactly as it is:</span> brand list, liquor &amp; cocktail aliases, cocktail recipes, Item Master, landing rates, settings, users.<br><br>
-    A backup file of everything is downloaded first. If the cloud is signed in, the clean state is pushed so the website and other devices match.`,
+    A backup file of everything is downloaded first. If the cloud is signed in, the clean state is pushed so the website and other devices match.${
+      (typeof cloudOn==='function'&&cloudOn()&&!(typeof cloudSignedIn==='function'&&cloudSignedIn()))
+        ? '<br><br><strong style="color:var(--red)">⚠ You are NOT signed in to the cloud on this device.</strong> Only this computer would be cleared — the website would keep the old figures. Cancel, open Settings → Cloud Sync, sign in, then come back.' : ''}`,
     startFresh);
 }
 async function startFresh(opts){
