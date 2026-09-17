@@ -370,18 +370,26 @@ $('open').addEventListener('click', async ()=>{
     const j=await g.json();
     if(!j.length||!j[0].data) throw new Error('That company has no cloud copy yet.');
     const d=j[0], pfx=(id==='main')?'tg2_':('tg2_'+id+'_');
-    /* clear this company's old copy, then lay the cloud copy in — same shape the app writes */
+    /* the app's 🏢 list = every company the cloud knows, main (Traffic) always first — it used to hold only
+       the company opened here, so Traffic was missing from the modal on the website (v2.33.1) */
+    const list=[{id:'main',name:(ROWS.find(r=>r.id==='main')||{}).co||'Traffic Gastropub'}]
+      .concat(ROWS.filter(r=>r.id!=='main').map(r=>({id:r.id,name:r.co||r.id})));
+    localStorage.setItem('tg2_companies', JSON.stringify(list));
+    /* This browser may hold work for this company that never reached the cloud (the app marks it dirty).
+       Replacing it silently would bury that work — ask first (v2.33.1). */
+    let dirty=false; try{ dirty=!!(JSON.parse(localStorage.getItem(pfx+'cloudmeta')||'null')||{}).dirty; }catch(e){}
+    if(dirty && !window.confirm('This browser has changes for '+(d.co||id)+' that were never saved to the cloud.\n\nOK = replace them with the cloud copy (they are lost)\nCancel = keep them and open the app as it is (then Settings → Cloud Sync → Replace the cloud copy)')){
+      localStorage.setItem('tg2_activeCo', id); say('Opening with this browser’s own copy…','ok'); location.href='app.html'; return; }
+    /* clear this company's old copy, then lay the cloud copy in — same shape the app writes
+       (globals that share the tg2_ prefix stay: same list as the app's _coSubKeys + the login's own keys) */
     for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i);
       if(k && k.indexOf(pfx)===0){
         const sub=k.slice(pfx.length);
-        if(pfx==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$|lastEmail$)/.test(sub)) continue;
+        if(pfx==='tg2_' && /^(c\d+_|companies$|activeCo$|logo$|sysname$|sysaddr$|loginDesign$|smsgw$|cloud$|cloudsess$|lastEmail$|ai$|lastUser$|ld11$|liveMig2$)/.test(sub)) continue;
         localStorage.removeItem(k);
       } }
     Object.keys(d.data).forEach(sub=>localStorage.setItem(pfx+sub, d.data[sub]));
     localStorage.setItem(pfx+'cloudmeta', JSON.stringify({push:d.updated_at, cloudAt:d.updated_at}));
-    /* make sure the app opens THIS company */
-    let list=[]; try{ list=JSON.parse(localStorage.getItem('tg2_companies')||'[]')||[]; }catch(e){}
-    if(id!=='main' && !list.some(c=>c.id===id)){ list.push({id:id,name:d.co||id}); localStorage.setItem('tg2_companies', JSON.stringify(list)); }
     localStorage.setItem('tg2_activeCo', id);   // raw string — the app reads it raw; JSON quotes made Canteen open as Traffic
     say('Opening…','ok');
     location.href='app.html';

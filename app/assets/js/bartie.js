@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.33.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.33.1';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 
@@ -14,7 +14,11 @@ const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inv
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
    separate data (items, aliases, cocktails, POS, inventory, raw data, settings…)
    while sharing the SAME engine & calculations. Switching = reload with new prefix. */
-function coList(){ try{ const l=JSON.parse(localStorage.getItem('tg2_companies')||'null'); return Array.isArray(l)&&l.length?l:[{id:'main',name:'Traffic Gastropub'}]; }catch(e){ return [{id:'main',name:'Traffic Gastropub'}]; } }
+// The main company ('main' = Traffic) is ALWAYS in the list — the hosted gate used to store a list
+// holding only the company it opened, and Traffic vanished from the 🏢 modal on the website (v2.33.1)
+function coList(){ const MAIN={id:'main',name:'Traffic Gastropub'};
+  try{ const l=JSON.parse(localStorage.getItem('tg2_companies')||'null'); if(!Array.isArray(l)||!l.length) return [MAIN];
+    return l.some(c=>c&&c.id==='main') ? l : [MAIN].concat(l); }catch(e){ return [MAIN]; } }
 function coSave(l){ try{ localStorage.setItem('tg2_companies', JSON.stringify(l)); }catch(e){} }
 const ACTIVE_CO = (function(){ const a=localStorage.getItem('tg2_activeCo')||'main'; return coList().some(c=>c.id===a)?a:'main'; })();
 const CO_PREFIX = ACTIVE_CO==='main' ? 'tg2_' : 'tg2_'+ACTIVE_CO+'_';
@@ -246,7 +250,9 @@ async function cloudLogin(){
 function cloudSignOut(){ try{ localStorage.removeItem('tg2_cloudsess'); }catch(e){} toast('Signed out','Cloud writing is now locked','ok'); route(); }
 function _cloudBase(){ return cloudCfg().url.replace(/\/+$/,'')+'/rest/v1/blis_sync'; }
 function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudmeta')||'{}'); }catch(e){ return {}; } }
-async function cloudPush(silent){
+// force=true (Settings → "Replace the cloud copy") skips the cloud-is-newer guard: the deliberate way out
+// when THIS device holds the real figures and the cloud holds an older/emptier copy that Pull would bury them under
+async function cloudPush(silent, force){
   if(!cloudOn()){ if(!silent) toast('Not set up','Enter the cloud URL and key first','err'); return false; }
   const _kp=cloudKeyProblem(cloudCfg().key);
   if(_kp){ if(!silent){ _cldSay('❌ The saved key is not usable — '+_kp+'.'); toast('Bad key',_kp,'err'); } return false; }
@@ -274,11 +280,12 @@ async function cloudPush(silent){
     if(cur.ok){
       const rows=await cur.json().catch(()=>[]);
       const theirs=(rows[0]||{}).updated_at||null;
-      if(theirs && seen && theirs!==seen){
+      if(theirs && seen && theirs!==seen && !force){
         const when=new Date(theirs).toLocaleString();
         if(!silent){
-          _cldSay('⚠️ Someone else saved to the cloud at '+esc(when)+'. Press ⬇ Pull from cloud first, then Push — otherwise their work would be replaced.');
-          toast('Cloud is newer','Pull first, then Push','err');
+          _cldSay('⚠️ Someone else saved to the cloud at '+esc(when)+'. Press ⬇ Pull from cloud first, then Push — otherwise their work would be replaced.'
+            +'<br>If <strong>this device</strong> has the right figures and the cloud copy is the old/empty one, use <strong>⬆ Replace the cloud copy</strong> instead.', true);
+          toast('Cloud is newer','Pull first, then Push — or Replace the cloud copy','err');
         }
         return false;
       }
@@ -296,6 +303,18 @@ async function cloudPush(silent){
       toast('Push failed', /401|403|row-level/.test(e.message)?'Sign in again — the session may have expired':e.message, 'err');
     }
     return false; }
+}
+// Settings → "⬆ Replace the cloud copy": a confirmed force push. Counts what this device holds so the
+// person sees what they are about to make the cloud's truth.
+function cloudReplaceAsk(){
+  const n=(k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(CO_PREFIX+k)||'null'); return Array.isArray(v)?v.length:(v?Object.keys(v).length:d||0); }catch(e){ return d||0; } };
+  const co=(coList().find(c=>c.id===ACTIVE_CO)||{}).name||ACTIVE_CO;
+  const live={ purchases:(typeof receivedStock!=='undefined'?receivedStock.length:n('recv')), issues:(typeof mrDetail!=='undefined'?mrDetail.length:n('mr')),
+    items:(typeof rawData!=='undefined'?rawData.length:n('rawdata2')), brands:(typeof tallyItems!=='undefined'?tallyItems.length:n('tally')) };
+  confirmAsk(`Replace the cloud copy of <strong>${esc(co)}</strong> with what <strong>this device</strong> holds right now?<br>
+    <span class="muted" style="font-size:12px">This device: ${live.purchases} purchase entries · ${live.issues} stock issues · ${live.items} Item Master items · ${live.brands} brands.<br>
+    Whatever is in the cloud now (and on every other device after its next sync) will be replaced by this. Use it only when this device has the right figures.</span>`,
+    async ()=>{ const ok=await cloudPush(false,true); if(ok) toast('Cloud replaced','The cloud now holds this device\'s copy — other devices pick it up on their next sync','ok'); });
 }
 async function cloudPull(){
   if(!cloudOn()){ toast('Not set up','Enter the cloud URL and key first','err'); return; }
@@ -2580,6 +2599,7 @@ VIEWS.settings = () => {
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap;align-items:center">
         <button class="btn btn-gold btn-sm" onclick="cloudPush()">⬆ Push now</button>
         <button class="btn btn-sm" onclick="cloudPull()">⬇ Pull from cloud</button>
+        <button class="btn btn-sm" onclick="cloudReplaceAsk()" title="This device's figures overwrite the cloud copy even though the cloud changed since this device last synced — use when the cloud holds an old or empty copy">⬆ Replace the cloud copy</button>
         <a class="btn btn-sm" href="backend.html" target="_blank" rel="noopener" title="Data entry console — sign in with your Supabase email &amp; password">⚙ Backend Console</a>
       </div>
       <details style="margin-top:10px"><summary class="muted" style="font-size:11.5px;cursor:pointer">One-time setup (free) — how to get the URL &amp; key</summary>
