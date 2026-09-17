@@ -2688,10 +2688,21 @@ let bevMap   = bls('bevmap', {});   // BEVCO invoice name → YOUR Raw-Data name
 async function _pdfText(buf){
   const bytes=new Uint8Array(buf); const CH=32768;
   let s=''; for(let i=0;i<bytes.length;i+=CH){ s+=String.fromCharCode.apply(null, bytes.subarray(i,Math.min(i+CH,bytes.length))); }
-  let out='';
-  const re=/stream\r?\n/g; let m;
-  while((m=re.exec(s))){
-    const start=m.index+m[0].length; const end=s.indexOf('endstream',start); if(end<0) break;
+  let out='', prevText=null;
+  /* Walk every "stream" keyword that is NOT the tail of "endstream". The old /stream\r?\n/g regex
+     matched inside "endstream\r\n" too, so after the first object it locked onto garbage, failed to
+     inflate, and skipped every following object — a two-page invoice lost its second page (the one
+     with Special Purpose Fee, T.C.S. and the Total), and three September invoices came out ₹16,137
+     short of BEVCO's own ledger (v2.35.1). */
+  let pos=0;
+  while(true){
+    const at=s.indexOf('stream',pos); if(at<0) break;
+    if(s.slice(Math.max(0,at-3),at)==='end'){ pos=at+6; continue; }
+    const nl=(s[at+6]==='\r')?(s[at+7]==='\n'?2:1):(s[at+6]==='\n'?1:0);
+    if(!nl){ pos=at+6; continue; }
+    const m={index:at, 0:'stream'+s.slice(at+6,at+6+nl)};
+    const start=at+6+nl; const end=s.indexOf('endstream',start); if(end<0) break;
+    pos=end+9;
     // Prefer the exact byte count the PDF itself declares (<< /Length N >> just before "stream"):
     // trimming whitespace up to "endstream" is a guess, and the zlib checksum can legitimately
     // END in 0x0a — invoice (37) did, the guess ate that byte, and every stream failed to decode.
@@ -2710,9 +2721,10 @@ async function _pdfText(buf){
     if(dec){
       const u=new Uint8Array(dec); let t='';
       for(let i=0;i<u.length;i+=CH){ t+=String.fromCharCode.apply(null,u.subarray(i,Math.min(i+CH,u.length))); }
-      if(/\b(Tj|TJ|BT)\b/.test(t)) out+=t+'\n';
+      // a BEVCO PDF carries each page twice in a row (byte-identical copies) — keep one, so a
+      // two-page invoice reads as page 1 → page 2, not page 1 → page 1 → page 2 (items would double)
+      if(/\b(Tj|TJ|BT)\b/.test(t) && t!==prevText){ out+=t+'\n'; prevText=t; }
     }
-    re.lastIndex=end;
   }
   let txt=''; const rx=/\((?:[^()\\]|\\.)*\)\s*Tj|\[(?:[^\[\]\\]|\\.)*\]\s*TJ|T\*|Td|TD|ET/g; let mm;
   while((mm=rx.exec(out))){
@@ -2737,6 +2749,7 @@ function bevcoParse(txt){
     while(i<lines.length){
       const L=lines[i];
       if(/^(Less Rebate|Special Purpose Fee|Amount Chargeable|Round Off value|T\.C\.S\.)/.test(L)) break;
+      if(L==='Amount (Rs.)'){ pend=[]; i++; continue; }   // a continuation page repeats the table header — start the name buffer afresh
       const isNum=/^[\d,]+\.?\d*$/.test(L);
       if(!isNum){ pend.push(L); if(pend.length>3) pend.shift(); i++; continue; }
       const cb=lines[i+2]||'';                          // numeric run: mrp, mrpVal, case-bot, alt, amount
@@ -2889,9 +2902,20 @@ async function bevcoNext(){
   let txt='';
   try{ txt=await _pdfText(await f.arrayBuffer()); }catch(e){}
   const inv=bevcoParse(txt||'');
-  if(inv.no && invoices.some(v=>String(v.no)===String(inv.no))){
-    toast('Already in the register', 'Invoice '+inv.no+' ('+f.name+') skipped — it was added before', 'ok');
-    return bevcoNext();
+  const dup=inv.no?invoices.find(v=>String(v.no)===String(inv.no)):null;
+  let replaced=false;
+  if(dup){
+    const oldT=(dup.fees&&dup.fees.total)||(dup.calc&&dup.calc.total)||0, newT=inv.fees.total||inv.calc.total||0;
+    if(Math.abs(oldT-newT)<0.6 || !inv.items.length){
+      toast('Already in the register', 'Invoice '+inv.no+' ('+f.name+') skipped — it was added before', 'ok');
+      return bevcoNext();
+    }
+    /* same invoice, different figures (the v2.35.1 extractor now reads a second page the old one lost):
+       the earlier entries and register row go, the fresh reading is shown for confirmation */
+    receivedStock=receivedStock.filter(r=>String(r.inv||'')!==String(inv.no)); bsv('recv',receivedStock);
+    invoices=invoices.filter(v=>String(v.no)!==String(inv.no)); bsv('invoices',invoices);
+    replaced=true;
+    toast('Invoice re-read', 'Invoice '+inv.no+' was in the register at ₹'+fmt(oldT)+' — it now reads ₹'+fmt(newT)+'. The old entries were removed; confirm the new reading.', 'ok');
   }
   if(!inv.items.length){
     modal('🧾 BEVCO Invoice — '+esc(f.name), `<p style="font-size:12.5px">Could not auto-read this PDF. Open the PDF, select-all → copy, and paste the text here:</p>
@@ -2903,6 +2927,7 @@ async function bevcoNext(){
   bevcoPreview(inv);
   if(_bevAll){
     if(document.querySelector('#modalBack .pill.amber')){ toast('Please check this one', 'A line needs a look — confirm it and Add all carries on', 'err'); }
+    else if(replaced){ /* a changed reading of a known invoice is always shown, never confirmed blind */ }
     else bevcoConfirm();
   }
 }
