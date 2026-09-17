@@ -239,19 +239,35 @@ VIEWS.received = () => {
   const rows=receivedStock.map((r,i)=>({r,i})).filter(x=>{ const ok=inRaw(x.r.item);
     if(iq.rv && !norm(x.r.item).includes(norm(iq.rv))) return false;
     return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok); });
-  const body=rows.map(({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
-    const val=fnum(r.qty)*landOf(r.item);
+  // one sheet row — same figures as before (qty, MRP, landing ₹/bot, qty × landing), royal styling only
+  const rowHtml=({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
+    const q=fnum(r.qty), val=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty);
     return `<tr class="${ok?'':'row-alert'}">
-      <td>${r.date||'—'}</td>
-      <td class="muted" style="font-size:10.5px" title="${esc(r.inv||'')}">${r.inv?esc(String(r.inv).split('/').slice(-3).join('/')):'—'}</td>
-      <td><strong>${r.item}</strong></td>
+      <td class="nowrap">${r.date||'—'}</td>
+      <td title="${esc(r.inv||'')}">${r.inv?`<span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:'<span class="muted">—</span>'}</td>
+      <td class="lrname"><strong>${r.item}</strong></td>
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
-      <td class="num">${r.qty}</td>
+      <td class="num"><span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span></td>
       <td class="num"><input class="cell-input" style="width:60px" value="${mrp!=null?mrp:''}" placeholder="₹" title="MRP (₹) — printed on the bottle / invoice" onchange='invSet(${JSON.stringify(r.item)},"mrp",this.value);route()'></td>
-      <td class="num"><input class="cell-input" style="width:64px;color:var(--gold)" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (what you pay — auto-set by BEVCO invoice)" onchange='invSet(${JSON.stringify(r.item)},"land",this.value);route()'></td>
-      <td class="num gold"><strong>${val?('₹ '+fmt(Math.round(val))):'—'}</strong></td>
-      <td class="right nowrap">${ok?'':`<button class="btn btn-gold btn-sm" onclick='openAddToRaw(${JSON.stringify(r.item)})'>＋ Item Master</button> `}<button class="btn btn-danger btn-sm" onclick="delRecv(${i})">✕</button></td></tr>`; }).join('')
-    || '<tr><td colspan="9" class="center muted" style="padding:24px">Nothing here — upload the liquor-receive Excel or add manually.</td></tr>';
+      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (what you pay — auto-set by BEVCO invoice)" onchange='invSet(${JSON.stringify(r.item)},"land",this.value);route()'></td>
+      <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
+      <td class="right nowrap">${ok?'':`<button class="btn btn-gold btn-sm" onclick='openAddToRaw(${JSON.stringify(r.item)})'>＋ Item Master</button> `}<button class="btn btn-danger btn-sm" onclick="delRecv(${i})">✕</button></td></tr>`; };
+  // the sheet reads like a purchase register: entries grouped under their invoice (first-seen order = import order),
+  // each invoice with a gold header (no · date · items) and a subtotal (bottles · landing ₹). Entries without an
+  // invoice number (manual / Excel) sit under one "Manual · Excel" group; a sheet with ONLY such entries stays flat.
+  const rvGroups=[]; const rvIx={};
+  rows.forEach(x=>{ const k=x.r.inv?String(x.r.inv):''; if(rvIx[k]==null){ rvIx[k]=rvGroups.length; rvGroups.push({k,items:[]}); } rvGroups[rvIx[k]].items.push(x); });
+  const flat = rvGroups.length===1 && rvGroups[0].k==='';
+  const body=rvGroups.map(g=>{
+    const its=g.items, gQ=its.reduce((a,x)=>a+fnum(x.r.qty),0), gV=its.reduce((a,x)=>a+fnum(x.r.qty)*landOf(x.r.item),0);
+    const d0=its[0].r.date||'';
+    const head=flat?'':`<tr class="grp-row lrgrp"><td colspan="9"><span class="g">${g.k?'🧾 Invoice '+esc(g.k):'✍️ Manual · Excel entries'}</span><span class="n">${d0?esc(d0)+' · ':''}${its.length} item${its.length===1?'':'s'}</span></td></tr>`;
+    const sub=flat?'':`<tr class="lrsub"><td colspan="4" class="right"><strong>${g.k?esc(String(g.k).split('/').slice(-3).join('/')):'Manual · Excel'} — TOTAL</strong></td>
+      <td class="num"><strong class="lrsg ${gQ>0?'plus':'zero'}">${gQ>0?'+':''}${fmt(gQ)}</strong></td><td colspan="2" class="right muted" style="font-size:10.5px">landing amount</td>
+      <td class="num"><strong class="lrval">₹ ${fmt(Math.round(gV))}</strong></td><td></td></tr>`;
+    return head+its.map(rowHtml).join('')+sub;
+  }).join('')
+    || '<tr><td colspan="9" class="center muted" style="padding:24px">Nothing here yet — upload a 🧾 BEVCO invoice, the liquor-receive Excel, or ＋ Add an entry.</td></tr>';
   const shownVal=rows.reduce((a,x)=>a+fnum(x.r.qty)*landOf(x.r.item),0);
   const ft=(id,l)=>`<div class="tab ${recvFilter===id?'active':''}" onclick="recvFilter='${id}';route()">${l}</div>`;
   // ---- Royal looks (charts driven by the same real data) ----
@@ -322,20 +338,35 @@ VIEWS.received = () => {
         <button class="btn btn-sm" onclick="printSheet('recv')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <button class="btn btn-danger btn-sm" onclick="clearAllRecv()">🗑️ Clear All</button></div></div>
     ${periodBar()}
-    <div class="stat-strip" style="margin-bottom:16px">
-      <div class="s"><div class="l">Entries</div><div class="v">${receivedStock.length}</div></div>
-      <div class="s"><div class="l">Total Qty</div><div class="v gold">${fmt(total)}</div></div>
-      <div class="s"><div class="l">Total Landing Amount</div><div class="v gold">₹ ${fmt(Math.round(totalVal))}</div><div class="muted" style="font-size:10px;margin-top:2px">main amount · what you paid</div></div>
-      <div class="s"><div class="l">Unmatched (red)</div><div class="v" style="color:var(--red)">${unmatched}</div></div>
-    </div>
+    ${(()=>{ // royal head (v2.32.0) — same figures the old stat strip showed, plus honest sub-lines; nothing recomputed differently
+      const nInv=new Set(receivedStock.map(r=>r.inv).filter(Boolean)).size;
+      const nGrp=new Set(receivedStock.filter(r=>inRaw(r.item)).map(r=>findRaw(r.item).group)).size;
+      const ds=receivedStock.map(r=>r.date).filter(Boolean).sort(); const span=ds.length?`${ds[0]} → ${ds[ds.length-1]}`:'';
+      const pct=totalVal>0?Math.round(mVal/totalVal*100):100;   // share of the landing value that is matched to Item Master
+      const avg=total>0?totalVal/total:0;
+      return `<div class="card lrflow rvflow">
+      <div class="lrf-head"><div class="t">Purchase</div><div class="f">Landing Amount <b>=</b> Bottles <b>×</b> Landing ₹/bottle <span class="p">· invoice fees included${span?' · '+esc(span):''}</span></div></div>
+      <div class="lrf-body">
+        <div class="lrf-steps">
+          <div class="st"><div class="ic">🧾</div><div class="l">Invoices</div><div class="v">${fmt(nInv)}<small>nos</small></div><div class="m sub">${invoices.length?fmt(invoices.length)+' in register':'BEVCO PDF → auto'}</div></div>
+          <div class="arr">›</div>
+          <div class="st"><div class="ic">📋</div><div class="l">Entries</div><div class="v">${fmt(receivedStock.length)}<small>rows</small></div><div class="m sub">${fmt(nGrp)} group${nGrp===1?'':'s'}</div></div>
+          <div class="arr">›</div>
+          <div class="st rv"><div class="ic">🍾</div><div class="l">Bottles Received</div><div class="v">+${fmt(total)}<small>btl</small></div><div class="m ${unmatched?'bad':'ok'}">${unmatched?fmt(unmatched)+' unmatched — fix in red':'all matched to Item Master'}</div></div>
+          <div class="arr">=</div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Landing Amount</div><div class="v amt">₹ ${fmt(Math.round(totalVal))}</div><div class="m">avg ₹ ${fmt(Math.round(avg))} / bottle</div></div>
+        </div>
+        <div class="lrf-ring"><div class="ring" style="--pct:${pct}"><div class="in"><div class="k">Purchase value</div><div class="amt">₹ ${fmt(Math.round(totalVal))}</div><div class="k2">${fmt(total)} bottles · ${fmt(nInv)} invoice${nInv===1?'':'s'}</div><div class="k3 ${pct>=100?'ok':'bad'}">${pct}% matched</div></div></div></div>
+      </div>
+    </div>`; })()}
     ${royalHtml}
     <div class="tabs">${ft('all','All ('+receivedStock.length+')')}${ft('ok','✅ Matched')}${ft('un','🔴 Unmatched ('+unmatched+')')}</div>
-    <div class="card barinv recvtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Receive Entries</h3><p>${rows.length} shown${iq.rv?' (filtered)':''}</p></div>
+    <div class="card barinv recvtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Purchase Register</h3><p>${rows.length} shown${iq.rv?' (filtered)':''}${flat?'':' · grouped by invoice'}</p></div>
       <div class="search" style="width:200px">🔎<input id="searchBox" placeholder="Search item…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)"></div></div>
       <div class="table-wrap" style="max-height:540px;overflow-y:auto"><table class="tbl rawhead">
-      <thead><tr><th style="width:84px">Date</th><th style="width:104px">Invoice No</th><th>Item</th><th style="width:140px">Group / Match</th><th class="right" style="width:52px">Qty</th><th class="right" style="width:66px">MRP ₹</th><th class="right" style="width:74px">Landing ₹/bot</th><th class="right" style="width:94px">Landing Amount ₹</th><th style="width:110px"></th></tr></thead>
+      <thead><tr><th style="width:92px">Date</th><th style="width:104px">Invoice No</th><th>Item</th><th style="width:150px">Group / Match</th><th class="right" style="width:72px">Bottles</th><th class="right" style="width:66px">MRP ₹</th><th class="right nowrap" style="width:96px">Landing ₹/bot</th><th class="right nowrap" style="width:118px">Landing Amount ₹</th><th style="width:110px"></th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="4" class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(rows.reduce((a,x)=>a+fnum(x.r.qty),0))}</strong></td><td colspan="2" class="right"><strong>Landing amount</strong></td><td class="num gold"><strong>₹ ${fmt(Math.round(shownVal))}</strong></td><td></td></tr></tfoot>
+      <tfoot><tr class="lrsub" style="position:sticky;bottom:0"><td colspan="4" class="right"><strong>TOTAL${rows.length!==receivedStock.length?' (shown)':''}</strong></td><td class="num"><strong class="lrsg ${rows.length?'plus':'zero'}">${rows.length?'+':''}${fmt(rows.reduce((a,x)=>a+fnum(x.r.qty),0))}</strong></td><td colspan="2" class="right muted" style="font-size:10.5px">landing amount</td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(shownVal))}</strong></td><td></td></tr></tfoot>
       </table></div></div>`;
 };
 function setRecvLook(v){ pref.recvLook=v; bsv('pref',pref); route(); }
@@ -663,15 +694,27 @@ let mrVoiceLang='en-US', mrVoiceOn=false, mrVoiceHeard='', mrVoiceItem='', mrVoi
 VIEWS.mrdetail = () => {
   const total=mrDetail.reduce((a,r)=>a+fnum(r.qty),0);
   const totalAmt=mrDetail.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
-  const body=mrDetail.map((r,i)=>{ const ok=inRaw(r.item); const amt=fnum(r.qty)*landOf(r.item);
+  // per-item Liquor-Room closing as it stands NOW (Opening + Received − Issued) — cached per name so a long list
+  // does not recompute the same item; display only, the same figures the Search & Issue panel shows
+  const _lrNow={}; const lrNow=name=>{ if(_lrNow[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _lrNow[name]=op+rv-is; } return _lrNow[name]; };
+  const body=mrDetail.map((r,i)=>{ const ok=inRaw(r.item); const q=fnum(r.qty), amt=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty);
+    const cl=ok?lrNow(r.item):null;
     return `<tr class="${ok?'':'row-alert'}">
-      <td>${r.date||'—'}</td>
+      <td class="nowrap">${r.date||'—'}</td>
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
-      <td><strong>${r.item}</strong></td><td class="num">${r.qty}</td>
-      <td class="num gold">${amt?('₹ '+fmt(Math.round(amt))):'—'}</td>
-      <td><span class="pill green">Liquor Room ↓ ${r.qty}</span></td>
+      <td class="lrname"><strong>${r.item}</strong></td><td class="num"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}${qd}</span></td>
+      <td class="num"><span class="lrval">${amt?('₹ '+fmt(Math.round(amt))):'<span class="muted">—</span>'}</span></td>
+      <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
       <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('')
     || '<tr><td colspan="7" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>';
+  // royal head figures (v2.32.0) — the same totals the old stat strip showed, plus today's issues and the
+  // issued-of-available share (Liquor Room Opening + Received) that the Crown Gauge look already uses
+  const today=new Date().toISOString().slice(0,10);
+  const tdRows=mrDetail.filter(r=>r.date===today), tdQty=tdRows.reduce((a,r)=>a+fnum(r.qty),0);
+  const nItems=new Set(mrDetail.map(r=>norm(r.item))).size;
+  const mds=mrDetail.map(r=>r.date).filter(Boolean).sort(); const mspan=mds.length?`${mds[0]} → ${mds[mds.length-1]}`:'';
+  const LT=lrTotals(), avail=LT.op+LT.rv, pctIs=avail>0?Math.min(100,Math.round(LT.is/avail*100)):0;
+  const avgIs=total>0?totalAmt/total:0;
   return `
     <div class="page-head"><div><h1>Bar Stock Issue</h1><p>Liquor Room → Bar issues. Search an item — live stock shows instantly; qty + Enter = issued.</p></div>
       <div class="page-actions">
@@ -680,19 +723,29 @@ VIEWS.mrdetail = () => {
         <button class="btn btn-sm" onclick="expReport('mrd','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('mrd')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
     ${periodBar()}
-    <div class="stat-strip barinv-strip" style="margin-bottom:12px">
-      <div class="s"><div class="l">Saved Issues</div><div class="v">${mrDetail.length}</div></div>
-      <div class="s"><div class="l">Total Qty</div><div class="v">${fmt(total)}</div></div>
-      <div class="s"><div class="l">Total Issue Amount</div><div class="v gold">₹ ${fmt(Math.round(totalAmt))}</div><div class="muted" style="font-size:10px;margin-top:2px">landing ₹ × qty</div></div>
+    <div class="card lrflow mrflow">
+      <div class="lrf-head"><div class="t">Bar Stock Issue</div><div class="f">Issue Amount <b>=</b> Bottles issued <b>×</b> Landing ₹/bottle <span class="p">· Liquor Room → Bar${mspan?' · '+esc(mspan):''}</span></div></div>
+      <div class="lrf-body">
+        <div class="lrf-steps">
+          <div class="st"><div class="ic">📋</div><div class="l">Saved Issues</div><div class="v">${fmt(mrDetail.length)}<small>rows</small></div><div class="m sub">${fmt(nItems)} item${nItems===1?'':'s'}</div></div>
+          <div class="arr">›</div>
+          <div class="st is"><div class="ic">🍸</div><div class="l">Bottles Issued</div><div class="v">−${fmt(total)}<small>btl</small></div><div class="m sub">out of ${fmt(avail)} available in Liquor Room</div></div>
+          <div class="arr">=</div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Issue Amount</div><div class="v amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="m">avg ₹ ${fmt(Math.round(avgIs))} / bottle</div></div>
+          <div class="arr">·</div>
+          <div class="st td"><div class="ic">📅</div><div class="l">Today</div><div class="v">${fmt(tdQty)}<small>btl</small></div><div class="m sub">${tdRows.length?fmt(tdRows.length)+' issue'+(tdRows.length===1?'':'s')+' · '+esc(today):'nothing issued yet · '+esc(today)}</div></div>
+        </div>
+        <div class="lrf-ring"><div class="ring" style="--pct:${pctIs}"><div class="in"><div class="k">Issued to Bar</div><div class="amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="k2">${fmt(total)} bottles · ${fmt(nItems)} item${nItems===1?'':'s'}</div><div class="k3">${pctIs}% of liquor room</div></div></div></div>
+      </div>
     </div>
     ${mrFindPanel()}
     ${(()=>{ const lay=pageLay('mrdetail');
-      const defCard=`<div class="card barinv laydense"><div class="card-head"><div><h3>Saved Issues</h3><p>All MR issues (Liquor Room → Bar)</p></div>
+      const defCard=`<div class="card barinv laydense mrtbl"><div class="card-head"><div><h3>Issue Register</h3><p>All issues, Liquor Room → Bar · last column = that item's Liquor-Room stock <em>now</em></p></div>
       <div class="flex gap-8 items-center">${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>
       <div class="table-wrap" style="max-height:460px;overflow-y:auto"><table class="tbl">
-      <thead><tr><th>Date</th><th>Group</th><th>Item</th><th class="right">Qty</th><th class="right">Amount ₹</th><th>Effect</th><th></th></tr></thead>
+      <thead><tr><th style="width:96px">Date</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="3" class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(total)}</strong></td><td class="num gold"><strong>₹ ${fmt(Math.round(totalAmt))}</strong></td><td colspan="2"></td></tr></tfoot>
+      <tfoot><tr class="lrsub" style="position:sticky;bottom:0"><td colspan="3" class="right"><strong>TOTAL</strong></td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(totalAmt))}</strong></td><td colspan="2"></td></tr></tfoot>
       </table></div></div>`;
       if(lay==='def') return defCard;
       if(lay==='dense') return `<div class="laydense">${defCard}</div>`;
