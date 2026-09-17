@@ -351,7 +351,7 @@ $('f').addEventListener('submit', async e=>{
       say('❌ The cloud is not answering. <b>The Supabase project has most likely gone to sleep</b> — '
          +'on the free plan it pauses after a week without use.<br>'
          +'Open <a href="https://supabase.com/dashboard/project/svpbxsbwbwuxnmgcqgfy" target="_blank" rel="noopener">the Supabase dashboard</a>, '
-         +'press <b>Restore project</b>, wait two or three minutes, then sign in again. Your data is kept while it sleeps.<br>'
+         +'press <b>Resume project</b>, wait two to five minutes, then sign in again. Your data is kept while it sleeps.<br>'
          +'<span style="opacity:.75">If the dashboard shows the project running, check this device’s internet instead.</span>','err');
       b.disabled=false; return; }
     say('❌ '+(/Invalid login/i.test(err.message)?'Wrong email or password.'
