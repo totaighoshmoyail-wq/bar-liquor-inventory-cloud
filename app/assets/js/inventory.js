@@ -314,7 +314,7 @@ VIEWS.received = () => {
         <select class="input" style="width:auto;padding:6px 9px;font-size:12px" title="Royal look" onchange="setRecvLook(this.value)">
           ${[['def','① Default'],['donut','② Royal Donut'],['trend','③ Champagne Trend'],['tri','④ Imperial Tri-Chart'],['gauge','⑤ Crown Gauge'],['register','⑥ Monogram Register']].map(o=>`<option value="${o[0]}" ${look===o[0]?'selected':''}>${o[1]}</option>`).join('')}
         </select>
-        <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Upload the WBSBCL BEVCO invoice PDF — items, MRP & fees auto-read">🧾 BEVCO Invoice<input type="file" accept=".pdf" style="display:none" onchange="bevcoUpload(this)"></label>
+        <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Upload the WBSBCL BEVCO invoice PDF — items, MRP & fees auto-read">🧾 BEVCO Invoice<input type="file" accept=".pdf" multiple style="display:none" onchange="bevcoUpload(this)"></label>
         <button class="btn btn-sm" onclick="bevcoList()">📜 Invoices${invoices.length?' ('+invoices.length+')':''}</button>
         <label class="btn btn-sm" style="cursor:pointer">📂 Upload Excel/CSV<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadReceived(this)"></label>
         <button class="btn btn-sm" onclick="openRecvAdd()">＋ Add</button>
@@ -2597,18 +2597,34 @@ function bevcoMapName(name){
     if((rk.indexOf(k)>=0||k.indexOf(rk)>=0) && rk.length>bestLen){ best=r.item; bestLen=rk.length; } });
   return best;
 }
+/* ---- many invoices in one go (v2.30.0) ----
+   The picker takes a whole folder of BEVCO PDFs. They are read one after another: each gets the
+   same preview + confirm as before (mapping, qty, fee check), and confirming moves straight to
+   the next. An invoice whose number is already in the register is skipped, so re-selecting a
+   folder never double-counts. Cancel empties the queue. */
+var _bevQueue=[];
 async function bevcoUpload(inp){
-  const f=inp.files&&inp.files[0]; inp.value=''; if(!f) return;
-  toast('Reading…','Extracting the BEVCO invoice','ok');
+  const files=Array.from(inp.files||[]); inp.value=''; if(!files.length) return;
+  _bevQueue=files;
+  toast('Reading…', files.length===1 ? 'Extracting the BEVCO invoice' : files.length+' invoices queued — each is shown for a quick check', 'ok');
+  bevcoNext();
+}
+async function bevcoNext(){
+  const f=_bevQueue.shift(); if(!f) return;
   let txt='';
   try{ txt=await _pdfText(await f.arrayBuffer()); }catch(e){}
   const inv=bevcoParse(txt||'');
+  if(inv.no && invoices.some(v=>String(v.no)===String(inv.no))){
+    toast('Already in the register', 'Invoice '+inv.no+' ('+f.name+') skipped — it was added before', 'ok');
+    return bevcoNext();
+  }
   if(!inv.items.length){
-    modal('🧾 BEVCO Invoice', `<p style="font-size:12.5px">Could not auto-read this PDF. Open the PDF, select-all → copy, and paste the text here:</p>
+    modal('🧾 BEVCO Invoice — '+esc(f.name), `<p style="font-size:12.5px">Could not auto-read this PDF. Open the PDF, select-all → copy, and paste the text here:</p>
       <textarea class="input" id="bevPaste" style="height:120px;font-size:11px;margin-top:8px"></textarea>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="bevcoFromPaste()">Parse</button>`);
+      `<button class="btn" onclick="closeModal();_bevQueue=[]">Cancel</button>${_bevQueue.length?`<button class="btn" onclick="closeModal();bevcoNext()">Skip this one →</button>`:''}<button class="btn btn-gold" onclick="bevcoFromPaste()">Parse</button>`);
     return;
   }
+  inv._file=f.name;
   bevcoPreview(inv);
 }
 function bevcoFromPaste(){ const t=($('#bevPaste')&&$('#bevPaste').value)||''; closeModal();
@@ -2641,7 +2657,7 @@ function bevcoPreview(inv){
        <div class="flex between" style="font-size:13.5px;padding:4px 0"><strong>Total — Landing Amount (${inv.fees.bots||inv.calc.bots} bot.)</strong>
          <strong class="gold" style="font-size:15px">₹ ${fmt(inv.fees.total||inv.calc.total)} ${ok(inv.fees.total||inv.calc.total,inv.calc.total)?'<span style="color:var(--green);font-size:11px">✔ auto-calc matches</span>':'<span style="color:var(--red);font-size:11px">⚠ check</span>'}</strong></div>
      </div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="bevcoConfirm()">✅ Add to Purchase + MRP</button>`);
+    `<button class="btn" onclick="closeModal();_bevQueue=[]">Cancel${_bevQueue.length?' all':''}</button>${_bevQueue.length?`<button class="btn" onclick="closeModal();bevcoNext()" title="Leave this invoice out and go to the next">Skip →</button>`:''}<button class="btn btn-gold" onclick="bevcoConfirm()">✅ Add to Purchase + MRP${_bevQueue.length?' · next ('+_bevQueue.length+' more)':''}</button>`);
 }
 function bevcoConfirm(){
   const inv=_bevInv; if(!inv) return;
@@ -2668,6 +2684,7 @@ function bevcoConfirm(){
   if(invoices.length>100) invoices.length=100;
   bsv('invoices',invoices);
   closeModal(); route(); toast('Invoice added',added+' items → Purchase · MRP set'+(rawAdded?' · '+rawAdded+' new Item Master entry'+(rawAdded>1?'s':''):'')+' · mapping remembered','ok');
+  if(_bevQueue.length) bevcoNext();                    // straight on to the next invoice in the folder
 }
 function bevcoList(){
   const ln=(lbl,val,sign)=>`<div class="flex between" style="font-size:11.5px;padding:1px 0"><span class="muted">${lbl}</span><span>${sign||''}₹ ${fmt(val)}</span></div>`;
