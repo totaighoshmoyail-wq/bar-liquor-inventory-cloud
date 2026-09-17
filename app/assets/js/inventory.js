@@ -177,6 +177,7 @@ VIEWS.rawdata = () => {
   return `
     <div class="page-head"><div><h1>Item Master</h1><p>${rawData.length} items in ${rawGroups().length} groups. Liquor Room, Bar Stock Issue & Purchase all match against these names.</p></div>
       <div class="page-actions">${layDrop('rawdata')}<div class="search" style="width:210px">🔎<input id="searchBox" placeholder="Search item / group…" value="${esc(q)}" oninput="isearch('rd',this.value)"></div>
+      <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your Liquor Inventory workbook (RAW DATA sheet: GROUP · ITEM DESCRIPTION) — the Item Master becomes exactly that list; names with data are renamed, not lost">📄 Sync from sheet<input type="file" accept=".xlsx,.xlsm,.xls,.csv" style="display:none" onchange="rawSheetUpload(this)"></label>
       <label class="btn btn-sm" style="cursor:pointer" title="Excel/CSV — item name + MRP columns; names auto-match">₹ MRP Import<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadMrp(this)"></label>
       <button class="btn btn-gold btn-sm" onclick="openRawAdd()">＋ New Item</button></div></div>
     ${bodyHtml}`;
@@ -193,6 +194,97 @@ function saveRawAdd(){ const item=$('#raItem').value.trim(); const group=$('#raG
   if(inRaw(item)){ toast('Exists','Already in Item Master','err'); return; }
   rawData.push({item, group}); saveRaw(); closeModal(); route(); toast('Added',`${item} added to Item Master`,'ok'); }
 function delRaw(i){ const r=rawData[i]; if(!r) return; confirmAsk(`Remove raw-data item <strong>${esc(r.item)}</strong>?`, ()=>{ rawData.splice(i,1); saveRaw(); route(); toast('Removed',`${r.item} removed`,'err'); }); }
+/* ---- Item Master ⇄ the client's Liquor Inventory workbook (v2.35.0) ----
+   The client keeps the master list of liquor-room items in the RAW DATA sheet of their monthly
+   "Liquor Inventory Sheet" workbook (GROUP · ITEM DESCRIPTION). "Sync from sheet" makes the app's
+   Item Master equal to that sheet: names in the sheet stay/are added, names no longer in the sheet
+   are removed — unless they carry data (purchases, stock issues, opening stock, prices, a learned
+   BEVCO mapping), in which case they are RENAMED to the sheet's spelling (best match suggested,
+   any sheet name selectable) and every reference follows, or kept if the person says so.
+   Nothing is deleted silently: the plan is shown first. */
+var _rsPlan=null;
+function rawSheetUpload(inp){
+  const f=inp.files[0]; inp.value=''; if(!f) return;
+  if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page','err'); return; }
+  const reader=new FileReader();
+  reader.onload=e=>{ try{
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    /* the sheet with GROUP + ITEM headers — "RAW DATA" first, else the first one that has both */
+    const cands=wb.SheetNames.slice().sort((a,b)=>(/RAW/i.test(b)?1:0)-(/RAW/i.test(a)?1:0));
+    let found=null;
+    for(const sn of cands){ const grid=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false});
+      for(let r=0;r<Math.min(grid.length,15);r++){ const row=(grid[r]||[]).map(x=>norm(x));
+        const g=row.findIndex(x=>/^GROUP/.test(x)); const it=row.findIndex(x=>/(ITEM|DESCRIPTION)/.test(x));
+        if(g>=0&&it>=0){ found={sn,grid,hr:r,cg:g,ci:it}; break; } }
+      if(found) break; }
+    if(!found){ toast('No GROUP / ITEM sheet','Could not find a sheet with GROUP and ITEM DESCRIPTION columns','err'); return; }
+    const list=[], seen={};
+    for(let r=found.hr+1;r<found.grid.length;r++){ const row=found.grid[r]||[];
+      const item=String(row[found.ci]==null?'':row[found.ci]).replace(/\s+/g,' ').trim().toUpperCase();
+      const group=String(row[found.cg]==null?'':row[found.cg]).replace(/\s+/g,' ').trim().toUpperCase();
+      if(!item||/^(TOTAL|GRAND TOTAL)$/.test(item)) continue; const k=norm(item); if(seen[k]) continue; seen[k]=1;
+      list.push({item, group:group||'(ungrouped)'}); }
+    if(!list.length){ toast('Empty sheet','No item rows under the header','err'); return; }
+    rawSheetPlan(list, f.name, found.sn);
+  }catch(err){ toast('Failed','Could not read the file','err'); } };
+  reader.readAsArrayBuffer(f);
+}
+/* what each current Item Master name is holding */
+function _rawRefs(name){
+  const k=norm(name); const iv=invData[k]||{};
+  const recv=receivedStock.filter(r=>norm(r.item)===k).length, mr=mrDetail.filter(r=>norm(r.item)===k).length;
+  const stock=(iv.lrOpen!=null&&iv.lrOpen!=='')||(iv.openBL!=null&&iv.openBL!=='')||(iv.closeBL!=null&&iv.closeBL!=='');
+  const price=(iv.land!=null&&iv.land!=='')||(iv.mrp!=null&&iv.mrp!=='');
+  const bev=Object.keys(bevMap).filter(b=>norm(bevMap[b])===k).length;
+  const parts=[]; if(recv) parts.push(recv+' purchase'+(recv>1?'s':'')); if(mr) parts.push(mr+' issue'+(mr>1?'s':'')); if(stock) parts.push('stock'); if(price) parts.push('price'); if(bev) parts.push('BEVCO map');
+  return {recv,mr,stock,price,bev, any:!!(recv||mr||stock||price||bev), txt:parts.join(' · ')};
+}
+function rawSheetPlan(list, fname, sname){
+  const sheetIdx=new Map(list.map(x=>[norm(x.item),x]));
+  const keep=[], gone=[];
+  rawData.forEach(r=>{ if(sheetIdx.has(norm(r.item))) keep.push(r); else gone.push(r); });
+  const add=list.filter(x=>!findRawExact(x.item));
+  const rows=gone.map(r=>{ const refs=_rawRefs(r.item); const m=bevcoMatch(r.item,{list:list, ignoreSize:false});
+    const sug=m.name||''; return {old:r.item, group:r.group||'', refs, sug, sure:m.sure, act: refs.any ? (sug?'rename':'keep') : 'remove', to:sug}; });
+  _rsPlan={list, fname, sname, keep:keep.length, add, rows};
+  const dl=`<datalist id="rsNames">${list.map(x=>`<option value="${esc(x.item)}">`).join('')}</datalist>`;
+  const tr=rows.map((x,i)=>`<tr><td style="font-size:11.5px"><strong>${esc(x.old)}</strong><div class="muted" style="font-size:10px">${esc(x.group)}${x.refs.txt?' · <span style="color:var(--amber)">'+esc(x.refs.txt)+'</span>':' · no data'}</div></td>
+      <td><select class="input" id="rsAct${i}" style="width:auto;padding:3px 6px;font-size:11.5px" onchange="rawSheetAct(${i})">
+        <option value="rename" ${x.act==='rename'?'selected':''}>Rename to →</option><option value="keep" ${x.act==='keep'?'selected':''}>Keep as is</option><option value="remove" ${x.act==='remove'?'selected':''}>Remove</option></select></td>
+      <td><input class="cell-input" id="rsTo${i}" list="rsNames" style="width:100%;text-align:left;${x.act==='rename'?'':'display:none'};${x.sure?'':'border-color:var(--amber)'}" value="${esc(x.to)}" placeholder="sheet name…" title="${x.sure?'Sure match':'Best guess — check'}"></td></tr>`).join('');
+  const nRen=rows.filter(x=>x.act==='rename').length, nKeep=rows.filter(x=>x.act==='keep').length, nRem=rows.filter(x=>x.act==='remove').length;
+  modal('📄 Item Master from your sheet — '+esc(sname),
+    `<div class="muted" style="font-size:11.5px;margin-bottom:8px"><strong>${esc(fname)}</strong> · ${list.length} items in the sheet ·
+      <span style="color:var(--green)">${keep.length} already here</span> · <span style="color:var(--green)">＋${add.length} new</span> ·
+      <span style="color:var(--amber)">${nRen} renamed</span> · ${nKeep} kept · <span style="color:var(--red)">${nRem} removed</span><br>
+      After this the Item Master, the Liquor Room and BEVCO matching all use the sheet's names. Names below are in the app but not in the sheet — say what happens to each.</div>
+     ${rows.length?`<div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead><tr><th>In the app, not in the sheet</th><th style="width:130px">Action</th><th style="width:260px">Sheet name</th></tr></thead><tbody>${tr}</tbody></table></div>${dl}`:'<div class="muted" style="font-size:12px">Every app name is in the sheet — nothing to rename or remove.</div>'}
+     ${add.length?`<details style="margin-top:8px"><summary class="muted" style="font-size:11.5px;cursor:pointer">＋ ${add.length} new from the sheet</summary><div class="muted" style="font-size:11px;line-height:1.7;max-height:120px;overflow:auto">${add.map(x=>esc(x.item)+' <span style="opacity:.6">· '+esc(x.group)+'</span>').join('<br>')}</div></details>`:''}`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="rawSheetApply()">✅ Make the Item Master match the sheet</button>`);
+}
+function rawSheetAct(i){ const s=$('#rsAct'+i), t=$('#rsTo'+i); if(!s||!t) return; t.style.display=s.value==='rename'?'':'none'; }
+function rawSheetApply(){
+  const P=_rsPlan; if(!P) return;
+  const renames=[], keeps=[]; let removed=0, orphan=0;
+  P.rows.forEach((x,i)=>{ const act=($('#rsAct'+i)||{}).value||x.act; const to=(($('#rsTo'+i)||{}).value||'').trim().toUpperCase();
+    if(act==='rename'){ const tgt=P.list.find(y=>norm(y.item)===norm(to)); if(!tgt){ keeps.push(x); return; } renames.push({old:x.old, to:tgt.item}); }
+    else if(act==='keep') keeps.push(x);
+    else { removed++; if(x.refs.recv||x.refs.mr) orphan++; } });
+  /* every reference follows a rename */
+  renames.forEach(rn=>{ const ko=norm(rn.old), kn=norm(rn.to);
+    receivedStock.forEach(r=>{ if(norm(r.item)===ko) r.item=rn.to; });
+    mrDetail.forEach(r=>{ if(norm(r.item)===ko) r.item=rn.to; });
+    Object.keys(bevMap).forEach(b=>{ if(norm(bevMap[b])===ko) bevMap[b]=rn.to; });
+    if(invData[ko]){ const src=invData[ko], dst=invData[kn]||{}; Object.keys(src).forEach(f=>{ if(dst[f]==null||dst[f]==='') dst[f]=src[f]; }); invData[kn]=dst; delete invData[ko]; }
+    Object.keys(invData).forEach(k=>{ const iv=invData[k]; if(iv&&iv.rawName&&norm(iv.rawName)===ko) iv.rawName=rn.to; });
+  });
+  const newRaw=P.list.map(x=>({item:x.item, group:x.group}));
+  keeps.forEach(x=>newRaw.push({item:x.old, group:x.group||'(ungrouped)'}));
+  rawData.length=0; newRaw.forEach(r=>rawData.push(r));
+  saveRaw(); bsv('recv',receivedStock); bsv('mr',mrDetail); bsv('inv',invData); bsv('bevmap',bevMap); _bevIdx=null;
+  closeModal(); _rsPlan=null; route();
+  toast('Item Master synced', rawData.length+' items · '+P.add.length+' new · '+renames.length+' renamed · '+keeps.length+' kept · '+removed+' removed'+(orphan?' ⚠ '+orphan+' removed name(s) still have entries — they show red until renamed':''), orphan?'err':'ok');
+}
 // MRP import: Excel/CSV with item-name + MRP columns (auto-detected) → matches Raw Data names, sets invData.mrp
 function uploadMrp(inp){
   const f=inp.files[0]; if(!f) return;
@@ -2707,21 +2799,21 @@ function _bevLev(a,b){ if(a===b) return 0; const m=a.length,n=b.length; if(!m||!
 function _bevTokEq(a,b){ if(a===b) return true; if(/^\d/.test(a)||/^\d/.test(b)) return false;
   const L=Math.min(a.length,b.length); if(L<5) return false; const d=_bevLev(a,b); return d<=1 || (L>=7 && d<=2); }
 var _bevIdx=null, _bevIdxKey='';
-function bevIndex(){
+function bevIndex(list){                                   // list: an arbitrary [{item,group}] (no cache) — default: the Item Master (cached)
   const key=rawData.length+':'+_rawIdxVer;
-  if(_bevIdx && _bevIdxKey===key) return _bevIdx;
-  const df={}; const items=rawData.map(r=>{
+  if(!list && _bevIdx && _bevIdxKey===key) return _bevIdx;
+  const df={}; const items=(list||rawData).map(r=>{
     const sz=bevSize(r.item)||bevSize(r.group)||0;
     const toks=[...new Set(bevTokens(r.item).filter(t=>!BEV_PACK.has(t) && !(sz&&t===String(sz))))];
     toks.forEach(t=>df[t]=(df[t]||0)+1);
     let kind=bevKind(toks); if(!kind){ const gk=bevKind(bevTokens(r.group||'')); if(gk && gk!=='GIN' && gk!=='LIQ') kind=gk; }
     return {r, toks, sz, kind}; });
   const N=items.length; const w=t=>{ const d=df[t]||0; return d?Math.log((N+1)/(d+1))+0.15:0; };
-  _bevIdx={items, df, N, w}; _bevIdxKey=key; return _bevIdx;
+  const ix={items, df, N, w}; if(!list){ _bevIdx=ix; _bevIdxKey=key; } return ix;
 }
 // → {name, group, score, sure, alt}: name='' means "nothing close enough — treat as a new item"
 function bevcoMatch(name, opt){
-  opt=opt||{}; const ix=bevIndex(); const szReal=bevSize(name), szB=opt.ignoreSize?0:szReal;
+  opt=opt||{}; const ix=bevIndex(opt.list); const szReal=bevSize(name), szB=opt.ignoreSize?0:szReal;
   const B=[...new Set(bevTokens(name).filter(t=>!BEV_PACK.has(t) && !(szReal&&t===String(szReal))))];
   const none={name:'',group:'',score:0,sure:false,alt:'',top:null};
   if(!B.length||!ix.N) return none;
@@ -2833,16 +2925,17 @@ function bevcoPreview(inv){
     const state=learned?'learned':(m&&m.sure?'sure':(mapped?'guess':'new'));
     if(state==='new') nNew++; else if(state==='guess') nGuess++; else nSure++;
     const clean=bevcoCleanName(x.name), ggrp=bevcoGuessGroup(x.name);
-    const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
+    const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item — rename / pick category</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
     return `<tr><td style="font-size:11px">${esc(x.name)} ${pill}
-        <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${state==='guess'?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(mapped)}" placeholder="↳ leave blank = NEW item: ${esc(clean)}" oninput="bevMapEdit(${i})"></div>
-        <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">Added to Item Master + Liquor Room as <strong style="color:var(--text)">${esc(clean)}</strong> in group</span>
-          <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px">${groupOpts(ggrp)}</select></div></td>
+        <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${state==='guess'?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(state==='new'?clean:mapped)}" placeholder="↳ Item Master name (blank = new item: ${esc(clean)})" oninput="bevMapEdit(${i})"></div>
+        <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">New in Item Master + Liquor Room under the name above · category</span>
+          <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px" onchange="bevGrpPick(${i})">${groupOpts(ggrp)}<option value="__new__">＋ New category…</option></select>
+          <input class="cell-input" id="bevGrpNew${i}" style="display:none;width:170px;text-align:left;margin-left:4px" placeholder="e.g. IMFL WHISKY 750 ML"></div></td>
       <td class="num">₹${fmt(x.mrp)}</td><td class="num"><input class="cell-input" style="width:44px" id="bevQty${i}" value="${x.bots}"></td>
       <td class="num muted" style="font-size:10.5px">${esc(x.caseBot)}</td><td class="num gold">₹${fmt(x.amount)}</td></tr>`; }).join('');
   const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
   modal('🧾 BEVCO Invoice — '+esc(inv.no||''),
-    `<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · landing ₹ &amp; MRP → Item Master, Liquor Room, Purchase &amp; Beverage Control · new names → Item Master automatically</div>
+    `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the Item Master and the Liquor Room.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · landing ₹ &amp; MRP → Item Master, Liquor Room, Purchase &amp; Beverage Control · new names → Item Master automatically</div>
      <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
        <thead><tr><th>Item (map to Item Master)</th><th class="right">MRP/Bot</th><th class="right">Bot.</th><th class="right">Case-Bot</th><th class="right">Amount</th></tr></thead>
        <tbody>${rows}
@@ -2863,9 +2956,11 @@ function bevcoPreview(inv){
 }
 // typing in a mapping box: blank → the NEW-item row (name + group) shows; a name → it hides
 function bevMapEdit(i){ const inp=$('#bevMap'+i), nw=$('#bevNew'+i), st=$('#bevSt'+i); if(!inp) return;
-  const v=inp.value.trim(); if(nw) nw.style.display=v?'none':'';
-  inp.classList.toggle('bmap-new',!v); if(v) inp.classList.remove('bmap-guess');
-  if(st){ if(!v){ st.className='pill red'; st.textContent='＋ new item'; } else if(findRawExact(v)){ st.className='pill green'; st.textContent='✔ matched'; } else { st.className='pill amber'; st.textContent='? typed'; } } }
+  const v=inp.value.trim(); const known=!!(v&&findRawExact(v)); const isNew=!known;   // blank or an unknown name = a new item under that name
+  if(nw) nw.style.display=isNew?'':'none';
+  inp.classList.toggle('bmap-new',isNew); if(known) inp.classList.remove('bmap-guess');
+  if(st){ if(known){ st.className='pill green'; st.textContent='✔ matched'; } else { st.className='pill red'; st.textContent='＋ new item — rename / pick category'; } } }
+function bevGrpPick(i){ const s=$('#bevGrp'+i), t=$('#bevGrpNew'+i); if(!s||!t) return; t.style.display=s.value==='__new__'?'':'none'; if(s.value==='__new__') t.focus(); }
 // which Item Master entry a preview line lands on — exact name wins; a typed name that is a SURE fuzzy
 // match snaps to the house spelling; anything else becomes a NEW entry (the box empty → the clean BEVCO name)
 function bevcoResolve(x,i){
@@ -2888,7 +2983,8 @@ function bevcoConfirm(){
     const qty=fnum(($('#bevQty'+i)&&$('#bevQty'+i).value)||x.bots)||x.bots;
     bevMap[norm(x.name)]=mapped;                       // remember this mapping for every future invoice
     if(R.isNew){                                       // NEW item → Item Master (and therefore Liquor Room, MR search, Purchase matching) at once
-      const gsel=$('#bevGrp'+i); const group=((gsel&&gsel.value.trim())||bevcoGuessGroup(x.name)||'BEVCO IMPORT');
+      const gsel=$('#bevGrp'+i), gnew=$('#bevGrpNew'+i);
+      const group=((gsel&&gsel.value==='__new__')?((gnew&&gnew.value.trim().toUpperCase())||bevcoGuessGroup(x.name)):((gsel&&gsel.value.trim())||bevcoGuessGroup(x.name)))||'BEVCO IMPORT';
       rawData.push({item:mapped, group}); rebuildRawIdx(); rawAdded++; newNames.push(mapped); }
     const g=findRawExact(mapped);
     const landE=Math.round(x.amount*factor/(x.bots||1)*10000)/10000;   // this line's landed rate, fee share included

@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.34.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.35.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2772,7 +2772,8 @@ function mapRawModal(){
   modal('🗂 Item Master Data — Inventory master', `
     <p class="muted" style="font-size:11.5px">Two columns: <code>GROUP</code> + <code>ITEM DESCRIPTION</code> (Tab / comma separated). Added items auto-match in <strong>Liquor Room · Bar Stock Issue · Purchase</strong>.</p>
     <textarea class="input" id="rdPaste" style="height:92px;font-family:monospace;font-size:11px;margin-top:8px" placeholder="BREEEZER 275 ML&#9;BACARDI BREEZER CRANBERRY&#10;DRAUGHT BEER 50&#9;KINGFISHER DRAUGHT BEER - 50000 ML"></textarea>
-    <label class="btn btn-sm mt-8" style="cursor:pointer">📂 Excel / CSV (GROUP · ITEM)<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadRawItems(this)"></label>`,
+    <label class="btn btn-sm mt-8" style="cursor:pointer">📂 Excel / CSV (GROUP · ITEM)<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadRawItems(this)"></label>
+    <label class="btn btn-sm btn-gold mt-8" style="cursor:pointer" title="Your Liquor Inventory workbook (RAW DATA sheet) — the Item Master becomes exactly that list; names with data are renamed, not lost">📄 Sync from Liquor Inventory sheet (replace)<input type="file" accept=".xlsx,.xlsm,.xls,.csv" style="display:none" onchange="closeModal();rawSheetUpload(this)"></label>`,
     `<button class="btn" onclick="closeModal()">Close</button><button class="btn btn-gold" onclick="rawPasteAdd()">＋ Add to Item Master</button>`);
 }
 function sysMapModal(){
