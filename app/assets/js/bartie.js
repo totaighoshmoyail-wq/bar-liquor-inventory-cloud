@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.27.2';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.28.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -356,6 +356,14 @@ async function cloudTest(){
 
    `auto` is opt-OUT (`!==false`), so a company that never touched the setting is live. */
 function cloudLive(){ const c=cloudCfg(); return !!(c.url && c.key && c.auto!==false); }
+/* v2.28.0 one-time repair: two earlier bugs — a duplicate "Auto-push" checkbox in the Cloud Sync card and
+   cloud-setup.html writing auto:!!undefined — switched live sync OFF without anyone choosing it. Turn it
+   on once; anything the user switches off after this stays off. */
+(function(){ try{
+  if(localStorage.getItem('tg2_liveMig2')) return;
+  const c=cloudCfg(); if(c.url && c.key && c.auto===false){ c.auto=true; cloudSave(c); }
+  localStorage.setItem('tg2_liveMig2','1');
+}catch(e){} })();
 function _cloudSetMeta(patch){
   const m=_cloudMeta(); Object.keys(patch).forEach(k=>{ m[k]=patch[k]; });
   try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify(m)); }catch(e){}
@@ -2561,8 +2569,6 @@ VIEWS.settings = () => {
         <button class="btn btn-gold btn-sm" onclick="cloudPush()">⬆ Push now</button>
         <button class="btn btn-sm" onclick="cloudPull()">⬇ Pull from cloud</button>
         <a class="btn btn-sm" href="backend.html" target="_blank" rel="noopener" title="Data entry console — sign in with your Supabase email &amp; password">⚙ Backend Console</a>
-        <label style="font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer">
-          <input type="checkbox" ${cloudCfg().auto?'checked':''} onchange="var c=cloudCfg();c.auto=this.checked;cloudSave(c)"> Auto-push (1 min after any change)</label>
       </div>
       <details style="margin-top:10px"><summary class="muted" style="font-size:11.5px;cursor:pointer">One-time setup (free) — how to get the URL &amp; key</summary>
         <div class="muted" style="font-size:11.5px;line-height:1.8;margin-top:6px">
