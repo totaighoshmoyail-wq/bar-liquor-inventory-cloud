@@ -17,7 +17,8 @@ let mrDetail      = bls('mr',   []);                // [{date, group, item, qty}
 const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN && typeof CANTEEN_INV!=='undefined') ? CANTEEN_INV : {};
 let invData       = bls('inv',  JSON.parse(JSON.stringify(_seedInv)));   // { norm(item): {sizeL, openBL, closeBL, lrOpen, saleOverride} }
 // heal: an existing-but-empty store must not mask the company's opening-balance seed
-if(Object.keys(_seedInv).length && !Object.keys(invData).length){ invData=JSON.parse(JSON.stringify(_seedInv)); bsv('inv',invData); }
+// ...unless the company was deliberately started fresh (Settings -> Start Fresh sets the flag)
+if(Object.keys(_seedInv).length && !Object.keys(invData).length && !localStorage.getItem(CO_PREFIX+'fresh')){ invData=JSON.parse(JSON.stringify(_seedInv)); bsv('inv',invData); }
 let bevPages      = bls('bevpages', []);            // Beverage Control clone PAGES [{id,name}] — each its own sheet in the nav
 const bevStores   = {};                             // lazy-loaded per-clone data stores (storage key inv2_<id>)
 // A clone page (#bev_<id>) reads/writes its OWN store; every other page uses the main one.

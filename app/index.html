@@ -382,7 +382,7 @@ $('open').addEventListener('click', async ()=>{
     /* make sure the app opens THIS company */
     let list=[]; try{ list=JSON.parse(localStorage.getItem('tg2_companies')||'[]')||[]; }catch(e){}
     if(id!=='main' && !list.some(c=>c.id===id)){ list.push({id:id,name:d.co||id}); localStorage.setItem('tg2_companies', JSON.stringify(list)); }
-    localStorage.setItem('tg2_activeCo', JSON.stringify(id));
+    localStorage.setItem('tg2_activeCo', id);   // raw string — the app reads it raw; JSON quotes made Canteen open as Traffic
     say('Opening…','ok');
     location.href='app.html';
   }catch(err){ say('❌ '+esc(err.message),'err'); b.disabled=false; }

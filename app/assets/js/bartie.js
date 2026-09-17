@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.26.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.27.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -16,6 +16,8 @@ function coList(){ try{ const l=JSON.parse(localStorage.getItem('tg2_companies')
 function coSave(l){ try{ localStorage.setItem('tg2_companies', JSON.stringify(l)); }catch(e){} }
 const ACTIVE_CO = (function(){ const a=localStorage.getItem('tg2_activeCo')||'main'; return coList().some(c=>c.id===a)?a:'main'; })();
 const CO_PREFIX = ACTIVE_CO==='main' ? 'tg2_' : 'tg2_'+ACTIVE_CO+'_';
+// Settings -> Start Fresh sets this: the company was deliberately emptied, so seed fallbacks stay OFF
+const CO_FRESH = (function(){ try{ return !!localStorage.getItem(CO_PREFIX+'fresh'); }catch(e){ return false; } })();
 // CANTEEN company gets its own extracted seed data (canteenseed.js); engine identical.
 const CO_IS_CANTEEN = /canteen/i.test((coList().find(c=>c.id===ACTIVE_CO)||{}).name||'');
 function openCompanies(){
@@ -548,7 +550,7 @@ const SEED_TALLY = (CO_IS_CANTEEN && typeof CANTEEN_TALLY!=='undefined') ? CANTE
 const SEED_ALIAS = (CO_IS_CANTEEN && typeof CANTEEN_ALIAS!=='undefined') ? CANTEEN_ALIAS : INIT_ALIAS;
 const SEED_CKS   = (CO_IS_CANTEEN && typeof CANTEEN_COCKTAILS!=='undefined') ? CANTEEN_COCKTAILS : INIT_COCKTAILS;
 const SEED_CKAL  = CO_IS_CANTEEN ? ((typeof CANTEEN_CKALIAS!=='undefined')?CANTEEN_CKALIAS:[]) : INIT_COCKTAIL_ALIAS;
-const DEFAULT_POS = (CO_IS_CANTEEN && typeof CANTEEN_POS!=='undefined') ? CANTEEN_POS.map(r=>({ name:r.n, qty:r.q }))
+const DEFAULT_POS = CO_FRESH ? [] : (CO_IS_CANTEEN && typeof CANTEEN_POS!=='undefined') ? CANTEEN_POS.map(r=>({ name:r.n, qty:r.q }))
   : ((typeof REAL_SALES !== 'undefined') ? REAL_SALES.map(r => ({ name: r.n, qty: r.q })) : []);
 let tallyItems    = bls('tally',  SEED_TALLY.map(t => ({...t})));
 let aliasTable    = bls('alias',  SEED_ALIAS.map(a => ({...a})));
@@ -2430,6 +2432,7 @@ VIEWS.settings = () => {
       </div>
       <div class="divider"></div>
       <div class="flex gap-8" style="flex-wrap:wrap">
+        <button class="btn btn-gold btn-sm" onclick="confirmFresh()" title="Zero the figures, keep the setup">🌅 Start Fresh (keep setup)</button>
         <button class="btn btn-danger btn-sm" onclick="confirmBlank()">🧹 Blank Reset</button>
         <button class="btn btn-sm" onclick="confirmReset()">♻️ Restore demo data</button>
       </div>
@@ -2747,6 +2750,43 @@ function confirmReset(){
 }
 function confirmBlank(){
   confirmAsk(`Wipe <strong>ALL data</strong> — brands, aliases, cocktails, POS rows, Item Master, Purchase, Bar Stock Issue & inventory figures? The system becomes empty; <strong>formulas & calculations stay exactly the same</strong>. You then add new names and map aliases manually.`, resetBlank);
+}
+/* ---------------- Start Fresh (v2.27.0) ----------------
+   The client's "delete all demo & testing, I will start again": empty every FIGURE for the
+   active company but keep its SETUP — brands, aliases, cocktail recipes, item master,
+   settings, users. Two things make this different from just removing keys:
+   1. An ABSENT key falls back to the seed (232/212 POS rows, the Canteen opening stock), so
+      the figures are stored as explicit empties — [] and {} — never removed.
+   2. inventory.js "heals" an empty inv{} back to the Canteen seed; the per-company `fresh`
+      flag tells it not to. The flag syncs with the company, so the website stays fresh too.
+   A backup file is downloaded first, and the clean state is pushed so no device can bring
+   the old figures back. */
+function confirmFresh(){
+  const co=(coList().find(c=>c.id===ACTIVE_CO)||{}).name||ACTIVE_CO;
+  confirmAsk(`Start <strong>${esc(co)}</strong> fresh?<br><br>
+    <span class="muted">Goes to zero:</span> Opening &amp; Closing stock, Liquor Room opening, Purchase entries, Bar Stock Issue entries, POS sales, month history, invoice register, audit log.<br>
+    <span class="muted">Stays exactly as it is:</span> brand list, liquor &amp; cocktail aliases, cocktail recipes, Item Master, landing rates, settings, users.<br><br>
+    A backup file of everything is downloaded first. If the cloud is signed in, the clean state is pushed so the website and other devices match.`,
+    startFresh);
+}
+async function startFresh(opts){
+  try{ backupCompany(); }catch(e){}
+  // figures -> explicit empties (an absent key would fall back to the seed)
+  bsv('pos', []); bsv('recv', []); bsv('mr', []); bsv('inv', {});
+  bsv('months', []); bsv('invoices', []); bsv('audit', []);
+  try{ (bls('bevpages',[])||[]).forEach(p=>bsv('inv2_'+p.id, {})); }catch(e){}
+  try{ localStorage.setItem(CO_PREFIX+'fresh','1'); }catch(e){}
+  // the month starts today
+  const d=new Date(), y=d.getFullYear(), m=d.getMonth();
+  const p2=n=>String(n).padStart(2,'0'), last=new Date(y,m+1,0).getDate();
+  bsv('period', {from:`${y}-${p2(m+1)}-01`, to:`${y}-${p2(m+1)}-${p2(last)}`});
+  try{ localStorage.removeItem(CO_PREFIX+'cloudmeta'); }catch(e){}   // a fresh start is allowed to overwrite the cloud copy
+  closeModal();
+  toast('Starting fresh','Figures cleared — setup kept. Saving to the cloud…','ok');
+  if(typeof cloudOn==='function' && cloudOn() && typeof cloudSignedIn==='function' && cloudSignedIn()){
+    try{ await cloudPush(true); }catch(e){}
+  }
+  if(!(opts&&opts.noReload)) location.reload();
 }
 function resetBlank(){
   ['tally','alias','cocktails','cocktailAlias','pos','namemap','rawdata2','recv','mr','inv'].forEach(k=>localStorage.removeItem(CO_PREFIX+k));
