@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.28.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.29.0';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -1518,6 +1518,16 @@ VIEWS.order = () => {
    ============================================================ */
 let talCat='ALL', tQuery='';
 function tallyPeriodSet(){ const f=$('#tpFrom').value, t=$('#tpTo').value; period={from:f||period.from, to:t||period.to}; bsv('period',period); route(); toast('Period set',`${period.from} → ${period.to}`,'ok'); }
+/* One period picker for every page (v2.29.0): the same ids and setter as the Tally Sheet, so FROM/TO
+   can be changed from wherever the user is. It only SETS the period. Which figures honour it is
+   unchanged and deliberate: Beverage Control receipt = Bar Stock Issues inside the period (the
+   Excel SUMIFS); Liquor Room, Purchase, Bar Stock Issue and their reports keep counting everything. */
+function periodBar(inline){
+  const inp=(id,v)=>`<input class="input" type="date" id="${id}" value="${v}" style="width:auto;padding:3px 7px;font-size:12px" onchange="tallyPeriodSet()">`;
+  const core=`<span class="muted" style="font-size:11px;letter-spacing:2px;text-transform:uppercase">📅 Period</span> ${inp('tpFrom',period.from)} <span class="gold">→</span> ${inp('tpTo',period.to)}`;
+  if(inline) return `<span class="perinl noprint" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">${core}</span>`;
+  return `<div class="card perbar noprint" style="margin-bottom:10px"><div class="card-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 12px">${core}</div></div>`;
+}
 VIEWS.tally = () => {
   const { cmlMap, smlMap, posQtyMap } = calcGrandTotals();
   const inScope = t => (talCat==='ALL'||t.category===talCat) && (!tQuery || norm(t.name).includes(norm(tQuery)) || norm(t.category).includes(norm(tQuery)));

@@ -321,6 +321,7 @@ VIEWS.received = () => {
         <button class="btn btn-sm" onclick="expReport('recv','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('recv')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <button class="btn btn-danger btn-sm" onclick="clearAllRecv()">🗑️ Clear All</button></div></div>
+    ${periodBar()}
     <div class="stat-strip" style="margin-bottom:16px">
       <div class="s"><div class="l">Entries</div><div class="v">${receivedStock.length}</div></div>
       <div class="s"><div class="l">Total Qty</div><div class="v gold">${fmt(total)}</div></div>
@@ -678,6 +679,7 @@ VIEWS.mrdetail = () => {
         <button class="btn btn-sm" onclick="openPhotoRecv()">📷 Photo</button>
         <button class="btn btn-sm" onclick="expReport('mrd','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('mrd')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
+    ${periodBar()}
     <div class="stat-strip barinv-strip" style="margin-bottom:12px">
       <div class="s"><div class="l">Saved Issues</div><div class="v">${mrDetail.length}</div></div>
       <div class="s"><div class="l">Total Qty</div><div class="v">${fmt(total)}</div></div>
@@ -1091,6 +1093,7 @@ VIEWS.liquorroom = () => {
           ${[['def','① Classic'],['donut','② Royal Donut'],['bars','③ Golden Bars'],['gauge','④ Crown Gauge'],['register','⑤ Monogram Register']].map(o=>`<option value="${o[0]}" ${look===o[0]?'selected':''}>${o[1]}</option>`).join('')}
         </select>
         ${layDrop('liquorroom')}<button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
+    ${periodBar()}
     <div class="tabs" style="align-items:center">${ftab('all','All')}${ftab('instock','✅ In Stock (&gt;0)')}${ftab('zero','⚪ Zero')}${ftab('neg','🔴 Negative')}
       <select class="input" style="width:auto;padding:5px 8px;font-size:12px;margin-left:10px" title="Blank / zero filter" onchange="lrBlank=this.value;route()">
         ${[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']].map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
@@ -1623,7 +1626,7 @@ VIEWS.reports = () => {
   return `
     <div class="rptc">
     ${letterhead('Reports')}
-    <div class="page-head" style="margin-bottom:8px"><div><h1 style="font-size:17px">Reports</h1><p style="font-size:11px">Period · <span class="gold">${period.from} → ${period.to}</span></p></div>
+    <div class="page-head" style="margin-bottom:8px"><div><h1 style="font-size:17px">Reports</h1><p style="font-size:11px">${periodBar(true)}</p></div>
       <div class="page-actions"><button class="btn btn-sm" onclick="window.print()">🖨️ Print / PDF</button></div></div>
     <div class="stat-strip" style="margin-bottom:8px">
       <div class="s"><div class="l">Total Sale</div><div class="v gold">${fmt(Math.round(sales))} <span class="muted" style="font-size:11px">ml</span></div></div>
@@ -2249,7 +2252,7 @@ VIEWS.dashboard = () => {
   const tot=(cells)=>`<tr style="background:var(--gold-dim);font-weight:700">${cells}</tr>`;
   return `<div class="rptc">
     ${letterhead('Dashboard')}
-    <div class="page-head" style="margin-bottom:8px"><div><h1 style="font-size:18px">Dashboard</h1><p style="font-size:11px">Period · <span class="gold">${period.from} → ${period.to}</span></p></div>
+    <div class="page-head" style="margin-bottom:8px"><div><h1 style="font-size:18px">Dashboard</h1><p style="font-size:11px">${periodBar(true)}</p></div>
       <div class="page-actions">
         <select class="input" style="width:auto;padding:6px 9px;font-size:12px" title="Dashboard design" onchange="setDbLook(this.value)">
           ${DBLOOKS.map(o=>`<option value="${o[0]}" ${_dbLook===o[0]?'selected':''}>${o[1]}</option>`).join('')}
