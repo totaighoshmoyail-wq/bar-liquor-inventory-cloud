@@ -180,6 +180,7 @@ VIEWS.rawdata = () => {
       <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your Liquor Inventory workbook (RAW DATA sheet: GROUP · ITEM DESCRIPTION) — the Item Master becomes exactly that list; names with data are renamed, not lost">📄 Sync from sheet<input type="file" accept=".xlsx,.xlsm,.xls,.csv" style="display:none" onchange="rawSheetUpload(this)"></label>
       <label class="btn btn-sm" style="cursor:pointer" title="Excel/CSV — item name + MRP columns; names auto-match">₹ MRP Import<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadMrp(this)"></label>
       <button class="btn btn-gold btn-sm" onclick="openRawAdd()">＋ New Item</button></div></div>
+    ${bevDupNotice()}
     ${bodyHtml}`;
 };
 function openRawAdd(){
@@ -263,6 +264,64 @@ function rawSheetPlan(list, fname, sname){
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="rawSheetApply()">✅ Make the Item Master match the sheet</button>`);
 }
 function rawSheetAct(i){ const s=$('#rsAct'+i), t=$('#rsTo'+i); if(!s||!t) return; t.style.display=s.value==='rename'?'':'none'; }
+/* move every reference of one Item Master name onto another: purchase + issue lines, learned BEVCO mappings,
+   stock/prices (the target's own values win, blanks are filled from the source), receive-name overrides */
+function rawMoveRefs(oldName, newName){
+  const ko=norm(oldName), kn=norm(newName); if(!ko||ko===kn) return;
+  receivedStock.forEach(r=>{ if(norm(r.item)===ko) r.item=newName; });
+  mrDetail.forEach(r=>{ if(norm(r.item)===ko) r.item=newName; });
+  Object.keys(bevMap).forEach(b=>{ if(norm(bevMap[b])===ko) bevMap[b]=newName; });
+  if(invData[ko]){ const src=invData[ko], dst=invData[kn]||{}; Object.keys(src).forEach(f=>{ if(dst[f]==null||dst[f]==='') dst[f]=src[f]; }); invData[kn]=dst; delete invData[ko]; }
+  Object.keys(invData).forEach(k=>{ const iv=invData[k]; if(iv&&iv.rawName&&norm(iv.rawName)===ko) iv.rawName=newName; });
+}
+/* ---- BEVCO-named duplicates (v2.35.3) ----
+   Before the smart matcher, a blank mapping made the invoice's own wording an Item Master entry under
+   "BEVCO IMPORT" ("CORONA EXTRA PREMIUM LAGER BEER, 330 ML.") and the learned map kept pointing at it —
+   so every later invoice fed THAT name, and the client's real item ("CORONA 330 ML") never got its
+   received bottles or its landing rate. This finds such entries, proposes the real item they belong to,
+   and merges them: purchases, issues, prices, mappings move across and the duplicate goes. */
+var _bevDupCache={ver:-1, list:null};
+function bevDupCandidates(){
+  if(_bevDupCache.ver===_rawIdxVer && _bevDupCache.list) return _bevDupCache.list;
+  const looksBevco=r=> r.group==='BEVCO IMPORT' || /,\s*\d{2,5}\s*ML\.?$/i.test(r.item||'');
+  const own=rawData.filter(r=>!looksBevco(r));
+  const out=[];
+  rawData.forEach(r=>{ if(!looksBevco(r)) return;
+    const m=bevcoMatch(r.item,{list:own}); if(!m.name||norm(m.name)===norm(r.item)) return;
+    out.push({dup:r.item, group:r.group||'', to:m.name, sure:m.sure, refs:_rawRefs(r.item)}); });
+  _bevDupCache={ver:_rawIdxVer, list:out}; return out;
+}
+function bevDupNotice(){
+  const c=bevDupCandidates(); if(!c.length) return '';
+  const ex=c[0];
+  return `<div class="card noprint" style="margin-bottom:10px;border-color:var(--amber)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px">
+    <span style="color:var(--amber);font-weight:700">⚠ ${c.length} BEVCO-named item${c.length>1?'s':''}</span><span class="muted">look${c.length>1?'':'s'} like your own item${c.length>1?'s':''} — e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> → <strong style="color:var(--text)">${esc(ex.to)}</strong>. Merging moves the received bottles, landing rate and BEVCO mapping onto your item.</span>
+    <button class="btn btn-gold btn-sm" onclick="bevDupPlan()">🧹 Merge duplicates</button></div></div>`;
+}
+var _bdPlan=null;
+function bevDupPlan(){
+  const rows=bevDupCandidates(); if(!rows.length){ toast('Nothing to merge','No BEVCO-named duplicates found','ok'); return; }
+  _bdPlan=rows;
+  const own=rawData.filter(r=>r.group!=='BEVCO IMPORT');
+  const dl=`<datalist id="bdNames">${own.map(x=>`<option value="${esc(x.item)}">`).join('')}</datalist>`;
+  const tr=rows.map((x,i)=>`<tr><td style="font-size:11.5px"><strong>${esc(x.dup)}</strong><div class="muted" style="font-size:10px">${esc(x.group)}${x.refs.txt?' · <span style="color:var(--amber)">'+esc(x.refs.txt)+'</span>':' · no data'}</div></td>
+      <td><select class="input" id="bdAct${i}" style="width:auto;padding:3px 6px;font-size:11.5px" onchange="$('#bdTo'+${i}).style.display=this.value==='merge'?'':'none'"><option value="merge">Merge into →</option><option value="keep">Keep both</option></select></td>
+      <td><input class="cell-input" id="bdTo${i}" list="bdNames" style="width:100%;text-align:left;${x.sure?'':'border-color:var(--amber)'}" value="${esc(x.to)}" title="${x.sure?'Sure match':'Best guess — check'}"></td></tr>`).join('');
+  modal('🧹 Merge BEVCO-named duplicates', `<div class="muted" style="font-size:11.5px;margin-bottom:8px">These names were created from BEVCO's own wording. Merging moves their purchases, issues, landing rate, MRP, stock and the learned BEVCO mapping onto <strong>your</strong> item and removes the duplicate — the Liquor Room then shows everything under your name. Amber = best guess, please check.</div>
+    <div class="table-wrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th>BEVCO-named entry</th><th style="width:120px">Action</th><th style="width:250px">Your item</th></tr></thead><tbody>${tr}</tbody></table></div>${dl}`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="bevDupApply()">✅ Merge</button>`);
+}
+function bevDupApply(){
+  const rows=_bdPlan||[]; let merged=0;
+  rows.forEach((x,i)=>{ const act=($('#bdAct'+i)||{}).value||'merge'; if(act!=='merge') return;
+    const to=(($('#bdTo'+i)||{}).value||'').trim(); const tgt=findRawExact(to); if(!tgt||norm(tgt.item)===norm(x.dup)) return;
+    rawMoveRefs(x.dup, tgt.item);
+    const ix=rawData.findIndex(r=>norm(r.item)===norm(x.dup)); if(ix>=0) rawData.splice(ix,1);
+    merged++; });
+  saveRaw(); bsv('recv',receivedStock); bsv('mr',mrDetail); bsv('inv',invData); bsv('bevmap',bevMap); _bevIdx=null; _bevDupCache={ver:-1,list:null};
+  closeModal(); _bdPlan=null; route();
+  toast('Merged', merged+' duplicate'+(merged===1?'':'s')+' folded into your own items — received bottles, landing ₹ and BEVCO mapping moved across', merged?'ok':'err');
+}
 function rawSheetApply(){
   const P=_rsPlan; if(!P) return;
   const renames=[], keeps=[]; let removed=0, orphan=0;
@@ -271,13 +330,7 @@ function rawSheetApply(){
     else if(act==='keep') keeps.push(x);
     else { removed++; if(x.refs.recv||x.refs.mr) orphan++; } });
   /* every reference follows a rename */
-  renames.forEach(rn=>{ const ko=norm(rn.old), kn=norm(rn.to);
-    receivedStock.forEach(r=>{ if(norm(r.item)===ko) r.item=rn.to; });
-    mrDetail.forEach(r=>{ if(norm(r.item)===ko) r.item=rn.to; });
-    Object.keys(bevMap).forEach(b=>{ if(norm(bevMap[b])===ko) bevMap[b]=rn.to; });
-    if(invData[ko]){ const src=invData[ko], dst=invData[kn]||{}; Object.keys(src).forEach(f=>{ if(dst[f]==null||dst[f]==='') dst[f]=src[f]; }); invData[kn]=dst; delete invData[ko]; }
-    Object.keys(invData).forEach(k=>{ const iv=invData[k]; if(iv&&iv.rawName&&norm(iv.rawName)===ko) iv.rawName=rn.to; });
-  });
+  renames.forEach(rn=>rawMoveRefs(rn.old, rn.to));
   const newRaw=P.list.map(x=>({item:x.item, group:x.group}));
   keeps.forEach(x=>newRaw.push({item:x.old, group:x.group||'(ungrouped)'}));
   rawData.length=0; newRaw.forEach(r=>rawData.push(r));
@@ -1278,6 +1331,7 @@ VIEWS.liquorroom = () => {
       </div>
     </div>
     ${lrRoyal}
+    ${bevDupNotice()}
     <div class="card noprint" style="margin-bottom:12px;border-color:var(--gold-dim)"><div class="card-body" style="padding:12px 14px">
       <div class="bigsearch"><span style="font-size:22px">🔎</span><input id="searchBox" placeholder="Search any item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
     </div></div>
