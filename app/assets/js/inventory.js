@@ -1241,7 +1241,7 @@ VIEWS.barinv = () => {
   let list=tallyItems.filter(t=>{
     if(biCat && t.category!==biCat) return false;
     if(q && !(norm(t.name).includes(norm(q))||norm(t.category).includes(norm(q)))) return false;
-    if(!q && !biCat && biConsF==='all' && biVarF==='all' && biSaleF==='all' && !active(t)) return false;   // default view: only active
+    if(!q && !biCat && biConsF==='all' && biVarF==='all' && biSaleF==='all' && !pref.biAll && !active(t)) return false;   // default view: only active (pref.biAll = every brand)
     if(biConsF!=='all' || biVarF!=='all' || biSaleF!=='all'){ const r=barRow(t);
       if(!passSign(r.cons,biConsF)||!passSign(r.varv,biVarF)||!passSign(r.sale,biSaleF)) return false; }
     return true;
@@ -1254,7 +1254,7 @@ VIEWS.barinv = () => {
       T.open+=A.open; T.rec+=A.rec; T.close+=A.close; T.cons+=A.cons; T.sale+=A.sale; T.varv+=A.varv;
       return biRowHtml(t); }).join('');
     return `<tr class="grp-row"><td colspan="10">${cat} <span class="muted">· ${u}</span></td></tr>${rows}`;
-  }).join('') || '<tr><td colspan="10" class="center muted" style="padding:24px">No items match this filter.</td></tr>';
+  }).join('') || `<tr><td colspan="10" class="center muted" style="padding:24px">${(!q&&!biCat&&!pref.biAll)?'No item has figures yet. Switch on <b>☰ All brands</b> above to list every brand and type the opening stock, or search an item, or pick a category.':'No items match this filter.'}</td></tr>`;
 
   const allCats=[...new Set(tallyItems.map(t=>t.category))].sort();
   const chip=(c,lbl)=>`<button class="btn btn-sm ${biCat===c?'btn-gold':''}" onclick='setBiCat(${JSON.stringify(c)})'>${esc(lbl)}</button>`;
@@ -1331,6 +1331,7 @@ VIEWS.barinv = () => {
       <select class="input ${biSaleF!=='all'?'on':''}" onchange="setBiSaleF(this.value)">${fopts(biSaleF)}</select></div>
     <div class="f"><span class="l">Variance ₹</span>
       <select class="input ${biVarF!=='all'?'on':''}" onchange="setBiVarF(this.value)">${fopts(biVarF)}</select></div>
+    <button class="fbtn ${pref.biAll?'on':''}" style="width:auto;padding:0 10px;font-size:11.5px;letter-spacing:.6px" title="${pref.biAll?'Showing every brand — click for only the ones with figures':'Show every brand, including those with no figures yet (month-start entry)'}" onclick="pref.biAll=!pref.biAll;bsv('pref',pref);route()">${pref.biAll?'● All brands':'☰ All brands'}</button>
     <button class="fbtn ${anyF?'on':''}" title="${anyF?'Clear all filters':'No filter applied'}" onclick="biClearFilters()">⛃</button>
   </div>`;
 
