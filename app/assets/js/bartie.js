@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.27.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.27.2';  // keep in sync with version.json when releasing an update
 
 /* ---------------- multi-company namespace ----------------
    Every bls/bsv key is prefixed per ACTIVE company → each company keeps fully
@@ -2782,11 +2782,18 @@ async function startFresh(opts){
   const d=new Date(), y=d.getFullYear(), m=d.getMonth();
   const p2=n=>String(n).padStart(2,'0'), last=new Date(y,m+1,0).getDate();
   bsv('period', {from:`${y}-${p2(m+1)}-01`, to:`${y}-${p2(m+1)}-${p2(last)}`});
-  try{ localStorage.removeItem(CO_PREFIX+'cloudmeta'); }catch(e){}   // a fresh start is allowed to overwrite the cloud copy
+  // Allow the push to overwrite the cloud copy (cloudAt:null skips the moved-on check) but KEEP
+  // dirty:true - if the push fails, the cloud watch must stop and ask, never pull the old copy back.
+  try{ _cloudSetMeta({cloudAt:null, push:null, dirty:true}); }catch(e){}
   closeModal();
   toast('Starting fresh','Figures cleared — setup kept. Saving to the cloud…','ok');
-  if(typeof cloudOn==='function' && cloudOn() && typeof cloudSignedIn==='function' && cloudSignedIn()){
-    try{ await cloudPush(true); }catch(e){}
+  let pushed=false;
+  if(typeof cloudOn==='function' && cloudOn()){
+    if(typeof cloudSignedIn==='function' && cloudSignedIn()){ try{ pushed=await cloudPush(true); }catch(e){} }
+    if(!pushed){
+      toast('Cloud NOT updated','This device is clean, but the cloud still holds the old figures. Open Settings → Cloud Sync, sign in and press ⬆ Push — until then other devices keep the old data.','err');
+      await new Promise(r=>setTimeout(r,3500));
+    }
   }
   if(!(opts&&opts.noReload)) location.reload();
 }
