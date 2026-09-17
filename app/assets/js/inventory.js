@@ -510,8 +510,8 @@ AFTER.received = () => {
     backgroundColor:days.map((d,i)=>i===days.length-1?'#d8bd7f':'#3a2f1c'),borderRadius:3}]},
     options:{...noleg,scales:{x:{ticks:{color:'#8a8272',font:{size:9}},grid:{display:false}},y:{ticks:{color:'#8a8272',font:{size:9}},grid:{color:'rgba(138,130,114,.12)'}}}}});
 };
-function clearAllRecv(){ modal('Clear All Purchases', `<p>Delete <strong>all ${receivedStock.length}</strong> purchase entries? This cannot be undone.</p>`,
-  `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="receivedStock=[];bsv('recv',receivedStock);closeModal();route();toast('Cleared','All received stock removed','err')">Clear All</button>`); }
+function clearAllRecv(){ modal('Clear All Purchases', `<p>Delete <strong>all ${receivedStock.length}</strong> purchase entries${(typeof invoices!=='undefined'&&invoices.length)?' and the <strong>'+invoices.length+'</strong> invoices in the BEVCO register':''}? This cannot be undone.</p><p class="muted" style="font-size:11.5px">The register goes with the entries, so the same PDFs can be imported again afterwards (they would otherwise be skipped as “already in the register”).</p>`,
+  `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="receivedStock=[];bsv('recv',receivedStock);if(typeof invoices!=='undefined'){invoices=[];bsv('invoices',invoices);}closeModal();route();toast('Cleared','All purchases and the invoice register removed','err')">Clear All</button>`); }
 /* ---- MR by Photo — upload a handwritten MR/issue slip → read/confirm → add MR issues ---- */
 let photoRecv=null;
 function openPhotoRecv(){ if(!photoRecv) photoRecv={img:'', date:period.from, rows:[{item:'',qty:''}]};
@@ -2903,8 +2903,14 @@ async function bevcoNext(){
   try{ txt=await _pdfText(await f.arrayBuffer()); }catch(e){}
   const inv=bevcoParse(txt||'');
   const dup=inv.no?invoices.find(v=>String(v.no)===String(inv.no)):null;
+  const hasEntries=inv.no?receivedStock.some(r=>String(r.inv||'')===String(inv.no)):false;
   let replaced=false;
-  if(dup){
+  if(dup && !hasEntries && inv.items.length){
+    /* the register remembers it but the Purchase sheet holds none of its lines (Clear All, or a lost
+       copy) — that is a missing invoice, not a duplicate: bring it in again (v2.35.2) */
+    invoices=invoices.filter(v=>String(v.no)!==String(inv.no)); bsv('invoices',invoices);
+    toast('Bringing it back', 'Invoice '+inv.no+' was in the register but the Purchase sheet had none of its lines — importing it again', 'ok');
+  } else if(dup){
     const oldT=(dup.fees&&dup.fees.total)||(dup.calc&&dup.calc.total)||0, newT=inv.fees.total||inv.calc.total||0;
     if(Math.abs(oldT-newT)<0.6 || !inv.items.length){
       toast('Already in the register', 'Invoice '+inv.no+' ('+f.name+') skipped — it was added before', 'ok');

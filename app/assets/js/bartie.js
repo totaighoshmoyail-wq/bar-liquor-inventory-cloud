@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.35.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.35.2';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -270,7 +270,7 @@ function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).forEach(k
 function _cloudParseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
 /* identity of one entry — content based, since rows carry no id (an invoice-register row has its number) */
 function _cloudEntryKey(e){ if(!e||typeof e!=='object') return String(e); if(e.no!=null) return 'no:'+String(e.no);
-  return [e.date,e.item,e.group,e.qty,e.inv].map(x=>x==null?'':String(x)).join(''); }
+  return [e.date,e.item,e.group,e.qty,e.inv,(e.land!=null&&e.land!=='')?Math.round(+e.land*100)/100:''].map(x=>x==null?'':String(x)).join(''); }   // + landed rate, so a corrected rate travels as replace-not-ignore (v2.35.2)
 function cloudMergeList(serverStr, baseStr, mineStr){
   const server=_cloudParseArr(serverStr), base=_cloudParseArr(baseStr), mine=_cloudParseArr(mineStr);
   const baseSet={}; base.forEach(e=>{ baseSet[_cloudEntryKey(e)]=1; });
