@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.35.3';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.36.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -283,13 +283,19 @@ function cloudMergeList(serverStr, baseStr, mineStr){
 }
 /* lay a merged copy into this device: only keys that differ; returns true when memory is now stale */
 function _cloudApplyLocal(data, skip){
-  let changed=false;
+  const changed=[];
   Object.keys(data||{}).forEach(k=>{ if(skip&&skip[k]) return; const v=data[k]; if(typeof v!=='string') return;
     if(/^(cloudmeta|cloudbase|cloud|cloudsess|ai|lastUser|companies|activeCo|logo|sysname|sysaddr|loginDesign|smsgw)$/.test(k)) return;   // device/global keys never come from the cloud
-    if(localStorage.getItem(CO_PREFIX+k)!==v){ try{ localStorage.setItem(CO_PREFIX+k, v); changed=true; }catch(e){} } });
+    if(localStorage.getItem(CO_PREFIX+k)!==v){ try{ localStorage.setItem(CO_PREFIX+k, v); changed.push(k); }catch(e){} } });
   return changed;
 }
-function _cloudReloadWhenIdle(){
+/* The other side's sheets are already in localStorage — bring them into the running page WITHOUT a
+   reload (v2.36.0: a reload was the "page jumps while I type" — it threw the scroll to the top and the
+   focus away whenever the other device had saved). inventory.js provides cloudRefreshState(), which
+   re-reads only the changed keys into the live arrays and re-renders quietly, or waits while the
+   person is typing. The reload stays only as a fallback for a page that lacks it. */
+function _cloudReloadWhenIdle(changedKeys){
+  if(typeof cloudRefreshState==='function'){ try{ cloudRefreshState(changedKeys||[]); return; }catch(e){} }
   try{ sessionStorage.setItem('tg2_merged','1'); }catch(e){}
   if(_cloudIdle()){ location.reload(); return; }
   try{ sessionStorage.setItem('tg2_needReload','1'); }catch(e){}
@@ -350,7 +356,7 @@ async function cloudPush(silent, force){
           const back=await p.json().catch(()=>[]);
           if(!back.length) continue;                 // the row moved under us — loop and merge onto the newer copy
           /* their sheets come down to this device now: untouched keys wholesale, merged lists as merged */
-          stale=_cloudApplyLocal(payload, null);
+          stale=_cloudApplyLocal(payload, null);   // the keys that changed on this device
           try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false, dirtyKeys:[]})); }catch(e){}
           _cloudBaseSave(payload);
           mergedNote=' · merged with the other side\'s changes';
@@ -366,7 +372,7 @@ async function cloudPush(silent, force){
     }
     if(!done) throw new Error('the cloud kept changing while saving — try again');
     if(!silent){ toast('Cloud saved','Company data pushed to the cloud'+mergedNote,'ok'); if(location.hash==='#settings') route(); }
-    if(stale) _cloudReloadWhenIdle();
+    if(stale && stale.length) _cloudReloadWhenIdle(stale);
     return true;
   }catch(e){
     if(!silent){
@@ -531,10 +537,15 @@ async function cloudPullAuto(){
     if(!r.ok) return false;
     const j=await r.json().catch(()=>[]); const row=(j||[])[0];
     if(!row||!row.data) return false;
-    _coSubKeys().forEach(sub=>localStorage.removeItem(CO_PREFIX+sub));
+    const before={}; _coSubKeys().forEach(sub=>{ before[sub]=localStorage.getItem(CO_PREFIX+sub); localStorage.removeItem(CO_PREFIX+sub); });
     Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
     localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false, dirtyKeys:[]}));
     _cloudBaseSave(row.data);
+    /* which sheets actually differ → refresh those in place; a reload only where that is unavailable */
+    const changed=[]; const seenK={};
+    Object.keys(row.data).forEach(k=>{ seenK[k]=1; if(before[k]!==row.data[k]) changed.push(k); });
+    Object.keys(before).forEach(k=>{ if(!seenK[k] && !/^(cloudmeta|cloudbase)$/.test(k)) changed.push(k); });
+    if(typeof cloudRefreshState==='function'){ try{ cloudRefreshState(changed); return true; }catch(e){} }
     try{ sessionStorage.setItem('tg2_autopulled','1'); }catch(e){}
     location.reload();
     return true;

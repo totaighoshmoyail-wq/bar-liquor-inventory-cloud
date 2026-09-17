@@ -144,9 +144,12 @@ function passSign(val,f){ return f==='plus'?val>0 : f==='minus'?val<0 : true; }
 /* ============================================================
    1) RAW DATA — master (group-wise) · item + group + size (no peg)
    ============================================================ */
+let rdPriceF='all';   // Item Master price filter: all · blank · set (v2.36.0)
 VIEWS.rawdata = () => {
   const q=iq.rd;
-  const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
+  const hasPrice=r=>{ const l=invGet(r.item).land; return l!=null && l!=='' && +l>0; };
+  const nBlankP=rawData.filter(r=>!hasPrice(r)).length;
+  const groups=groupRaw(r=> (!q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q))) && (rdPriceF==='all' || (rdPriceF==='blank'?!hasPrice(r):hasPrice(r))));
   let sl=0;
   const body=groups.map(g=>`
     <tr class="grp-row"><td colspan="7">${g.group} <span class="muted">· ${g.items.length}</span></td></tr>
@@ -175,12 +178,13 @@ VIEWS.rawdata = () => {
     bodyHtml=renderLay('rawdata',lay,grp,{listTitle:'Groups'});
   }
   return `
-    <div class="page-head"><div><h1>Item Master</h1><p>${rawData.length} items in ${rawGroups().length} groups. Liquor Room, Bar Stock Issue & Purchase all match against these names.</p></div>
+    <div class="page-head"><div><h1>Item Master</h1><p>${rawData.length} items in ${rawGroups().length} groups. Liquor Room, Bar Stock Issue & Purchase all match against these names. <strong>Landing ₹/bot set here is the rate every page values with.</strong></p></div>
       <div class="page-actions">${layDrop('rawdata')}<div class="search" style="width:210px">🔎<input id="searchBox" placeholder="Search item / group…" value="${esc(q)}" oninput="isearch('rd',this.value)"></div>
       <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your Liquor Inventory workbook (RAW DATA sheet: GROUP · ITEM DESCRIPTION) — the Item Master becomes exactly that list; names with data are renamed, not lost">📄 Sync from sheet<input type="file" accept=".xlsx,.xlsm,.xls,.csv" style="display:none" onchange="rawSheetUpload(this)"></label>
       <label class="btn btn-sm" style="cursor:pointer" title="Excel/CSV — item name + MRP columns; names auto-match">₹ MRP Import<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadMrp(this)"></label>
       <button class="btn btn-gold btn-sm" onclick="openRawAdd()">＋ New Item</button></div></div>
     ${bevDupNotice()}
+    <div class="tabs noprint">${[['all','All ('+rawData.length+')'],['blank','⚠ Landing ₹ blank ('+nBlankP+')'],['set','✅ Landing ₹ set ('+(rawData.length-nBlankP)+')']].map(o=>`<div class="tab ${rdPriceF===o[0]?'active':''}" onclick="rdPriceF='${o[0]}';route()">${o[1]}</div>`).join('')}</div>
     ${bodyHtml}`;
 };
 function openRawAdd(){
@@ -386,12 +390,13 @@ function landOf(name){ const v=invGet(name).land; if(v!=null&&v!=='') return +v|
    landed rates (SPF / round-off differ per invoice) made the Purchase total drift from the invoices'
    own totals (+₹11,240 on the client's 18 September invoices). Entries without their own rate
    (manual / Excel) still fall back to the item rate. */
-function recvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):landOf(r?r.item:''); }
+/* v2.36.0 — the client's rule: the landing price is set ONCE per item in the Item Master and every page
+   (Purchase, Liquor Room, Beverage Control, reports) values with THAT rate. A BEVCO invoice never changes an
+   existing item's price; its own landed rate (`r.land`) stays on the entry only as a reference ("invoice ₹…"). */
+function recvLand(r){ return landOf(r?r.item:''); }
+function recvInvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):0; }
 function recvVal(r){ return fnum(r&&r.qty)*recvLand(r); }
-function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return; const n=fnum(v);
-  if(v===''||v==null){ delete r.land; } else r.land=n;
-  bsv('recv',receivedStock); if(n>0) invSet(r.item,'land',n);   // a corrected purchase rate is also the item's current rate
-  route(); }
+function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return; invSet(r.item,'land', v===''||v==null?'':fnum(v)); route(); }
 VIEWS.received = () => {
   const total=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
   const totalVal=receivedStock.reduce((a,r)=>a+recvVal(r),0);   // LANDING value = the main amount (each entry at its own invoice rate)
@@ -409,7 +414,7 @@ VIEWS.received = () => {
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
       <td class="num"><span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span></td>
       <td class="num"><input class="cell-input" style="width:60px" value="${mrp!=null?mrp:''}" placeholder="₹" title="MRP (₹) — printed on the bottle / invoice" onchange='invSet(${JSON.stringify(r.item)},"mrp",this.value);route()'></td>
-      <td class="num"><input class="cell-input lrland" value="${eland||''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle for THIS entry (set by its BEVCO invoice, fees included) — editing also makes it the item's current rate" onchange="recvSetLand(${i},this.value)"></td>
+      <td class="num"><input class="cell-input lrland" value="${(invGet(r.item).land!=null&&invGet(r.item).land!=='')?invGet(r.item).land:''}" placeholder="${mrp!=null?mrp:'set ₹'}" title="Landing ₹ per bottle from the Item Master — the one rate every page values with; edit here or in Item Master" onchange="recvSetLand(${i},this.value)">${recvInvLand(r)?`<div class="muted" style="font-size:9.5px;margin-top:1px" title="This invoice's own landed rate (fees included) — reference only">inv ₹${fmt(Math.round(recvInvLand(r)))}</div>`:''}</td>
       <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
       <td class="right nowrap">${ok?'':`<button class="btn btn-gold btn-sm" onclick='openAddToRaw(${JSON.stringify(r.item)})'>＋ Item Master</button> `}<button class="btn btn-danger btn-sm" onclick="delRecv(${i})">✕</button></td></tr>`; };
   // the sheet reads like a purchase register: entries grouped under their invoice (first-seen order = import order),
@@ -514,7 +519,7 @@ VIEWS.received = () => {
           <div class="arr">›</div>
           <div class="st rv"><div class="ic">🍾</div><div class="l">Bottles Received</div><div class="v">+${fmt(total)}<small>btl</small></div><div class="m ${unmatched?'bad':'ok'}">${unmatched?fmt(unmatched)+' unmatched — fix in red':'all matched to Item Master'}</div></div>
           <div class="arr">=</div>
-          <div class="st cl"><div class="ic">♛</div><div class="l">Landing Amount</div><div class="v amt">₹ ${fmt(Math.round(totalVal))}</div><div class="m">avg ₹ ${fmt(Math.round(avg))} / bottle</div></div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Landing Amount</div><div class="v amt">₹ ${fmt(Math.round(totalVal))}</div><div class="m">avg ₹ ${fmt(Math.round(avg))} / bottle${(function(){ const iv=receivedStock.reduce((a,r)=>a+fnum(r.qty)*recvInvLand(r),0); return iv?' · invoices ₹ '+fmt(Math.round(iv)):''; })()}</div></div>
         </div>
         <div class="lrf-ring"><div class="ring" style="--pct:${pct}"><div class="in"><div class="k">Purchase value</div><div class="amt">₹ ${fmt(Math.round(totalVal))}</div><div class="k2">${fmt(total)} bottles · ${fmt(nInv)} invoice${nInv===1?'':'s'}</div><div class="k3 ${pct>=100?'ok':'bad'}">${pct}% matched</div></div></div></div>
       </div>
@@ -3002,7 +3007,8 @@ function bevcoPreview(inv){
   // per line: learned mapping (bevmap) → smart match → NEW item. Each state is visible: ✔ known / ? check / ＋ new
   const groupOpts=(sel)=>{ const gs=[...new Set(rawData.map(r=>String(r.group||'').trim()).filter(Boolean))].sort();
     if(sel && gs.indexOf(sel)<0) gs.unshift(sel); return gs.map(g=>`<option ${g===sel?'selected':''}>${esc(g)}</option>`).join(''); };
-  let nSure=0,nGuess=0,nNew=0;
+  let nSure=0,nGuess=0,nNew=0,nBlank=0;
+  const grandP=inv.fees.total||inv.calc.total||0, factorP=(inv.calc.base>0&&grandP>0)?grandP/inv.calc.base:1;
   const rows=inv.items.map((x,i)=>{
     let learned=bevMap[norm(x.name)]||''; if(learned && !findRawExact(learned)) learned='';   // a remembered name that was since deleted
     const m=learned?null:bevcoMatch(x.name);
@@ -3010,17 +3016,22 @@ function bevcoPreview(inv){
     const state=learned?'learned':(m&&m.sure?'sure':(mapped?'guess':'new'));
     if(state==='new') nNew++; else if(state==='guess') nGuess++; else nSure++;
     const clean=bevcoCleanName(x.name), ggrp=bevcoGuessGroup(x.name);
+    const landE=Math.round(x.amount*factorP/(x.bots||1)*100)/100;                       // this line's landed rate — offered, never imposed
+    const blankPrice=state!=='new' && !(invGet(mapped).land!=null && invGet(mapped).land!=='');
+    if(blankPrice) nBlank++;
+    const priceBox=`<div id="bevPr${i}" style="margin-top:3px;${(state==='new'||blankPrice)?'':'display:none'}"><span class="muted" style="font-size:10.5px">${state==='new'?'Landing ₹/bot for this new item':'<span style=\"color:var(--amber)\">No landing ₹ in Item Master yet</span> — set it'}</span>
+          <input class="cell-input" id="bevLand${i}" style="width:84px;margin-left:4px" value="${landE}" title="Landing ₹ per bottle — the invoice's own landed rate is suggested; what you save here becomes the Item Master rate"></div>`;
     const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item — rename / pick category</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
     return `<tr><td style="font-size:11px">${esc(x.name)} ${pill}
         <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${state==='guess'?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(state==='new'?clean:mapped)}" placeholder="↳ Item Master name (blank = new item: ${esc(clean)})" oninput="bevMapEdit(${i})"></div>
         <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">New in Item Master + Liquor Room under the name above · category</span>
           <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px" onchange="bevGrpPick(${i})">${groupOpts(ggrp)}<option value="__new__">＋ New category…</option></select>
-          <input class="cell-input" id="bevGrpNew${i}" style="display:none;width:170px;text-align:left;margin-left:4px" placeholder="e.g. IMFL WHISKY 750 ML"></div></td>
+          <input class="cell-input" id="bevGrpNew${i}" style="display:none;width:170px;text-align:left;margin-left:4px" placeholder="e.g. IMFL WHISKY 750 ML"></div>${priceBox}</td>
       <td class="num">₹${fmt(x.mrp)}</td><td class="num"><input class="cell-input" style="width:44px" id="bevQty${i}" value="${x.bots}"></td>
       <td class="num muted" style="font-size:10.5px">${esc(x.caseBot)}</td><td class="num gold">₹${fmt(x.amount)}</td></tr>`; }).join('');
   const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
   modal('🧾 BEVCO Invoice — '+esc(inv.no||''),
-    `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the Item Master and the Liquor Room.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · landing ₹ &amp; MRP → Item Master, Liquor Room, Purchase &amp; Beverage Control · new names → Item Master automatically</div>
+    `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the Item Master and the Liquor Room.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · new names → Item Master automatically · <strong>prices already set in Item Master are never changed by an invoice</strong>${nBlank?' · <span style="color:var(--amber)">'+nBlank+' item'+(nBlank>1?'s have':' has')+' no landing ₹ yet — set below</span>':''}</div>
      <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
        <thead><tr><th>Item (map to Item Master)</th><th class="right">MRP/Bot</th><th class="right">Bot.</th><th class="right">Case-Bot</th><th class="right">Amount</th></tr></thead>
        <tbody>${rows}
@@ -3074,8 +3085,10 @@ function bevcoConfirm(){
     const g=findRawExact(mapped);
     const landE=Math.round(x.amount*factor/(x.bots||1)*10000)/10000;   // this line's landed rate, fee share included
     receivedStock.push({date:inv.date||new Date().toISOString().slice(0,10), item:mapped, qty:qty, group:g?g.group:'', inv:inv.no||'', land:landE});
-    invSet(mapped,'mrp',x.mrp);                                                  // price → the ONE key every page reads (Item Master · Liquor Room · Purchase · Beverage Control)
-    invSet(mapped,'land', Math.round(x.amount*factor/(x.bots||1)*100)/100);     // landing ₹/bottle incl. fee share
+    /* the Item Master rate is the client's — an invoice fills it only where it is blank (or the item is new) */
+    if(invGet(mapped).mrp==null||invGet(mapped).mrp==='') invSet(mapped,'mrp',x.mrp);
+    const curL=invGet(mapped).land;
+    if(R.isNew || curL==null || curL===''){ const box=$('#bevLand'+i); const v=box?fnum(box.value):0; invSet(mapped,'land', v>0?v:Math.round(x.amount*factor/(x.bots||1)*100)/100); }
     added++;
   });
   bsv('bevmap',bevMap);
@@ -3144,3 +3157,49 @@ function bevcoList(){
   });
   if(changed){ localStorage.setItem(CO_PREFIX+'recv', JSON.stringify(receivedStock)); }
 }catch(e){} })();
+
+/* ---- bring the other side's sheets into the running page, no reload (v2.36.0) ----
+   Called by the merge push / auto-pull with the storage keys that changed. Re-reads exactly those keys into
+   the live arrays (the same bls() reads the file start does), drops the caches that depend on them, and
+   re-renders the current page quietly with the scroll kept — or, while the person is typing or has a
+   modal open, waits and renders at the next quiet moment. A reload would throw the view to the top and
+   the focus away: that was the "page jumps while I type" whenever the other device had saved. */
+var _cloudNeedRender=false;
+function cloudRefreshState(keys){
+  const list=Array.isArray(keys)?keys:[]; const set={}; list.forEach(k=>{ set[k]=1; });
+  const has=k=>!!set[k];
+  if(has('tally'))         tallyItems=bls('tally', SEED_TALLY.map(t=>({...t})));
+  if(has('alias'))         aliasTable=bls('alias', SEED_ALIAS.map(a=>({...a})));
+  if(has('cocktails'))     cocktails=bls('cocktails', SEED_CKS.map(c=>({...c, recipe:(c.recipe||[]).map(x=>({...x}))})));
+  if(has('cocktailAlias')) cocktailAlias=bls('cocktailAlias', SEED_CKAL.map(c=>({...c})));
+  if(has('pos'))           posData=bls('pos', DEFAULT_POS);
+  if(has('namemap'))       nameMapList=bls('namemap', []);
+  if(has('period'))        period=bls('period', period);
+  if(has('pref'))          pref=bls('pref', pref);
+  if(has('cfg'))           cfg=bls('cfg', cfg);
+  if(has('users'))         users=bls('users', []);
+  if(has('rawdata2'))    { rawData=bls('rawdata2', _seedRaw); rebuildRawIdx(); }
+  if(has('recv'))          receivedStock=bls('recv', []);
+  if(has('mr'))            mrDetail=bls('mr', []);
+  if(has('inv'))           invData=bls('inv', JSON.parse(JSON.stringify(_seedInv)));
+  if(has('invoices'))      invoices=bls('invoices', []);
+  if(has('bevmap'))        bevMap=bls('bevmap', {});
+  if(has('bevpages'))      bevPages=bls('bevpages', []);
+  list.forEach(k=>{ if(k.indexOf('inv2_')===0) delete bevStores[k.slice(5)]; });
+  try{ invalidateCalcCache(); }catch(e){} _bevIdx=null; _bevDupCache={ver:-1,list:null};
+  if(has('cfg')||has('pref')){ try{ applyAppearance(); renderShell(); }catch(e){} }
+  _cloudNeedRender=true; cloudRenderIfQuiet(true);
+}
+function cloudRenderIfQuiet(justArrived){
+  if(!_cloudNeedRender) return;
+  const a=document.activeElement;
+  const typing=!!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type!=='button' && a.type!=='checkbox' && a.type!=='file');
+  if(typing || document.getElementById('modalBack')) return;      // never under someone's fingers — the next quiet moment
+  _cloudNeedRender=false;
+  try{ _quietNext=true; route(); }catch(e){}
+  try{ sbFill(); }catch(e){}
+  if(justArrived!==false) toast('Up to date','Changes from the other side came in','ok');
+}
+document.addEventListener('focusout', ()=>{ setTimeout(()=>cloudRenderIfQuiet(false), 400); }, true);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setTimeout(()=>cloudRenderIfQuiet(false), 300); });
+setInterval(()=>cloudRenderIfQuiet(false), 20000);
