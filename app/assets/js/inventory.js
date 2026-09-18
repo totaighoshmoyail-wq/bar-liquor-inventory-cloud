@@ -160,7 +160,7 @@ VIEWS.rawdata = () => {
         <td><span class="pill gray">${r.group}</span></td>
         <td class="num"><input class="cell-input" style="width:70px" value="${sizeOf(r.item).toFixed(2)}" onchange="invSetRaw(${i},'sizeL',this.value);route()" title="bottle size (litres)"></td>
         <td class="num"><input class="cell-input" style="width:70px" value="${invGet(r.item).mrp!=null?invGet(r.item).mrp:''}" placeholder="₹" onchange="invSetRaw(${i},'mrp',this.value)" title="MRP (₹) — printed price"></td>
-        <td class="num"><input class="cell-input" style="width:74px;color:var(--gold)" value="${invGet(r.item).land!=null?invGet(r.item).land:''}" placeholder="${invGet(r.item).mrp!=null?invGet(r.item).mrp:'₹'}" onchange="invSetRaw(${i},'land',this.value)" title="Landing ₹ per bottle (what you pay — auto-set by BEVCO invoice)"></td>
+        <td class="num"><input class="cell-input" style="width:74px;color:var(--gold)" value="${invGet(r.item).land!=null?invGet(r.item).land:''}" placeholder="${landOf(r.item)?Math.round(landOf(r.item)*100)/100:'₹'}" onchange="invSetRaw(${i},'land',this.value)" title="${landSetOf(r.item)!=null?'Your rate — values this item on every stock page':'Automatic (grey): the latest BEVCO invoice rate, or MRP — type a rate to make it yours'}"></td>
         <td class="right" style="width:52px"><button class="btn btn-danger btn-sm" onclick="delRaw(${i})">✕</button></td>
       </tr>`; }).join('')}`).join('');
   const lay=pageLay('rawdata');
@@ -271,7 +271,7 @@ function rawSheetAct(i){ const s=$('#rsAct'+i), t=$('#rsTo'+i); if(!s||!t) retur
 /* move every reference of one Item Master name onto another: purchase + issue lines, learned BEVCO mappings,
    stock/prices (the target's own values win, blanks are filled from the source), receive-name overrides */
 function rawMoveRefs(oldName, newName){
-  const ko=norm(oldName), kn=norm(newName); if(!ko||ko===kn) return;
+  const ko=norm(oldName), kn=norm(newName); if(!ko||ko===kn) return; _recvRateDrop();
   receivedStock.forEach(r=>{ if(norm(r.item)===ko) r.item=newName; });
   mrDetail.forEach(r=>{ if(norm(r.item)===ko) r.item=newName; });
   Object.keys(bevMap).forEach(b=>{ if(norm(bevMap[b])===ko) bevMap[b]=newName; });
@@ -383,7 +383,24 @@ let recvFilter='all', rvGrpOpen='';
 function rvGrpToggle(g){ rvGrpOpen=(rvGrpOpen===g?'':g); route(); }
 // Landing rate per bottle (what you actually PAY — from the BEVCO invoice).
 // Falls back to MRP when no landing rate is known yet, so older entries keep showing values.
-function landOf(name){ const v=invGet(name).land; if(v!=null&&v!=='') return +v||0; return +invGet(name).mrp||0; }
+/* The rate a stock page values an item at (v2.36.2):
+     1. the Item Master rate the client set (`invData.land`) — theirs, an invoice never changes it;
+     2. else the LATEST BEVCO invoice rate for that item (the newest purchase entry carrying its own `land`) —
+        so Liquor Room / Beverage Control agree with the Purchase page until the client sets a rate;
+     3. else MRP.
+   The per-item "latest invoice rate" map is cached against the purchase array (identity + length) and dropped
+   explicitly where an entry's rate or name changes in place. */
+var _recvRateWM=new WeakMap();
+function _recvRateMap(){
+  const c=_recvRateWM.get(receivedStock); if(c && c.n===receivedStock.length) return c.m;
+  const m={}; receivedStock.forEach((r,i)=>{ if(!r||r.land==null||r.land==='') return; const k=norm(r.item); const d=String(r.date||'');
+    const cur=m[k]; if(!cur || d>cur.d || (d===cur.d && i>cur.i)) m[k]={d, i, land:+r.land||0}; });
+  _recvRateWM.set(receivedStock,{n:receivedStock.length, m}); return m;
+}
+function _recvRateDrop(){ try{ _recvRateWM.delete(receivedStock); }catch(e){} }
+function landSetOf(name){ const v=invGet(name).land; return (v!=null&&v!=='')?(+v||0):null; }           // the client's own rate, or null
+function landAutoOf(name){ const e=_recvRateMap()[norm(name)]; return e?e.land:0; }                      // latest invoice rate, or 0
+function landOf(name){ const v=landSetOf(name); if(v!=null) return v; const a=landAutoOf(name); if(a>0) return a; return +invGet(name).mrp||0; }
 /* A purchase entry carries ITS OWN landing rate (`land`, set by the BEVCO import from that invoice's own
    fee share) — the item-level `land` is only the CURRENT rate used to value stock. Before v2.34.1 every
    entry was valued at the item's latest rate, so an item bought in several invoices at slightly different
@@ -400,7 +417,7 @@ function recvInvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):0; }
 function recvVal(r){ return fnum(r&&r.qty)*recvLand(r); }
 function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return;   // edits THIS entry's rate only — the Item Master rate stays the client's
   if(v===''||v==null){ delete r.land; } else r.land=fnum(v);
-  bsv('recv',receivedStock); route(); }
+  _recvRateDrop(); bsv('recv',receivedStock); route(); }
 VIEWS.received = () => {
   const total=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
   const totalVal=receivedStock.reduce((a,r)=>a+recvVal(r),0);   // LANDING value = the main amount (each entry at its own invoice rate)
@@ -1223,7 +1240,7 @@ VIEWS.liquorroom = () => {
     const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
     return `<tr class="${grpKnown?'':'row-alert'}">
       <td class="lrname"><strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
-      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle (auto-set by BEVCO invoice; edit to override)" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','land',this.value)`}"></td>
+      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${landOf(name)?Math.round(landOf(name)*100)/100:'₹'}" title="${land!=null&&land!==''?'Your Item Master rate — values this item everywhere':'Automatic: the latest BEVCO invoice rate (or MRP) — type a rate to make it yours'}" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','land',this.value)`}"></td>
       <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${idx>=0?`invSetRaw(${idx},'lrOpen',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','lrOpen',this.value)`}"></td>
       <td class="num">${sgn(rv,'plus','+')}</td>
       <td class="num">${sgn(is,'minus','−')}</td>
