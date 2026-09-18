@@ -278,53 +278,77 @@ function rawMoveRefs(oldName, newName){
   if(invData[ko]){ const src=invData[ko], dst=invData[kn]||{}; Object.keys(src).forEach(f=>{ if(dst[f]==null||dst[f]==='') dst[f]=src[f]; }); invData[kn]=dst; delete invData[ko]; }
   Object.keys(invData).forEach(k=>{ const iv=invData[k]; if(iv&&iv.rawName&&norm(iv.rawName)===ko) iv.rawName=newName; });
 }
-/* ---- BEVCO-named duplicates (v2.35.3) ----
+/* ---- BEVCO-worded Item Master entries (v2.35.3, widened v2.37.0) ----
    Before the smart matcher, a blank mapping made the invoice's own wording an Item Master entry under
    "BEVCO IMPORT" ("CORONA EXTRA PREMIUM LAGER BEER, 330 ML.") and the learned map kept pointing at it —
    so every later invoice fed THAT name, and the client's real item ("CORONA 330 ML") never got its
-   received bottles or its landing rate. This finds such entries, proposes the real item they belong to,
-   and merges them: purchases, issues, prices, mappings move across and the duplicate goes. */
+   received bottles or its landing rate. Every such entry is listed here — with the client's own item it
+   surely/probably belongs to when the matcher finds one, WITHOUT one otherwise (v2.35.3 hid those, so a
+   page full of BEVCO names offered no button at all). Per row the person merges it into their item, or
+   gives it their own name + group, or keeps it. Purchases, issues, prices and mappings follow either way. */
 var _bevDupCache={ver:-1, list:null};
+function _looksBevco(r){ return r.group==='BEVCO IMPORT' || /,\s*\d{2,5}\s*ML\.?$/i.test(r.item||''); }
 function bevDupCandidates(){
   if(_bevDupCache.ver===_rawIdxVer && _bevDupCache.list) return _bevDupCache.list;
-  const looksBevco=r=> r.group==='BEVCO IMPORT' || /,\s*\d{2,5}\s*ML\.?$/i.test(r.item||'');
-  const own=rawData.filter(r=>!looksBevco(r));
+  const own=rawData.filter(r=>!_looksBevco(r));
   const out=[];
-  rawData.forEach(r=>{ if(!looksBevco(r)) return;
-    const m=bevcoMatch(r.item,{list:own}); if(!m.name||norm(m.name)===norm(r.item)) return;
-    out.push({dup:r.item, group:r.group||'', to:m.name, sure:m.sure, refs:_rawRefs(r.item)}); });
+  rawData.forEach(r=>{ if(!_looksBevco(r)) return;
+    const m=bevcoMatch(r.item,{list:own}); const to=(m.name && norm(m.name)!==norm(r.item)) ? m.name : '';
+    const top=(m.top && m.top.name && norm(m.top.name)!==norm(r.item) && m.top.score>=0.45) ? m.top.name : '';
+    let grp=(top && m.top.group && m.top.group!=='BEVCO IMPORT') ? m.top.group : '';           // the closest own item's shelf is the best guess for its group
+    if(!grp){ try{ grp=bevcoGuessGroup(r.item); }catch(e){} } if(grp==='BEVCO IMPORT') grp='';
+    out.push({dup:r.item, group:r.group||'', to, sure:!!(to&&m.sure), top, clean:bevcoCleanName(r.item), grp, refs:_rawRefs(r.item)}); });
   _bevDupCache={ver:_rawIdxVer, list:out}; return out;
 }
 function bevDupNotice(){
   const c=bevDupCandidates(); if(!c.length) return '';
-  const ex=c[0];
+  try{ if(sessionStorage.getItem('tg2_bevDupHide')===String(c.length)) return ''; }catch(e){}
+  const ex=c.find(x=>x.to)||c[0]; const nTo=c.filter(x=>x.to).length;
+  const eg=ex.to ? `e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> → <strong style="color:var(--text)">${esc(ex.to)}</strong>`
+                 : `e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> — none of your items matches it; give it your own name & group`;
   return `<div class="card noprint" style="margin-bottom:10px;border-color:var(--amber)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px">
-    <span style="color:var(--amber);font-weight:700">⚠ ${c.length} BEVCO-named item${c.length>1?'s':''}</span><span class="muted">look${c.length>1?'':'s'} like your own item${c.length>1?'s':''} — e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> → <strong style="color:var(--text)">${esc(ex.to)}</strong>. Merging moves the received bottles, landing rate and BEVCO mapping onto your item.</span>
-    <button class="btn btn-gold btn-sm" onclick="bevDupPlan()">🧹 Merge duplicates</button></div></div>`;
+    <span style="color:var(--amber);font-weight:700">⚠ ${c.length} item${c.length>1?'s':''} still carr${c.length>1?'y':'ies'} BEVCO's wording</span><span class="muted">${nTo?nTo+' look'+(nTo>1?'':'s')+' like your own item'+(nTo>1?'s':'')+' · ':''}${eg}. Merging moves the received bottles, landing rate and BEVCO mapping onto your item; renaming keeps it as a separate item under your name and group.</span>
+    <button class="btn btn-gold btn-sm" onclick="bevDupPlan()">🧹 Fix BEVCO names</button><button class="btn btn-sm" title="Hide this notice for now" onclick="try{sessionStorage.setItem('tg2_bevDupHide','${c.length}')}catch(e){};route()">✕</button></div></div>`;
 }
 var _bdPlan=null;
 function bevDupPlan(){
-  const rows=bevDupCandidates(); if(!rows.length){ toast('Nothing to merge','No BEVCO-named duplicates found','ok'); return; }
+  const rows=bevDupCandidates(); if(!rows.length){ toast('Nothing to fix','No BEVCO-worded names in the Item Master','ok'); return; }
   _bdPlan=rows;
-  const own=rawData.filter(r=>r.group!=='BEVCO IMPORT');
-  const dl=`<datalist id="bdNames">${own.map(x=>`<option value="${esc(x.item)}">`).join('')}</datalist>`;
-  const tr=rows.map((x,i)=>`<tr><td style="font-size:11.5px"><strong>${esc(x.dup)}</strong><div class="muted" style="font-size:10px">${esc(x.group)}${x.refs.txt?' · <span style="color:var(--amber)">'+esc(x.refs.txt)+'</span>':' · no data'}</div></td>
-      <td><select class="input" id="bdAct${i}" style="width:auto;padding:3px 6px;font-size:11.5px" onchange="$('#bdTo'+${i}).style.display=this.value==='merge'?'':'none'"><option value="merge">Merge into →</option><option value="keep">Keep both</option></select></td>
-      <td><input class="cell-input" id="bdTo${i}" list="bdNames" style="width:100%;text-align:left;${x.sure?'':'border-color:var(--amber)'}" value="${esc(x.to)}" title="${x.sure?'Sure match':'Best guess — check'}"></td></tr>`).join('');
-  modal('🧹 Merge BEVCO-named duplicates', `<div class="muted" style="font-size:11.5px;margin-bottom:8px">These names were created from BEVCO's own wording. Merging moves their purchases, issues, landing rate, MRP, stock and the learned BEVCO mapping onto <strong>your</strong> item and removes the duplicate — the Liquor Room then shows everything under your name. Amber = best guess, please check.</div>
-    <div class="table-wrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th>BEVCO-named entry</th><th style="width:120px">Action</th><th style="width:250px">Your item</th></tr></thead><tbody>${tr}</tbody></table></div>${dl}`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="bevDupApply()">✅ Merge</button>`);
+  const own=rawData.filter(r=>!_looksBevco(r));
+  const dl=`<datalist id="bdNames">${own.map(x=>`<option value="${esc(x.item)}">`).join('')}</datalist>`
+          +`<datalist id="bdGroups">${rawGroups().filter(g=>g!=='BEVCO IMPORT').map(g=>`<option value="${esc(g)}">`).join('')}</datalist>`;
+  const tr=rows.map((x,i)=>{ const act=x.to?'merge':'rename';
+    return `<tr><td style="font-size:11.5px"><strong>${esc(x.dup)}</strong><div class="muted" style="font-size:10px">${esc(x.group)}${x.refs.txt?' · <span style="color:var(--amber)">'+esc(x.refs.txt)+'</span>':' · no data'}${(!x.to&&x.top)?'<br>closest of yours: <span style="color:var(--text)">'+esc(x.top)+'</span> — choose Merge if it is the same product':''}</div></td>
+      <td><select class="input" id="bdAct${i}" style="width:auto;padding:3px 6px;font-size:11.5px" onchange="bevDupAct(${i})">
+        <option value="merge" ${act==='merge'?'selected':''}>Merge into →</option><option value="rename" ${act==='rename'?'selected':''}>Rename to →</option><option value="keep">Keep as is</option></select></td>
+      <td><input class="cell-input" id="bdTo${i}" list="bdNames" style="width:100%;text-align:left;${act==='merge'?'':'display:none;'}${x.sure?'':'border-color:var(--amber)'}" value="${esc(x.to||x.top)}" placeholder="your item…" title="${x.sure?'Sure match':'Best guess — check'}">
+          <div id="bdRn${i}" style="${act==='rename'?'':'display:none'}"><input class="cell-input" id="bdNm${i}" style="width:100%;text-align:left" value="${esc(x.clean)}" placeholder="your name for it…" title="Your own name for this item">
+          <input class="cell-input" id="bdGr${i}" list="bdGroups" style="width:100%;text-align:left;margin-top:3px;border-color:var(--amber)" value="${esc(x.grp)}" placeholder="group / category…" title="Best guess — check"></div></td></tr>`; }).join('');
+  modal('🧹 BEVCO-worded names → your names', `<div class="muted" style="font-size:11.5px;margin-bottom:8px">These entries were created from BEVCO's own wording. <strong>Merge</strong> moves their purchases, issues, landing rate, MRP, stock and the learned BEVCO mapping onto <strong>your</strong> item and removes the duplicate. <strong>Rename</strong> keeps it as its own item under your name and group (the next invoice then lands on that name). Amber = best guess, please check.</div>
+    <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>BEVCO-worded entry</th><th style="width:120px">Action</th><th style="width:260px">Your item / name · group</th></tr></thead><tbody>${tr}</tbody></table></div>${dl}`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="bevDupApply()">✅ Apply</button>`);
 }
+function bevDupAct(i){ const s=$('#bdAct'+i), t=$('#bdTo'+i), r=$('#bdRn'+i); if(!s) return;
+  if(t) t.style.display=s.value==='merge'?'':'none'; if(r) r.style.display=s.value==='rename'?'':'none'; }
+// a rename that keeps the same norm() key ("APEROL, 750 ML." → "APEROL 750 ML") moves nothing, so rewrite the stored spelling too
+function _bevRespell(oldName, newName){ const k=norm(newName); if(!k) return; _recvRateDrop();
+  receivedStock.forEach(r=>{ if(norm(r.item)===k) r.item=newName; }); mrDetail.forEach(r=>{ if(norm(r.item)===k) r.item=newName; });
+  Object.keys(bevMap).forEach(b=>{ if(norm(bevMap[b])===k) bevMap[b]=newName; }); }
 function bevDupApply(){
-  const rows=_bdPlan||[]; let merged=0;
-  rows.forEach((x,i)=>{ const act=($('#bdAct'+i)||{}).value||'merge'; if(act!=='merge') return;
-    const to=(($('#bdTo'+i)||{}).value||'').trim(); const tgt=findRawExact(to); if(!tgt||norm(tgt.item)===norm(x.dup)) return;
-    rawMoveRefs(x.dup, tgt.item);
-    const ix=rawData.findIndex(r=>norm(r.item)===norm(x.dup)); if(ix>=0) rawData.splice(ix,1);
-    merged++; });
+  const rows=_bdPlan||[]; let merged=0, renamed=0;
+  rows.forEach((x,i)=>{ const act=($('#bdAct'+i)||{}).value||(x.to?'merge':'rename'); if(act==='keep') return;
+    const ix=rawData.findIndex(r=>norm(r.item)===norm(x.dup)); if(ix<0) return;
+    if(act==='merge'){
+      const to=(($('#bdTo'+i)||{}).value||'').trim(); const tgt=findRawExact(to); if(!tgt||norm(tgt.item)===norm(x.dup)) return;
+      rawMoveRefs(x.dup, tgt.item); rawData.splice(ix,1); rebuildRawIdx(); merged++; return; }
+    const nm=(($('#bdNm'+i)||{}).value||'').replace(/\s+/g,' ').trim().toUpperCase(); if(!nm) return;
+    const grp=(($('#bdGr'+i)||{}).value||'').replace(/\s+/g,' ').trim().toUpperCase()||x.group||'(ungrouped)';
+    const ex=findRawExact(nm);
+    if(ex && norm(ex.item)!==norm(x.dup)){ rawMoveRefs(x.dup, ex.item); rawData.splice(ix,1); rebuildRawIdx(); merged++; return; }   // typed an existing name → that IS a merge
+    rawMoveRefs(x.dup, nm); rawData[ix].item=nm; rawData[ix].group=grp; _bevRespell(x.dup, nm); rebuildRawIdx(); renamed++; });
   saveRaw(); bsv('recv',receivedStock); bsv('mr',mrDetail); bsv('inv',invData); bsv('bevmap',bevMap); _bevIdx=null; _bevDupCache={ver:-1,list:null};
   closeModal(); _bdPlan=null; route();
-  toast('Merged', merged+' duplicate'+(merged===1?'':'s')+' folded into your own items — received bottles, landing ₹ and BEVCO mapping moved across', merged?'ok':'err');
+  toast('Done', (merged?merged+' merged into your items':'')+(merged&&renamed?' · ':'')+(renamed?renamed+' renamed under your name & group':'')+((merged||renamed)?' — purchases, landing ₹ and BEVCO mapping moved across':'nothing changed'), (merged||renamed)?'ok':'err');
 }
 function rawSheetApply(){
   const P=_rsPlan; if(!P) return;
@@ -3224,3 +3248,67 @@ function cloudRenderIfQuiet(justArrived){
 document.addEventListener('focusout', ()=>{ setTimeout(()=>cloudRenderIfQuiet(false), 400); }, true);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setTimeout(()=>cloudRenderIfQuiet(false), 300); });
 setInterval(()=>cloudRenderIfQuiet(false), 20000);
+
+/* ---- Item Master catch-up to the shipped workbook list (v2.37.0) ----
+   canteenseed.js carries the client's own RAW DATA list (CANTEEN_RAW, versioned by CANTEEN_RAW_V). A company
+   that already saved its Item Master would never see a newer list, so when the version moves this brings the
+   stored Item Master up to it ONCE, the way "📄 Sync from sheet" does, but only the safe part of that plan:
+     · every name in the list is present, in the list's order, with the list's group (the client's grouping);
+     · a stored name that is NOT in the list: BEVCO-worded (group BEVCO IMPORT / ", 750 ML." tail) and a SURE
+       match to a list name → renamed to it, every reference following (purchases, issues, stock, prices,
+       learned BEVCO map); a name the PREVIOUS list had and this one dropped, holding no data → removed;
+       anything else (the client's own additions, BEVCO names with no sure match) → kept, untouched.
+   Direct localStorage writes at load (bsv() is not for load time) + cloudMark() so the change syncs; each
+   device computes the same result, so the merge on the other side is a no-op. A marker per company
+   (CO_PREFIX+'rawv') makes it run once per list version; a company still on the pure seed only gets the marker. */
+function rawSeedCatchUp(){
+  if(typeof CO_IS_CANTEEN==='undefined' || !CO_IS_CANTEEN || typeof CANTEEN_RAW_V==='undefined') return null;
+  const MK=CO_PREFIX+'rawv';
+  if(localStorage.getItem(MK)===String(CANTEEN_RAW_V)) return null;
+  const stored=localStorage.getItem(CO_PREFIX+'rawdata2');
+  if(!stored){ localStorage.setItem(MK, String(CANTEEN_RAW_V)); return {added:0,renamed:[],removed:[],kept:0,fresh:true}; }
+  const list=_seedRaw.map(x=>({item:x.item, group:x.group}));
+  const listIdx=new Map(list.map(x=>[norm(x.item),x]));
+  const dropped=new Set((typeof CANTEEN_RAW_DROPPED!=='undefined'?CANTEEN_RAW_DROPPED:[]).map(norm));
+  const before=new Set(rawData.map(r=>norm(r.item)));
+  const keep=[], renames=[], removed=[];
+  rawData.forEach(r=>{ const k=norm(r.item); if(listIdx.has(k)) return;              // in the list → the list's row replaces it
+    const refs=_rawRefs(r.item);
+    if(!refs.any && dropped.has(k)){ removed.push(r.item); return; }
+    if(refs.any && _looksBevco(r)){ const m=bevcoMatch(r.item,{list}); if(m.name && m.sure && norm(m.name)!==k){ renames.push({old:r.item, to:m.name}); return; } }
+    keep.push(r); });
+  renames.forEach(rn=>rawMoveRefs(rn.old, rn.to));
+  const newRaw=list.slice(); keep.forEach(r=>newRaw.push({item:r.item, group:r.group||'(ungrouped)'}));
+  rawData.length=0; newRaw.forEach(r=>rawData.push(r)); rebuildRawIdx(); _bevIdx=null; _bevDupCache={ver:-1,list:null};
+  const added=list.filter(x=>!before.has(norm(x.item))).length;
+  const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
+  w('rawdata2', rawData);
+  if(renames.length){ w('recv',receivedStock); w('mr',mrDetail); w('inv',invData); w('bevmap',bevMap); }
+  localStorage.setItem(MK, String(CANTEEN_RAW_V));
+  return {added, renamed:renames, removed, kept:keep.length, fresh:false};
+}
+/* When to run it. A device that was away (the PC closed overnight) would otherwise migrate its STALE copy at
+   load, mark rawdata2/inv/bevmap dirty, and its next merge push would lay that stale copy over what the other
+   side typed since (non-list keys: the pushing side wins). So on a cloud-connected, clean device the run waits
+   for the first cloud check — nothing newer, or the auto-pull has brought the newest copy in (in place, via
+   cloudRefreshState) — and only then migrates. A device with no cloud, or one already holding unpushed work,
+   runs at once. Safety net: 90 s (offline, or the check never answers). */
+var _rawCatchPending=false;
+function _rawCatchRun(){
+  if(!_rawCatchPending) return; _rawCatchPending=false;
+  let R=null; try{ R=rawSeedCatchUp(); }catch(e){}
+  if(!R||R.fresh||!(R.added||R.renamed.length||R.removed.length)) return;
+  const say=()=>{ try{ _cloudNeedRender=true; cloudRenderIfQuiet(false); }catch(e){}
+    try{ toast('Item Master updated from your September sheet', R.added+' new name'+(R.added===1?'':'s')+' · '+R.renamed.length+' BEVCO name'+(R.renamed.length===1?'':'s')+' renamed to yours · '+R.removed.length+' dropped name'+(R.removed.length===1?'':'s')+' removed · your groups applied', 'ok'); }catch(e){} };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(say, 1200)); else setTimeout(say, 50);
+}
+(function(){ try{
+  if(typeof CO_IS_CANTEEN==='undefined' || !CO_IS_CANTEEN || typeof CANTEEN_RAW_V==='undefined') return;
+  if(localStorage.getItem(CO_PREFIX+'rawv')===String(CANTEEN_RAW_V)) return;
+  _rawCatchPending=true;
+  if(!cloudOn() || cloudDirty()){ _rawCatchRun(); return; }
+  const orig=cloudCheck;                                     // function declaration → rebinding the name is what the 2.5 s call and cloudWatch() pick up
+  cloudCheck=async function(){ try{ return await orig.apply(this, arguments); }
+    finally{ if(_rawCatchPending && !document.querySelector('.cloudnew')) setTimeout(_rawCatchRun, 300); } };   // a banner = newer data not yet brought in → wait for the next check
+  setTimeout(_rawCatchRun, 90000);
+}catch(e){} })();
