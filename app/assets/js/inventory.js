@@ -390,13 +390,17 @@ function landOf(name){ const v=invGet(name).land; if(v!=null&&v!=='') return +v|
    landed rates (SPF / round-off differ per invoice) made the Purchase total drift from the invoices'
    own totals (+₹11,240 on the client's 18 September invoices). Entries without their own rate
    (manual / Excel) still fall back to the item rate. */
-/* v2.36.0 — the client's rule: the landing price is set ONCE per item in the Item Master and every page
-   (Purchase, Liquor Room, Beverage Control, reports) values with THAT rate. A BEVCO invoice never changes an
-   existing item's price; its own landed rate (`r.land`) stays on the entry only as a reference ("invoice ₹…"). */
-function recvLand(r){ return landOf(r?r.item:''); }
+/* v2.36.1 — two rates, two jobs (the client's rule, stated twice):
+   · the PURCHASE page values every entry at ITS OWN invoice rate (`r.land`, fee share included) — so its total is
+     the BEVCO ledger figure; an entry without one (manual / Excel) falls back to the item rate;
+   · the ITEM MASTER rate (`invData.land`, set by the client) values the stock pages — Liquor Room, Bar Stock
+     Issue, Beverage Control, dashboard, stock reports — and a BEVCO invoice never changes it (v2.36.0). */
+function recvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):landOf(r?r.item:''); }
 function recvInvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):0; }
 function recvVal(r){ return fnum(r&&r.qty)*recvLand(r); }
-function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return; invSet(r.item,'land', v===''||v==null?'':fnum(v)); route(); }
+function recvSetLand(i,v){ const r=receivedStock[i]; if(!r) return;   // edits THIS entry's rate only — the Item Master rate stays the client's
+  if(v===''||v==null){ delete r.land; } else r.land=fnum(v);
+  bsv('recv',receivedStock); route(); }
 VIEWS.received = () => {
   const total=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
   const totalVal=receivedStock.reduce((a,r)=>a+recvVal(r),0);   // LANDING value = the main amount (each entry at its own invoice rate)
@@ -406,7 +410,7 @@ VIEWS.received = () => {
     return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok); });
   // one sheet row — same figures as before (qty, MRP, landing ₹/bot, qty × landing), royal styling only
   const rowHtml=({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
-    const q=fnum(r.qty), val=recvVal(r), qd=Number.isInteger(q)?fmt(q):String(r.qty); const eland=recvLand(r);
+    const q=fnum(r.qty), val=recvVal(r), qd=Number.isInteger(q)?fmt(q):String(r.qty); const eland=Math.round(recvLand(r)*100)/100;
     return `<tr class="${ok?'':'row-alert'}">
       <td class="nowrap">${r.date||'—'}</td>
       <td title="${esc(r.inv||'')}">${r.inv?`<span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:'<span class="muted">—</span>'}</td>
@@ -414,7 +418,7 @@ VIEWS.received = () => {
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
       <td class="num"><span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span></td>
       <td class="num"><input class="cell-input" style="width:60px" value="${mrp!=null?mrp:''}" placeholder="₹" title="MRP (₹) — printed on the bottle / invoice" onchange='invSet(${JSON.stringify(r.item)},"mrp",this.value);route()'></td>
-      <td class="num"><input class="cell-input lrland" value="${(invGet(r.item).land!=null&&invGet(r.item).land!=='')?invGet(r.item).land:''}" placeholder="${mrp!=null?mrp:'set ₹'}" title="Landing ₹ per bottle from the Item Master — the one rate every page values with; edit here or in Item Master" onchange="recvSetLand(${i},this.value)">${recvInvLand(r)?`<div class="muted" style="font-size:9.5px;margin-top:1px" title="This invoice's own landed rate (fees included) — reference only">inv ₹${fmt(Math.round(recvInvLand(r)))}</div>`:''}</td>
+      <td class="num"><input class="cell-input lrland" value="${eland||''}" placeholder="${mrp!=null?mrp:'₹'}" title="Landing ₹ per bottle for THIS entry (its BEVCO invoice, fees included) — the Item Master rate is separate and values the stock pages" onchange="recvSetLand(${i},this.value)"></td>
       <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
       <td class="right nowrap">${ok?'':`<button class="btn btn-gold btn-sm" onclick='openAddToRaw(${JSON.stringify(r.item)})'>＋ Item Master</button> `}<button class="btn btn-danger btn-sm" onclick="delRecv(${i})">✕</button></td></tr>`; };
   // the sheet reads like a purchase register: entries grouped under their invoice (first-seen order = import order),
@@ -519,7 +523,7 @@ VIEWS.received = () => {
           <div class="arr">›</div>
           <div class="st rv"><div class="ic">🍾</div><div class="l">Bottles Received</div><div class="v">+${fmt(total)}<small>btl</small></div><div class="m ${unmatched?'bad':'ok'}">${unmatched?fmt(unmatched)+' unmatched — fix in red':'all matched to Item Master'}</div></div>
           <div class="arr">=</div>
-          <div class="st cl"><div class="ic">♛</div><div class="l">Landing Amount</div><div class="v amt">₹ ${fmt(Math.round(totalVal))}</div><div class="m">avg ₹ ${fmt(Math.round(avg))} / bottle${(function(){ const iv=receivedStock.reduce((a,r)=>a+fnum(r.qty)*recvInvLand(r),0); return iv?' · invoices ₹ '+fmt(Math.round(iv)):''; })()}</div></div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Landing Amount</div><div class="v amt">₹ ${fmt(Math.round(totalVal))}</div><div class="m">avg ₹ ${fmt(Math.round(avg))} / bottle</div></div>
         </div>
         <div class="lrf-ring"><div class="ring" style="--pct:${pct}"><div class="in"><div class="k">Purchase value</div><div class="amt">₹ ${fmt(Math.round(totalVal))}</div><div class="k2">${fmt(total)} bottles · ${fmt(nInv)} invoice${nInv===1?'':'s'}</div><div class="k3 ${pct>=100?'ok':'bad'}">${pct}% matched</div></div></div></div>
       </div>
