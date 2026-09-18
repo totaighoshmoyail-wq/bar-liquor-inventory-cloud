@@ -147,7 +147,8 @@ function passSign(val,f){ return f==='plus'?val>0 : f==='minus'?val<0 : true; }
 let rdPriceF='all';   // Item Master price filter: all · blank · set (v2.36.0)
 VIEWS.rawdata = () => {
   const q=iq.rd;
-  const hasPrice=r=>{ const l=invGet(r.item).land; return l!=null && l!=='' && +l>0; };
+  // "blank" = the box shows NOTHING — no rate of its own, no invoice rate, no MRP (client, 2026-09-18 19:50: an item whose box shows a grey 4470 is not blank)
+  const hasPrice=r=> landOf(r.item)>0;
   const nBlankP=rawData.filter(r=>!hasPrice(r)).length;
   const groups=groupRaw(r=> (!q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q))) && (rdPriceF==='all' || (rdPriceF==='blank'?!hasPrice(r):hasPrice(r))));
   let sl=0, shownN=0, shownSel=0;
@@ -189,10 +190,10 @@ VIEWS.rawdata = () => {
     ${bodyHtml}`;
 };
 // the price tabs: ⚠ blank selects every item without a rate of its own (client, 2026-09-18 19:30: "landing blank-e click korle blank all item
-// jeno select hoy, jei gulo already ache sei gulo jeno na hoy"); the other two tabs clear the selection so nothing hidden stays ticked
+// jeno select hoy, jei gulo already ache sei gulo jeno na hoy" — and 19:50: a grey automatic rate counts as "already ache"); the other two tabs clear the selection so nothing hidden stays ticked
 function rdPriceTab(k){
   rdPriceF=k; _rdSel.clear();
-  if(k==='blank') rawData.forEach(r=>{ const l=invGet(r.item).land; if(!(l!=null && l!=='' && +l>0)) _rdSel.add(norm(r.item)); });
+  if(k==='blank') rawData.forEach(r=>{ if(!(landOf(r.item)>0)) _rdSel.add(norm(r.item)); });   // same test as the tab's own list: nothing shown in the box at all
   route();
 }
 function openRawAdd(){
