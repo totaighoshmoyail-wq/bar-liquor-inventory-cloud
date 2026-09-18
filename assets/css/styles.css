@@ -1646,3 +1646,10 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .tbl .btn.rmx{padding:0 5px;font-size:10px;line-height:16px;min-width:0;border-radius:6px;opacity:.5;vertical-align:middle}
 .tbl tr:hover .btn.rmx{opacity:1}
 .barinv .tbl td:first-child .btn.rmx{flex:0 0 auto}
+/* tick-and-delete on Item Master / Beverage Control (v2.38.1) */
+.selcb{accent-color:var(--gold);width:14px;height:14px;vertical-align:middle;cursor:pointer;margin:0 2px 0 0}
+.tabs .selbar{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12.5px;padding:0 0 6px}
+.selbar strong{color:var(--gold);font-size:14px}
+.selbar .btn.seldel{background:var(--red);color:#fff;border-color:transparent}
+.bcfilter .selbar{display:inline-flex;align-items:center;gap:8px;font-size:12px;margin-left:8px}
+@media print{ .selcb, .selbar{display:none!important} }
