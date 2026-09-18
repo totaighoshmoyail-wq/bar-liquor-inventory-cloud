@@ -182,7 +182,8 @@ VIEWS.rawdata = () => {
       <div class="page-actions">${layDrop('rawdata')}<div class="search" style="width:210px">🔎<input id="searchBox" placeholder="Search item / group…" value="${esc(q)}" oninput="isearch('rd',this.value)"></div>
       <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your Liquor Inventory workbook (RAW DATA sheet: GROUP · ITEM DESCRIPTION) — the Item Master becomes exactly that list; names with data are renamed, not lost">📄 Sync from sheet<input type="file" accept=".xlsx,.xlsm,.xls,.csv" style="display:none" onchange="rawSheetUpload(this)"></label>
       <label class="btn btn-sm" style="cursor:pointer" title="Excel/CSV — item name + MRP columns; names auto-match">₹ MRP Import<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadMrp(this)"></label>
-      <button class="btn btn-gold btn-sm" onclick="openRawAdd()">＋ New Item</button></div></div>
+      <button class="btn btn-gold btn-sm" onclick="openRawAdd()">＋ New Item</button>
+      <button class="btn btn-sm" title="Remove every Item Master name the Liquor Room shows no movement for (opening · received · issued all 0) — shown as a list first" onclick="rawKeepLrPlan()">🧹 Keep only Liquor Room items</button></div></div>
     ${bevDupNotice()}
     <div class="tabs noprint">${[['all','All ('+rawData.length+')'],['blank','⚠ Landing ₹ blank ('+nBlankP+')'],['set','✅ Landing ₹ set ('+(rawData.length-nBlankP)+')']].map(o=>`<div class="tab ${rdPriceF===o[0]?'active':''}" onclick="rdPriceF='${o[0]}';route()">${o[1]}</div>`).join('')}</div>
     ${bodyHtml}`;
@@ -198,7 +199,93 @@ function saveRawAdd(){ const item=$('#raItem').value.trim(); const group=$('#raG
   if(!item){ toast('Item?','Enter item name','err'); return; }
   if(inRaw(item)){ toast('Exists','Already in Item Master','err'); return; }
   rawData.push({item, group}); saveRaw(); closeModal(); route(); toast('Added',`${item} added to Item Master`,'ok'); }
-function delRaw(i){ const r=rawData[i]; if(!r) return; confirmAsk(`Remove raw-data item <strong>${esc(r.item)}</strong>?`, ()=>{ rawData.splice(i,1); saveRaw(); route(); toast('Removed',`${r.item} removed`,'err'); }); }
+/* ---- removing a name reaches every page (v2.38.0) ----
+   Item Master, Liquor Room and Beverage Control are three views of two lists: the Item Master / Liquor
+   Room share `rawData`; Beverage Control lists the Tally brands, each linked to an Item Master name by its
+   receive name (rawNameFor: the per-brand override, else INV_MAP). The client's rule: a name removed on
+   any page is gone on the others. So one removal routine: the Item Master entry goes, and every brand
+   whose receive name is that entry goes with it (brand + its POS aliases + its bar record, the removeBrand
+   cascade) — UNLESS the brand has figures (sales, receipts, opening/closing typed): those always stay,
+   because deleting them would delete the month's work. Beverage Control's own ✕ removes just the brand. */
+function rawLinkedBrands(rawName){
+  const k=norm(rawName); if(!k) return [];
+  return tallyItems.filter(t=>{ const rn=rawNameFor(t.name); return rn ? norm(rn)===k : norm(t.name)===k; });
+}
+function brandActive(t){ try{ const R=barRow(t); return !!(R.sale>0||R.recBtl>0||R.iv.openBL!=null||R.iv.closeBL!=null); }catch(e){ return true; } }
+function brandAliasCount(name){ const bn=norm(name); return aliasTable.filter(a=>norm(a.tallyItem)===bn).length; }
+// the removeBrand cascade without the question: brand + its POS aliases + its bar record; caller saves
+function brandDrop(name){
+  const bn=norm(name); const ti=tallyItems.findIndex(t=>norm(t.name)===bn); if(ti<0) return 0;
+  tallyItems.splice(ti,1);
+  for(let i=aliasTable.length-1;i>=0;i--){ if(norm(aliasTable[i].tallyItem)===bn) aliasTable.splice(i,1); }
+  if(invData[bn]) delete invData[bn];
+  return 1;
+}
+// Item Master names → gone from Item Master + Liquor Room; their inactive linked brands → gone from Beverage Control
+function rawRemoveNames(names, opt){
+  opt=opt||{}; const withBrands=opt.brands!==false;
+  const set=new Set(names.map(norm)); let raw=0, brands=0, aliases=0; const stayed=[];
+  if(withBrands) names.forEach(n=>{ rawLinkedBrands(n).forEach(t=>{ if(brandActive(t)){ stayed.push(t.name); return; } aliases+=brandAliasCount(t.name); brands+=brandDrop(t.name); }); });
+  for(let i=rawData.length-1;i>=0;i--){ if(set.has(norm(rawData[i].item))){ rawData.splice(i,1); raw++; } }
+  saveRaw(); if(brands){ bsv('tally',tallyItems); bsv('alias',aliasTable); bsv('inv',invData); rebuildIndexes(); }
+  invalidateCalcCache(); _bevIdx=null; _bevDupCache={ver:-1,list:null};
+  return {raw, brands, aliases, stayed};
+}
+function rawRemoveAsk(i){
+  const r=rawData[i]; if(!r) return; const name=r.item;
+  const refs=_rawRefs(name), linked=rawLinkedBrands(name), drop=linked.filter(t=>!brandActive(t)), stay=linked.filter(t=>brandActive(t));
+  let msg=`Remove <strong>${esc(name)}</strong> from the Item Master? It disappears from the Liquor Room too.`;
+  if(drop.length) msg+=`<br>Also removed from Beverage Control / Tally Sheet: <strong>${drop.map(t=>esc(t.name)).join(', ')}</strong> (with ${drop.reduce((a,t)=>a+brandAliasCount(t.name),0)} POS alias${drop.length>1?'es':''}).`;
+  if(stay.length) msg+=`<br><span class="muted">${stay.map(t=>esc(t.name)).join(', ')} stay${stay.length>1?'':'s'} in Beverage Control — ${stay.length>1?'they have':'it has'} figures.</span>`;
+  if(refs.any) msg+=`<br><span style="color:var(--amber)">⚠ It holds ${esc(refs.txt)} — purchase / issue lines keep the name and show as “not in Item Master”.</span>`;
+  confirmAsk(msg, ()=>{ const R=rawRemoveNames([name]); route();
+    toast('Removed', name+' — gone from Item Master & Liquor Room'+(R.brands?' · '+R.brands+' brand'+(R.brands>1?'s':'')+' from Beverage Control':''), 'err'); });
+}
+function delRaw(i){ rawRemoveAsk(i); }
+// Beverage Control ✕ — the brand only (Tally Sheet + Beverage Control); the Item Master name stays
+function biRemove(i){
+  const t=tallyItems[i]; if(!t) return; const active=brandActive(t), n=brandAliasCount(t.name);
+  confirmAsk(`Remove brand <strong>${esc(t.name)}</strong> from Beverage Control & the Tally Sheet${n?' with its '+n+' POS alias'+(n>1?'es':''):''}?`
+    +(active?`<br><span style="color:var(--amber)">⚠ It has figures this period (sales, receipts or typed stock) — they go with it.</span>`:''), ()=>{
+    brandDrop(t.name); bsv('tally',tallyItems); bsv('alias',aliasTable); bsv('inv',invData); rebuildIndexes(); invalidateCalcCache(); route();
+    toast('Removed', t.name+' removed from Beverage Control & Tally Sheet', 'err'); });
+}
+/* Keep only what the Liquor Room holds: every Item Master name with no Liquor Room movement — opening,
+   received and issued all 0, exactly as the Liquor Room page shows it — is removed. Names that hold other
+   data (a typed landing ₹, a learned BEVCO map, bar stock) are listed separately and kept by default. */
+var _rkPlan=null;
+function rawKeepLrPlan(){
+  const gone=[]; let keep=0;
+  rawData.forEach(r=>{ const name=r.item; const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name);
+    if(op||rv||is){ keep++; return; } gone.push({name, group:r.group||'', refs:_rawRefs(name)}); });
+  if(!gone.length){ toast('Nothing to remove','Every Item Master name has Liquor Room movement','ok'); return; }
+  _rkPlan={gone, keep};
+  const withData=gone.filter(x=>x.refs.any);
+  const rows=gone.map(x=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px solid var(--border-soft);font-size:11.5px"><span>${esc(x.name)}<span class="muted"> · ${esc(x.group)}</span></span>${x.refs.any?'<span style="color:var(--amber);white-space:nowrap">'+esc(x.refs.txt)+'</span>':''}</div>`).join('');
+  modal('🧹 Keep only the Liquor Room items', `<div class="muted" style="font-size:11.5px;margin-bottom:8px">The Item Master keeps the <strong style="color:var(--text)">${keep}</strong> names the Liquor Room shows movement for (opening, received or issued); the rest are removed from the Item Master and the Liquor Room. Brands in Beverage Control whose receive name is a removed item go too — brands with figures always stay.</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin:4px 0"><input type="checkbox" id="rkKeepData" checked onchange="rawKeepLrCount()"> Keep the <strong>${withData.length}</strong> name${withData.length===1?'':'s'} that hold a landing ₹ / BEVCO map / stock but no Liquor Room movement</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin:4px 0"><input type="checkbox" id="rkBrands" checked onchange="rawKeepLrCount()"> Also remove the linked Beverage Control brands (with their POS aliases)</label>
+    <div id="rkSum" style="font-size:12.5px;margin:8px 0;padding:8px 10px;border:1px solid var(--gold-dim);border-radius:8px"></div>
+    <div style="max-height:260px;overflow:auto">${rows}</div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="rawKeepLrApply()">🧹 Remove them</button>`);
+  rawKeepLrCount();
+}
+function _rkSelection(){
+  const P=_rkPlan||{gone:[]}; const keepData=($('#rkKeepData')||{}).checked!==false, withBrands=($('#rkBrands')||{}).checked!==false;
+  const names=P.gone.filter(x=>!(keepData&&x.refs.any)).map(x=>x.name);
+  const brands=[]; let aliases=0;
+  if(withBrands) names.forEach(n=>rawLinkedBrands(n).forEach(t=>{ if(brandActive(t)||brands.indexOf(t.name)>=0) return; brands.push(t.name); aliases+=brandAliasCount(t.name); }));
+  return {names, brands, aliases, withBrands};
+}
+function rawKeepLrCount(){ const s=_rkSelection(); const el=$('#rkSum'); if(!el) return;
+  el.innerHTML=`<strong style="color:var(--red)">${s.names.length}</strong> Item Master name${s.names.length===1?'':'s'} will be removed · <strong>${rawData.length-s.names.length}</strong> stay`
+    +(s.withBrands?` · <strong style="color:var(--red)">${s.brands.length}</strong> Beverage Control brand${s.brands.length===1?'':'s'} (${s.aliases} POS alias${s.aliases===1?'':'es'}) go with them`:' · Beverage Control untouched'); }
+function rawKeepLrApply(){
+  const s=_rkSelection(); if(!s.names.length){ toast('Nothing selected','Untick “keep” to remove the names that hold data','err'); return; }
+  const R=rawRemoveNames(s.names,{brands:s.withBrands});
+  closeModal(); _rkPlan=null; route();
+  toast('Item Master trimmed', R.raw+' name'+(R.raw===1?'':'s')+' removed from Item Master & Liquor Room'+(R.brands?' · '+R.brands+' brand'+(R.brands===1?'':'s')+' ('+R.aliases+' aliases) from Beverage Control':'')+' · '+rawData.length+' items remain', 'ok');
+}
 /* ---- Item Master ⇄ the client's Liquor Inventory workbook (v2.35.0) ----
    The client keeps the master list of liquor-room items in the RAW DATA sheet of their monthly
    "Liquor Inventory Sheet" workbook (GROUP · ITEM DESCRIPTION). "Sync from sheet" makes the app's
@@ -1270,7 +1357,7 @@ VIEWS.liquorroom = () => {
       <td class="num">${sgn(is,'minus','−')}</td>
       <td class="num"><strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong></td>
       <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
-      <td>${cl<0?'<span class="pill red">negative</span>':cl===0?'<span class="pill gray">empty</span>':cl<5?'<span class="pill amber">low</span>':'<span class="pill green">ok</span>'}</td></tr>`; };
+      <td class="nowrap">${cl<0?'<span class="pill red">negative</span>':cl===0?'<span class="pill gray">empty</span>':cl<5?'<span class="pill amber">low</span>':'<span class="pill green">ok</span>'}${idx>=0?` <button class="btn btn-danger btn-sm rmx" title="Remove this item from the Item Master & Liquor Room (linked Beverage Control brand goes too unless it has figures)" onclick="rawRemoveAsk(${idx})">✕</button>`:''}</td></tr>`; };
   const calc=name=>{ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op,rv,is,cl:op+rv-is}; };
   let body=groups.map(g=>{
     let gO=0,gR=0,gI=0,gC=0;
@@ -1469,7 +1556,7 @@ function biRowHtml(t){
   const rnMissing = !R.rname;
   const varSub = u==='pcs' ? '' : `<div class="muted" style="font-size:9px;white-space:nowrap;text-align:right">±${R.varBtl} btl · ${R.varMl} ml</div>`;
   return `<tr>
-    <td><strong>${t.name}</strong>
+    <td><div style="display:flex;align-items:center;gap:4px"><strong style="flex:1;min-width:0">${t.name}</strong><button class="btn btn-danger btn-sm rmx" title="Remove this brand from Beverage Control & the Tally Sheet (with its POS aliases)" onclick="biRemove(${idx})">✕</button></div>
       <div style="margin-top:2px"><input class="cell-input rname" style="text-align:left;color:${rnMissing?'var(--red)':'var(--text-muted)'}" list="rawItems" value="${esc(R.rname||'')}" placeholder="↳ receive name (Item Master col A)…" title="Item Master full name — receipts in Bar Stock Issue / Purchase / Liquor Room are matched against THIS (Excel col A). Edit if blank/wrong." onchange="invSetT(${idx},'rawName',this.value);route()"></div></td>
     ${sizeCell}
     <td class="num"><input class="cell-input mrpcell" value="${mrpRaw!=null?mrpRaw:''}" placeholder="₹" title="Landing ₹ ${u==='pcs'?'per pc':'per bottle'} — shared with Item Master / Liquor Room / Purchase (auto-set by BEVCO invoice)" onchange='invSet(${jatt(A.key)},"land",this.value);route()'></td>

@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.37.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.38.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -3042,7 +3042,7 @@ function closeModal(){ const ms=$$('.modal-back'); if(ms.length) ms[ms.length-1]
 let _confirmCb=null;
 function confirmAsk(msg, cb){ _confirmCb=cb;
   modal('⚠️ Are you sure?', `<p style="font-size:13.5px;line-height:1.6">${msg}</p>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="confirmYes()">Yes, delete</button>`); }
+    `<button class="btn" onclick="_confirmCb=null;closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="confirmYes()">Yes, delete</button>`); }
 function confirmYes(){ const cb=_confirmCb; _confirmCb=null; closeModal(); if(typeof cb==='function') cb(); }
 function toast(title, desc, kind){
   let wrap=$('#toastWrap'); if(!wrap){ wrap=document.createElement('div'); wrap.id='toastWrap'; wrap.className='toast-wrap'; document.body.appendChild(wrap); }
