@@ -1643,7 +1643,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 @media print{ .brand .name .envtag{display:none} }
 
 /* ✕ on Liquor Room / Beverage Control rows (v2.38.0) — tiny, quiet until the row is hovered; hidden in print like every .btn */
-.tbl .btn.rmx{padding:0 5px;font-size:10px;line-height:16px;min-width:0;border-radius:6px;opacity:.5;vertical-align:middle}
+.tbl .btn.rmx{padding:0 5px;font-size:10px;line-height:16px;min-width:0;border-radius:6px;opacity:.85;vertical-align:middle}
 .tbl tr:hover .btn.rmx{opacity:1}
 .barinv .tbl td:first-child .btn.rmx{flex:0 0 auto}
 /* tick-and-delete on Item Master / Beverage Control (v2.38.1) */

@@ -1335,11 +1335,11 @@ VIEWS.liquorroom = () => {
   const pass=cl=> lrFilter==='all' || (lrFilter==='instock'&&cl>0) || (lrFilter==='zero'&&cl===0) || (lrFilter==='neg'&&cl<0);
   const passB=v=> lrBlank==='none' || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0);
   let tVal=0;
-  const rowHtml=(name,idx,grpKnown,op,rv,is,cl)=>{
+  const rowHtml=(name,idx,grpKnown,op,rv,is,cl,grp)=>{
     const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
     const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
     return `<tr class="${grpKnown?'':'row-alert'}">
-      <td class="lrname"><strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
+      <td class="lrname">${idx>=0?`<input type="checkbox" class="rdsel selcb" data-n="${esc(norm(name))}" data-g="${esc(grp||'')}" ${_rdSel.has(norm(name))?'checked':''} title="Select" onchange="rdSelToggle(this)"> `:''}<strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
       <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${landOf(name)?Math.round(landOf(name)*100)/100:'₹'}" title="${land!=null&&land!==''?'Your Item Master rate — values this item everywhere':'Automatic: the latest BEVCO invoice rate (or MRP) — type a rate to make it yours'}" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','land',this.value)`}"></td>
       <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${idx>=0?`invSetRaw(${idx},'lrOpen',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','lrOpen',this.value)`}"></td>
       <td class="num">${sgn(rv,'plus','+')}</td>
@@ -1354,7 +1354,7 @@ VIEWS.liquorroom = () => {
       gO+=v.op; gR+=v.rv; gI+=v.is; gC+=v.cl;
       const m=landOf(r.item);
       tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
-      return rowHtml(r.item, rawData.indexOf(r), true, v.op,v.rv,v.is,v.cl); }).join('');
+      return rowHtml(r.item, rawData.indexOf(r), true, v.op,v.rv,v.is,v.cl, g.group); }).join('');
     if(!rows) return '';
     // per-group separate totals: Opening · Received · Issued · Closing · Value
     const gV=g.items.reduce((a,r)=>{ const v=calc(r.item); return (pass(v.cl)&&passB(v)) ? a+v.cl*landOf(r.item) : a; },0);
@@ -1362,7 +1362,7 @@ VIEWS.liquorroom = () => {
       <td class="num"><strong>${fmt(gO)}</strong></td><td class="num"><strong class="lrsg ${gR>0?'plus':'zero'}">${gR>0?'+':''}${fmt(gR)}</strong></td>
       <td class="num"><strong class="lrsg ${gI>0?'minus':'zero'}">${gI>0?'−':''}${fmt(gI)}</strong></td><td class="num"><strong class="lrclose">${fmt(gC)}</strong></td>
       <td class="num"><strong class="lrval">₹ ${fmt(Math.round(gV))}</strong></td><td></td></tr>`;
-    return `<tr class="grp-row lrgrp"><td colspan="8"><span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
+    return `<tr class="grp-row lrgrp"><td colspan="8"><input type="checkbox" class="rdselg selcb" data-g="${esc(g.group)}" title="Select this group" onchange="rdSelGroup(this)"> <span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
   }).join('');
   const extra=unmatchedNames().filter(n=> !q || norm(n).includes(norm(q)));
   if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return '';
@@ -1373,7 +1373,7 @@ VIEWS.liquorroom = () => {
   const ftab=(id,lbl)=>`<div class="tab ${lrFilter===id?'active':''}" onclick="lrFilter='${id}';route()">${lbl}</div>`;
   const lay=pageLay('liquorroom');
   const defCard=`<div class="card"><div class="table-wrap" style="max-height:600px;overflow-y:auto"><table class="tbl rawhead">
-      <thead><tr><th>Item</th><th class="right nowrap" style="width:112px">Landing ₹/bot</th><th class="right" style="width:96px">Opening</th><th class="right" style="width:90px">Received</th><th class="right" style="width:90px">Issued</th><th class="right" style="width:96px">Closing</th><th class="right" style="width:112px">Value ₹</th><th style="width:86px">Status</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="rdSelAll" class="selcb" title="Select all shown" onchange="rdSelAll(this.checked)"> Item</th><th class="right nowrap" style="width:112px">Landing ₹/bot</th><th class="right" style="width:96px">Opening</th><th class="right" style="width:90px">Received</th><th class="right" style="width:90px">Issued</th><th class="right" style="width:96px">Closing</th><th class="right" style="width:112px">Value ₹</th><th style="width:86px">Status</th></tr></thead>
       <tbody>${body}</tbody></table></div></div>`;
   let bodyHtml;
   if(lay==='def') bodyHtml=defCard;
@@ -1440,7 +1440,7 @@ VIEWS.liquorroom = () => {
     <div class="tabs" style="align-items:center">${ftab('all','All')}${ftab('instock','✅ In Stock (&gt;0)')}${ftab('zero','⚪ Zero')}${ftab('neg','🔴 Negative')}
       <select class="input" style="width:auto;padding:5px 8px;font-size:12px;margin-left:10px" title="Blank / zero filter" onchange="lrBlank=this.value;route()">
         ${[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']].map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
-      </select></div>
+      </select>${rdSelBarHtml()}</div>
     <div class="card lrflow">
       <div class="lrf-head"><div class="t">Liquor Room</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
       <div class="lrf-body">
