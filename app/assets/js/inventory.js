@@ -1975,11 +1975,11 @@ VIEWS.barinv = () => {
   const ledTot=(u,T)=>T.n?`<div class="lt">Σ</div><div class="lt">TOTAL · ${u} items <small>${T.n} categor${T.n===1?'y':'ies'}</small></div>
       <div class="lt r">${RN(T.open)}</div><div class="lt r">${RN(T.rec)}</div><div class="lt r">${RN(T.sale)}</div><div class="lt r">${RN(T.close)}</div>
       <div class="lt"><div class="bar"><i style="width:100%"></i></div></div><div class="lt r">100%</div><div class="lt r">${rupCell(T.rs)}</div>`:'';
-  const bcLedger=`<div class="card" style="margin-bottom:10px"><div class="card-head" style="padding:9px 14px;flex-wrap:wrap;gap:6px 14px">
-      <h3 style="${SER};color:var(--gold);font-size:13px">📊 Category Register — Opening · Received · Sale · Closing</h3>
-      <span class="muted" style="font-size:11px;flex:1 1 260px">${noSale?'No sale in this period yet — upload the month&#39;s POS sales (Sales → POS Upload) and the Sale column and Sale ₹ fill in. ':''}ml items in ml (kegs in ml), pcs items in pieces · share = of that unit&#39;s opening</span>
+  const bcLedger=`<div class="card bcledc" style="margin-bottom:10px"><div class="card-head" style="padding:6px 12px;flex-wrap:wrap;gap:4px 12px">
+      <h3>Category Register — Opening · Received · Sale · Closing</h3>
+      <span class="muted" style="font-size:10px;line-height:1.35;flex:1 1 260px">${noSale?'No sale in this period yet — upload the month&#39;s POS sales (Sales → POS Upload) and the Sale column and Sale ₹ fill in. ':''}ml items in ml (kegs in ml), pcs items in pieces · share = of that unit&#39;s opening</span>
       <button class="btn btn-sm" onclick="go('reports')" title="Full category breakdown in All Reports">View All →</button></div>
-    <div class="card-body" style="padding:10px 12px">
+    <div class="card-body" style="padding:6px 8px 8px">
       ${cats.length?`<div class="bcled">
         <div class="lh">#</div><div class="lh">Category</div><div class="lh r">Opening</div><div class="lh r">Received</div><div class="lh r">Sale</div><div class="lh r">Closing</div><div class="lh">Share of opening</div><div class="lh r">%</div><div class="lh r">Sale ₹</div>
         ${cats.map((c,i)=>ledRow(i+1,c)).join('')}${ledTot('ml',TM)}${ledTot('pcs',TP)}</div>`

@@ -1399,33 +1399,58 @@ body.bv-glass{
 .bccat .c.tot2 .ic{ color:var(--gold); font-weight:800; font-family:Georgia,serif; }
 .bccat .c.tot2 .g b{ color:var(--gold); }
 
-/* Beverage Control head = the Liquor Room flow with six columns (v2.44.0, "look 5's head"); variance card green / red */
-.lrflow.bcflow .lrf-steps{flex:1 1 720px}
-.lrflow.bcflow .st{min-width:104px;padding:10px 11px 11px}
-.lrflow.bcflow .st .v{font-size:20px}
-.lrflow.bcflow .st .m{font-size:11px;margin-top:3px}
+/* Beverage Control head = the Liquor Room flow with six columns (v2.44.0, "look 5's head"); v2.44.1 "compact royal":
+   the same six cards, ring and every figure on about half the height — icon beside the label, one line per figure,
+   a double gilded frame, a smaller ring. Theme tokens only, so each theme keeps its own colours. */
+.lrflow.bcflow{outline:1px solid color-mix(in srgb,var(--gold) 28%,transparent);outline-offset:-5px;border-color:color-mix(in srgb,var(--gold) 55%,var(--border));margin-bottom:10px}
+.lrflow.bcflow .lrf-head{padding:8px 16px 0;align-items:center;gap:8px 14px}
+.lrflow.bcflow .lrf-head .t{font-size:13px;letter-spacing:2.6px}
+.lrflow.bcflow .lrf-head .t:before{content:'❖';margin-right:8px;font-size:10px;vertical-align:1px;opacity:.85}
+.lrflow.bcflow .lrf-head .f{font-size:10.5px}
+.lrflow.bcflow .lrf-body{padding:8px 12px 10px;gap:10px}
+.lrflow.bcflow .lrf-steps{flex:1 1 720px;gap:5px}
+.lrflow.bcflow .st{min-width:96px;padding:7px 9px 7px 11px;border-radius:10px;display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-content:start;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 6%,var(--panel-2)),var(--panel-2))}
+.lrflow.bcflow .st .ic{width:22px;height:22px;border-radius:7px;font-size:12px;margin:0;grid-row:1}
+.lrflow.bcflow .st .l{grid-column:2;grid-row:1;align-self:center;font-size:8.5px;letter-spacing:1.4px;white-space:nowrap}
+.lrflow.bcflow .st .v{grid-column:1/-1;font-size:17.5px;margin-top:4px;line-height:1.1}
+.lrflow.bcflow .st .v small{font-size:9px;margin-left:4px}
+.lrflow.bcflow .st .m{grid-column:1/-1;font-size:10px;margin-top:2px;line-height:1.3}
+.lrflow.bcflow .arr{font-size:15px;width:11px}
 .lrflow .st.vp:before{background:var(--green)} .lrflow .st.vp .v{color:var(--green)} .lrflow .st.vp{border-color:color-mix(in srgb,var(--green) 55%,var(--border-soft))}
 .lrflow .st.vn:before{background:var(--red)} .lrflow .st.vn .v{color:var(--red)} .lrflow .st.vn{border-color:color-mix(in srgb,var(--red) 55%,var(--border-soft))}
-.lrflow.bcflow .ring .amt{font-size:19px}
+.lrflow.bcflow .lrf-ring{flex:0 0 120px}
+.lrflow.bcflow .ring{width:112px;height:112px;padding:6px}
+.lrflow.bcflow .ring:before{inset:2px}
+.lrflow.bcflow .ring .in{padding:10px 10px 7px}
+.lrflow.bcflow .ring .k{font-size:7px;letter-spacing:1.2px}
+.lrflow.bcflow .ring .amt{font-size:14px;margin:2px 0 1px}
+.lrflow.bcflow .ring .k2{font-size:8px}
+.lrflow.bcflow .ring .k3{font-size:7px;letter-spacing:.8px;margin-top:2px;line-height:1.3}
 
-/* Beverage Control category register — "look 1's table" (v2.44.0): a grid of theme tokens, one row per category, Σ rows */
-.bcled{display:grid;grid-template-columns:30px minmax(160px,1.6fr) repeat(4,minmax(78px,.9fr)) minmax(110px,1.3fr) 92px minmax(96px,1fr);border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel);font-variant-numeric:tabular-nums}
-.bcled .lh{padding:7px 10px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--gold);background:var(--bg-2);display:flex;align-items:center}
-.bcled .lc{padding:6px 10px;font-size:12px;color:var(--text);border-bottom:1px solid var(--border-soft);display:flex;align-items:center;min-width:0}
+/* Beverage Control category register — "look 1's table" (v2.44.0); v2.44.1 compact royal: 24 px rows, serif category
+   names, double gold rules on the head and the Σ rows, a faint gold zebra. A grid of theme tokens, one row per category. */
+.bcledc .card-head h3{font-family:Georgia,'Times New Roman',serif;color:var(--gold);font-size:12.5px;letter-spacing:.4px}
+.bcledc .card-head h3:before{content:'❖';margin-right:7px;font-size:9.5px;vertical-align:1px;opacity:.85}
+.bcled{display:grid;grid-template-columns:26px minmax(150px,1.6fr) repeat(4,minmax(72px,.9fr)) minmax(100px,1.3fr) 84px minmax(90px,1fr);border:1px solid color-mix(in srgb,var(--gold) 40%,var(--border));border-radius:10px;overflow:hidden;background:var(--panel);font-variant-numeric:tabular-nums}
+.bcled .lh{padding:5px 9px;font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);border-bottom:3px double color-mix(in srgb,var(--gold) 70%,transparent);background:color-mix(in srgb,var(--gold) 6%,var(--bg-2));display:flex;align-items:center;white-space:nowrap}
+.bcled .lc{padding:1px 9px;min-height:22px;font-size:11.5px;color:var(--text);border-bottom:1px solid var(--border-soft);display:flex;align-items:center;min-width:0}
+.bcled .lc:nth-child(18n+10),.bcled .lc:nth-child(18n+11),.bcled .lc:nth-child(18n+12),.bcled .lc:nth-child(18n+13),.bcled .lc:nth-child(18n+14),.bcled .lc:nth-child(18n+15),.bcled .lc:nth-child(18n+16),.bcled .lc:nth-child(18n+17),.bcled .lc:nth-child(18n+18){background:color-mix(in srgb,var(--gold) 3%,transparent)}   /* every other category row */
 .bcled .r{justify-content:flex-end;text-align:right}
-.bcled .lc.n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:1.6}
-.bcled .lc small,.bcled .lt small{font-size:9px;color:var(--text-muted);margin-left:5px;font-weight:500}
+.bcled .lc.n{font-family:Georgia,'Times New Roman',serif;font-weight:600;font-size:12px;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:23px}
+.bcled .lc.mu:nth-child(9n+1){font-family:Georgia,'Times New Roman',serif;color:color-mix(in srgb,var(--gold) 60%,var(--text-muted));font-size:10.5px}   /* the # column */
+.bcled .lc small,.bcled .lt small{font-family:'Inter',sans-serif;font-size:8.5px;color:var(--text-muted);margin-left:5px;font-weight:500;letter-spacing:.3px}
 .bcled .lc.o{color:var(--gold);font-weight:700}
 .bcled .lc.g{color:var(--green)}
 .bcled .lc.mu{color:var(--text-muted)}
 .bcled .lc.r.mu small{margin-left:4px;color:var(--text-dim);white-space:nowrap}
-.bcled .bar{width:100%;height:5px;border-radius:3px;background:var(--border-soft);overflow:hidden}
-.bcled .bar i{display:block;height:100%;border-radius:3px;background:var(--gold)}
+.bcled .bar{width:100%;height:4px;border-radius:2px;background:var(--border-soft);overflow:hidden}
+.bcled .bar i{display:block;height:100%;border-radius:2px;background:var(--gold)}
 .bcled .bar.p i{background:var(--text-muted)}
-.bcled .lt{padding:8px 10px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:12.5px;color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--panel));border-top:2px solid var(--gold);display:flex;align-items:center;min-width:0}
+.bcled .lt{padding:4px 9px;min-height:26px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:12px;color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--panel));border-top:3px double color-mix(in srgb,var(--gold) 75%,transparent);display:flex;align-items:center;min-width:0}
 .bcled .lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt{border-top:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}   /* the second Σ row (pcs) sits under the first */
 @media print{.bcled .bar{display:none}}
-@media (max-width:1100px){.bcled{grid-template-columns:24px minmax(120px,1.4fr) repeat(4,minmax(64px,.9fr)) 70px minmax(80px,1fr)} .bcled .lh:nth-child(7),.bcled .lc:nth-child(9n+7),.bcled .lt:nth-child(9n+7){display:none}}
+@media (max-width:1100px){.bcled{grid-template-columns:22px minmax(120px,1.4fr) repeat(4,minmax(60px,.9fr)) 64px minmax(76px,1fr)} .bcled .lh:nth-child(7),.bcled .lc:nth-child(9n+7),.bcled .lt:nth-child(9n+7){display:none}}
 .bcfoot{ display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-top:8px; }
 .bcfoot .f{ background:var(--panel); border:1px solid var(--border-soft); border-radius:10px; padding:8px 9px; text-align:center; min-width:0; }
 .bcfoot .f .ic{ width:24px; height:24px; margin:0 auto 4px; border-radius:8px; display:flex; align-items:center;
