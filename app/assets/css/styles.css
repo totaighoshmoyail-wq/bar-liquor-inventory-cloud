@@ -1667,3 +1667,4 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .recvtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px}
 .recvtbl .cell-input.rvinv{width:100%;max-width:140px;text-align:left;font-size:11.5px;margin-top:3px;display:block}
 .recvtbl .cell-input.rvqty{width:60px}
+.modal.xwide{max-width:min(1000px,96vw)}   /* the cash-invoice check screen (v2.40.2) */

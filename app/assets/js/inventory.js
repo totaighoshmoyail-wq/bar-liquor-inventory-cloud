@@ -952,8 +952,9 @@ function cashInvBody(){
   const m=c.meta; const sum=c.rows.reduce((a,r)=>a+(+r.amt||0),0); const okSum=!m.total||Math.abs(sum-m.total)<=1;
   const rows=c.rows.map((r,i)=>`<tr>
       <td class="muted num" style="width:26px">${i+1}</td>
-      <td style="font-size:11px;color:var(--text-dim)">${esc(r.raw)}</td>
-      <td><input class="cell-input" list="rawItems" style="width:100%;text-align:left;${r.item?(r.sure?'':'border-color:var(--amber)'):'border-color:var(--red)'}" value="${esc(r.item||'')}" placeholder="pick your item…" title="${r.item?(r.sure?'Sure match':'Best guess — check'):'No match — pick from the Item Master, or type a new name'}" onchange="cashInvRowSet(${i},'item',this.value)"></td>
+      <td style="font-size:11px;color:var(--text-dim);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.raw)}">${esc(r.raw)}</td>
+      <td><input class="cell-input" list="rawItems" style="width:100%;text-align:left;${r.item?(findRawExact(r.item)?(r.sure?'':'border-color:var(--amber)'):'border-color:var(--red)'):'border-color:var(--red)'}" value="${esc(r.item||'')}" placeholder="pick your item… or type a new name" title="${r.item?(findRawExact(r.item)?(r.sure?'Matched to your Item Master':'Best guess — check'):'Not in your Item Master — will be ADDED under the category on the right'):'No match — pick from the Item Master, or type a new name'}" onchange="cashInvRowSet(${i},'item',this.value)">${(r.item&&!findRawExact(r.item))?'<div style="font-size:10px;color:var(--red);margin-top:2px">＋ new item — set its category →</div>':''}</td>
+      <td>${cashInvCatCell(r,i)}</td>
       <td class="num"><input class="cell-input" style="width:64px" value="${r.rate}" onchange="cashInvRowSet(${i},'rate',this.value)"></td>
       <td class="num"><input class="cell-input" style="width:52px" value="${r.qty}" onchange="cashInvRowSet(${i},'qty',this.value)"></td>
       <td class="num"><input class="cell-input" style="width:74px" value="${r.amt}" onchange="cashInvRowSet(${i},'amt',this.value)"></td>
@@ -965,7 +966,7 @@ function cashInvBody(){
       <div class="field"><label>Date</label><input class="input" type="date" value="${esc(m.date||'')}" onchange="cashInvSet('date',this.value)"></div>
       <div class="field"><label>Bill total ₹ (as printed)</label><input class="input" type="number" step="0.01" value="${m.total||''}" onchange="cashInvSet('total',this.value)"></div>
     </div>
-    <div class="table-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><thead><tr><th>#</th><th>As printed</th><th style="width:250px">Your item (Item Master)</th><th class="right">Rate ₹</th><th class="right">Qty</th><th class="right">Amount ₹</th><th style="width:40px"></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl" style="min-width:820px"><thead><tr><th style="width:26px">#</th><th style="width:120px">As printed</th><th style="width:250px">Your item (Item Master)</th><th style="width:170px">Category</th><th class="right">Rate ₹</th><th class="right">Qty</th><th class="right">Amount ₹</th><th style="width:40px"></th></tr></thead><tbody>${rows}</tbody></table></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px"><button class="btn btn-sm" onclick="cashInvAddRow()">＋ Row</button>
       <span id="ciSum" style="color:${okSum?'var(--green)':'var(--amber)'}">Rows ₹ ${fmt(Math.round(sum))}${m.total?' · bill says ₹ '+fmt(Math.round(m.total))+(okSum?' ✔':' ⚠ check the rows'):''} · paid by <strong>${esc(m.paid||'cash')}</strong> → saved as 💵 Cash</span></div>
     <div class="muted" style="font-size:11px;margin-top:6px">Each row becomes one cash purchase entry: Rate = its landing ₹ per bottle (the amount is Qty × Rate). A typed name that is not in the Item Master is added to it.</div>
@@ -973,7 +974,8 @@ function cashInvBody(){
 }
 function cashInvFoot(){ const n=cashInv&&cashInv.meta?cashInv.rows.filter(r=>r.item&&+r.qty>0).length:0;
   return `<button class="btn" onclick="cashInv=null;closeModal()">Cancel</button>${n?`<button class="btn btn-gold" onclick="cashInvConfirm()">✅ Add ${n} cash purchase${n===1?'':'s'}</button>`:''}`; }
-function cashInvRefresh(){ closeModal(); modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot()); }   // modal() stacks — replace, don't pile up
+function cashInvRefresh(){ closeModal(); modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot());   // modal() stacks — replace, don't pile up
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide'); }
 function cashInvLoad(inp){ const f=inp.files&&inp.files[0]; if(!f) return; if(f.size>12*1024*1024){ toast('Too big','Max 12 MB image','err'); return; }
   const rd=new FileReader(); rd.onload=()=>{ cashInv.img=rd.result; cashInvRefresh(); setTimeout(cashInvAuto,150); }; rd.readAsDataURL(f); }
 function cashInvOpenTab(){ if(!cashInv||!cashInv.img) return;
@@ -1005,7 +1007,8 @@ function cashInvAuto(){
 function cashInvParseBtn(){ const t=($('#ciPaste')||{}).value||''; if(!t.trim()){ toast('No text','Paste the bill text first','err'); return; } cashInv.text=t; cashInvApply(t); }
 function cashInvApply(text){
   const P=cashInvParse(text);
-  P.rows.forEach(r=>{ const m=cashInvMatch(r.name); r.item=m.item; r.sure=m.sure; });
+  P.rows.forEach(r=>{ const m=cashInvMatch(r.name); r.item=m.item; r.sure=m.sure; r.grp='';
+    if(!r.item){ try{ const g=bevcoGuessGroup(r.name); if(g&&g!=='BEVCO IMPORT'&&rawGroups().indexOf(g)>=0) r.grp=g; }catch(e){} } });
   cashInv.meta=P.meta; cashInv.rows=P.rows; cashInvRefresh();
   if(!P.rows.length) toast('No item lines found','Check the text — each line needs name, rate, qty, amount (or add rows by hand)','err');
 }
@@ -1031,7 +1034,8 @@ function cashInvParse(text){
       if(qty>0 && Math.abs(rate*qty-amt)>1) rate=Math.round(amt/qty*100)/100; }                          // a misread rate digit: amount ÷ qty wins
     else { qty=cols[0]; amt=cols[1]; if(qty>amt){ const t=qty; qty=amt; amt=t; } rate=qty?Math.round(amt/qty*100)/100:0; }
     if(!(qty>0)||!(amt>0)||qty>500) return;
-    rows.push({raw:name, name:name.toUpperCase(), rate, qty, amt}); });
+    const nm2=name.replace(new RegExp('^'+(rows.length+1)+'\\s+(?=[A-Za-z])'),'');
+    rows.push({raw:nm2, name:nm2.toUpperCase(), rate, qty, amt}); });
   const sum=rows.reduce((a,r)=>a+r.amt,0);
   if(tIx<lines.length){ const cand=[]; for(let i=Math.max(0,tIx-1);i<=Math.min(lines.length-1,tIx+1);i++){ [...lines[i].matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)/g)].forEach(x=>{ const n=+x[1].replace(/,/g,''); if(!isNaN(n)&&n>0) cand.push(n); }); }
     if(cand.length){ if(sum){ cand.sort((a,b)=>Math.abs(a-sum)-Math.abs(b-sum)); meta.total=cand[0]; } else meta.total=Math.max.apply(null,cand); } }
@@ -1047,9 +1051,20 @@ function cashInvMatch(name){
   let m=bevcoMatch(q,{list}); if(!m.name && !/ML\b/i.test(q) && /\d{2,4}$/.test(q)) m=bevcoMatch(q+' ML',{list});
   const item=m.name?(back[norm(m.name)]||m.name):''; return {item, sure:!!(item&&m.sure), top:m.top?(back[norm(m.top.name)]||m.top.name):''};
 }
+// matched → the item's own group (read-only); new name → the client's groups to pick from, or a new one
+function cashInvCatCell(r,i){
+  const ex=r.item?findRawExact(r.item):null;
+  if(ex) return `<span class="pill gray" title="Your Item Master category for this item">${esc(ex.group||'(ungrouped)')}</span>`;
+  if(!r.item) return '<span class="muted" style="font-size:11px">—</span>';
+  const groups=rawGroups().filter(g=>g&&g!=='BEVCO IMPORT'); const cur=r.grp||'';
+  if(r.grpNew) return `<input class="cell-input" style="width:100%;text-align:left;border-color:var(--amber)" value="${esc(cur)}" placeholder="new category name…" title="Type the new category" onchange="cashInvRowSet(${i},'grp',this.value)"> <a href="#" class="muted" style="font-size:10px" onclick="cashInvRowSet(${i},'grpNew',false);return false">pick existing</a>`;
+  return `<select class="input" style="width:100%;padding:4px 6px;font-size:11.5px;${cur?'':'border-color:var(--amber)'}" title="Category for the new item" onchange="cashInvRowSet(${i},'grp',this.value)"><option value="">— choose category —</option>${groups.map(g=>`<option value="${esc(g)}" ${g===cur?'selected':''}>${esc(g)}</option>`).join('')}<option value="__new">＋ New category…</option></select>`;
+}
 function cashInvSet(f,v){ if(!cashInv||!cashInv.meta) return; cashInv.meta[f]=(f==='total')?(+v||0):v; const s=$('#ciSum'); if(s&&f==='total') cashInvRefresh(); }
 function cashInvRowSet(i,f,v){ const r=cashInv&&cashInv.rows[i]; if(!r) return;
-  if(f==='item'){ r.item=String(v||'').trim().toUpperCase(); r.sure=!!findRawExact(r.item); }
+  if(f==='item'){ r.item=String(v||'').trim().toUpperCase(); r.sure=!!findRawExact(r.item); if(r.item&&!findRawExact(r.item)&&!r.grp){ try{ const g=bevcoGuessGroup(r.item); if(g&&g!=='BEVCO IMPORT'&&rawGroups().indexOf(g)>=0) r.grp=g; }catch(e){} } }
+  else if(f==='grp'){ if(v==='__new'){ r.grpNew=true; r.grp=''; } else r.grp=String(v||'').replace(/\s+/g,' ').trim().toUpperCase(); }
+  else if(f==='grpNew'){ r.grpNew=!!v; if(!r.grpNew) r.grp=''; }
   else { const n=+String(v).replace(/,/g,''); r[f]=isNaN(n)?0:n; if(f==='amt'&&r.qty>0) r.rate=Math.round(r.amt/r.qty*100)/100; else r.amt=Math.round(r.rate*r.qty*100)/100; }
   cashInvRefresh(); }
 function cashInvAddRow(){ if(!cashInv||!cashInv.meta) return; cashInv.rows.push({raw:'(typed)', name:'', item:'', sure:false, rate:0, qty:1, amt:0}); cashInvRefresh(); }
@@ -1058,7 +1073,8 @@ function cashInvConfirm(){
   const c=cashInv; if(!c||!c.meta) return; const m=c.meta;
   const use=c.rows.filter(r=>r.item&&+r.qty>0); if(!use.length){ toast('Nothing to add','Pick an Item Master item on at least one row','err'); return; }
   const date=m.date||new Date().toISOString().slice(0,10); let added=0, created=0, total=0;
-  use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase(); let g='(ungrouped)'; try{ g=bevcoGuessGroup(nm)||g; }catch(e){} rawData.push({item:nm, group:g}); rebuildRawIdx(); it=findRawExact(nm); created++; }
+  const missingCat=use.filter(r=>!findRawExact(r.item)&&!(r.grp||'').trim()); if(missingCat.length){ toast('Category?','Choose a category for the new item'+(missingCat.length>1?'s':'')+': '+missingCat.map(r=>r.item).join(', '),'err'); return; }
+  use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase(); rawData.push({item:nm, group:(r.grp||'').trim()||'(ungrouped)'}); rebuildRawIdx(); it=findRawExact(nm); created++; }
     const rate=+r.rate||(r.qty?Math.round(r.amt/r.qty*100)/100:0);
     const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date, item:it.item, qty:+r.qty, group:it.group||'', src:'cash', land:rate, mrp:rate};
     if(m.no) e.inv=String(m.no).trim(); if(m.shop) e.shop=String(m.shop).trim();
