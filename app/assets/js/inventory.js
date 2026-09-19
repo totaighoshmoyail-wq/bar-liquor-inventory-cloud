@@ -14,7 +14,14 @@ const _seedRaw = ((typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN && typeof
 let rawData       = bls('rawdata2', _seedRaw);      // [{item, group}]  ← Raw Data master
 let receivedStock = bls('recv', []);                // [{date, item, qty, group}]
 let mrDetail      = bls('mr',   []);                // [{date, group, item, qty}]
-const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN && typeof CANTEEN_INV!=='undefined') ? CANTEEN_INV : {};
+// Traffic's opening seed (v2.42.0) = the September-2026 workbook: main-sheet OPENING BAL per brand (openBL) + the
+// Liquor Room sheet's OPENING QTY per item (lrOpen), both from invseed.js. Same shape as CANTEEN_INV.
+function _trafficInv(){ const o={};
+  if(typeof TRAFFIC_BAR_OPEN!=='undefined') TRAFFIC_BAR_OPEN.forEach(x=>{ const k=norm(x.b); (o[k]=o[k]||{}).openBL=x.o; });
+  if(typeof TRAFFIC_LR_OPEN!=='undefined')  TRAFFIC_LR_OPEN.forEach(x=>{ const k=norm(x.f); (o[k]=o[k]||{}).lrOpen=x.o; });
+  return o; }
+const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN) ? (typeof CANTEEN_INV!=='undefined' ? CANTEEN_INV : {})
+  : ((typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC) ? _trafficInv() : {});
 let invData       = bls('inv',  JSON.parse(JSON.stringify(_seedInv)));   // { norm(item): {sizeL, openBL, closeBL, lrOpen, saleOverride} }
 // heal: an existing-but-empty store must not mask the company's opening-balance seed
 // ...unless the company was deliberately started fresh (Settings -> Start Fresh sets the flag)
@@ -86,7 +93,10 @@ function deriveSizeL(name){ const m=(name||'').match(/(\d{2,5})\s*ML/i); if(m) r
 function sizeOf(name){ const v=invGet(name).sizeL; if(v!=null&&v!=='') return +v;
   const m=invMapFor(name); if(m&&m.sizeL) return +m.sizeL;   // seeded bottle size from File-2 sheet (col C)
   return deriveSizeL(name); }
-function toLitres(x,sizeL){ x=+x||0; const b=Math.trunc(x); return b*sizeL+(x-b); }
+// bottle.loose → litres. KEGS (size ≥ 5 L, i.e. Draught Beer) are the Excel's exception: its draught rows read
+// `G = D + E×50000 − F` — opening/closing typed in ML, only the receipt in kegs — so a keg value is ml, not
+// bottle.loose (the bottle formula would turn "13000" into 13000 kegs). Matched here since v2.42.0.
+function toLitres(x,sizeL){ x=+x||0; if(sizeL>=5) return x/1000; const b=Math.trunc(x); return b*sizeL+(x-b); }
 function excelDate(v){
   if(v==null||v==='') return '';
   if(typeof v==='number'&&v>20000){ const d=new Date(Math.round((v-25569)*86400000)); return d.toISOString().slice(0,10); }
@@ -3607,31 +3617,43 @@ document.addEventListener('focusout', ()=>{ setTimeout(()=>cloudRenderIfQuiet(fa
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setTimeout(()=>cloudRenderIfQuiet(false), 300); });
 setInterval(()=>cloudRenderIfQuiet(false), 20000);
 
-/* ---- Item Master catch-up to the shipped workbook list (v2.37.0) ----
-   canteenseed.js carries the client's own RAW DATA list (CANTEEN_RAW, versioned by CANTEEN_RAW_V). A company
-   that already saved its Item Master would never see a newer list, so when the version moves this brings the
-   stored Item Master up to it ONCE, the way "📄 Sync from sheet" does, but only the safe part of that plan:
+/* ---- Item Master catch-up to the shipped workbook list (v2.37.0 Canteen · v2.42.0 Traffic) ----
+   canteenseed.js carries the Canteen RAW DATA list (CANTEEN_RAW / CANTEEN_RAW_V); realdata.js carries the Traffic
+   "Liqour room cl" list (REAL_ITEMS / TRAFFIC_RAW_V). A company that already saved its Item Master would never see
+   a newer list, so when the version moves this brings the stored Item Master up to it ONCE, the way "📄 Sync from
+   sheet" does, but only the safe part of that plan:
      · every name in the list is present, in the list's order, with the list's group (the client's grouping);
-     · a stored name that is NOT in the list: BEVCO-worded (group BEVCO IMPORT / ", 750 ML." tail) and a SURE
-       match to a list name → renamed to it, every reference following (purchases, issues, stock, prices,
-       learned BEVCO map); a name the PREVIOUS list had and this one dropped, holding no data → removed;
-       anything else (the client's own additions, BEVCO names with no sure match) → kept, untouched.
+     · a stored name that is NOT in the list:
+         Canteen — BEVCO-worded (group BEVCO IMPORT / ", 750 ML." tail) and a SURE match to a list name → renamed to
+           it, every reference following (purchases, issues, stock, prices, learned BEVCO map); a name the PREVIOUS
+           list had and this one dropped, holding no data → removed; anything else → kept, untouched.
+         Traffic (strict — the client's rule of 2026-09-19: "only the names in the Liquor Room sheet stay") — ANY
+           name with a SURE match to a list name → renamed to it (references follow); a name holding purchases,
+           issues or typed stock and no sure match → kept (deleting it would orphan that work — the ✕ / tick-delete
+           is theirs to press); everything else → removed.
    Direct localStorage writes at load (bsv() is not for load time) + cloudMark() so the change syncs; each
    device computes the same result, so the merge on the other side is a no-op. A marker per company
    (CO_PREFIX+'rawv') makes it run once per list version; a company still on the pure seed only gets the marker. */
+function _rawSeedV(){ if(typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN) return (typeof CANTEEN_RAW_V!=='undefined') ? {v:CANTEEN_RAW_V, strict:false, dropped:(typeof CANTEEN_RAW_DROPPED!=='undefined'?CANTEEN_RAW_DROPPED:[])} : null;
+  if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC) return (typeof TRAFFIC_RAW_V!=='undefined') ? {v:TRAFFIC_RAW_V, strict:true, dropped:(typeof TRAFFIC_RAW_DROPPED!=='undefined'?TRAFFIC_RAW_DROPPED:[])} : null;
+  return null; }
 function rawSeedCatchUp(){
-  if(typeof CO_IS_CANTEEN==='undefined' || !CO_IS_CANTEEN || typeof CANTEEN_RAW_V==='undefined') return null;
+  const S=_rawSeedV(); if(!S) return null;
   const MK=CO_PREFIX+'rawv';
-  if(localStorage.getItem(MK)===String(CANTEEN_RAW_V)) return null;
+  if(localStorage.getItem(MK)===String(S.v)) return null;
   const stored=localStorage.getItem(CO_PREFIX+'rawdata2');
-  if(!stored){ localStorage.setItem(MK, String(CANTEEN_RAW_V)); return {added:0,renamed:[],removed:[],kept:0,fresh:true}; }
+  if(!stored){ localStorage.setItem(MK, String(S.v)); return {added:0,renamed:[],removed:[],kept:0,keptData:[],fresh:true}; }
   const list=_seedRaw.map(x=>({item:x.item, group:x.group}));
   const listIdx=new Map(list.map(x=>[norm(x.item),x]));
-  const dropped=new Set((typeof CANTEEN_RAW_DROPPED!=='undefined'?CANTEEN_RAW_DROPPED:[]).map(norm));
+  const dropped=new Set(S.dropped.map(norm));
   const before=new Set(rawData.map(r=>norm(r.item)));
-  const keep=[], renames=[], removed=[];
+  const keep=[], keptData=[], renames=[], removed=[];
   rawData.forEach(r=>{ const k=norm(r.item); if(listIdx.has(k)) return;              // in the list → the list's row replaces it
     const refs=_rawRefs(r.item);
+    if(S.strict){
+      const m=bevcoMatch(r.item,{list}); if(m.name && m.sure && norm(m.name)!==k){ renames.push({old:r.item, to:m.name}); return; }
+      if(refs.recv||refs.mr||refs.stock){ keep.push(r); keptData.push(r.item); return; }
+      removed.push(r.item); return; }
     if(!refs.any && dropped.has(k)){ removed.push(r.item); return; }
     if(refs.any && _looksBevco(r)){ const m=bevcoMatch(r.item,{list}); if(m.name && m.sure && norm(m.name)!==k){ renames.push({old:r.item, to:m.name}); return; } }
     keep.push(r); });
@@ -3642,27 +3664,58 @@ function rawSeedCatchUp(){
   const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
   w('rawdata2', rawData);
   if(renames.length){ w('recv',receivedStock); w('mr',mrDetail); w('inv',invData); w('bevmap',bevMap); }
-  localStorage.setItem(MK, String(CANTEEN_RAW_V));
-  return {added, renamed:renames, removed, kept:keep.length, fresh:false};
+  localStorage.setItem(MK, String(S.v));
+  return {added, renamed:renames, removed, kept:keep.length, keptData, fresh:false};
 }
-/* When to run it. A device that was away (the PC closed overnight) would otherwise migrate its STALE copy at
+/* ---- Opening figures from the Traffic workbook (v2.42.0) ----
+   TRAFFIC_BAR_OPEN (main sheet OPENING BAL per brand) → invData[brand].openBL; TRAFFIC_LR_OPEN (Liquor Room OPENING
+   QTY) → invData[item].lrOpen. Fills BLANKS only — a figure the client has typed is never overwritten (counted as
+   kept). A brand the sheet carries an opening for but the Tally Sheet does not know is created in the mapped
+   category (the workbook's own group → app category), so the opening has a Beverage Control row to sit on.
+   Once per TRAFFIC_INV_V per company (CO_PREFIX+'invv'); a Start-Fresh company gets its figures back this way too. */
+function invSeedCatchUp(){
+  if(typeof CO_IS_TRAFFIC==='undefined' || !CO_IS_TRAFFIC || typeof TRAFFIC_INV_V==='undefined') return null;
+  const MK=CO_PREFIX+'invv';
+  if(localStorage.getItem(MK)===String(TRAFFIC_INV_V)) return null;
+  const blank=v=>v==null||v==='';
+  let bar=0, lr=0, keptBar=0, keptLr=0; const brandsAdded=[];
+  (typeof TRAFFIC_BAR_OPEN!=='undefined'?TRAFFIC_BAR_OPEN:[]).forEach(x=>{
+    if(!getTallyItem(x.b)){ const cat=(typeof CATEGORIES!=='undefined'&&CATEGORIES.includes(x.c))?x.c:'WHISKY'; const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[cat])||{unit:'ml',peg:30};
+      tallyItems.push({name:x.b, category:cat, posQty:0, unit:d.unit, pegMl:d.peg||30, cocktailMl:0, straightMl:0, bogo:0}); brandsAdded.push(x.b); }
+    const k=norm(x.b); const iv=invData[k]||(invData[k]={});
+    if(blank(iv.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; });
+  (typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]).forEach(x=>{
+    const k=norm(x.f); const iv=invData[k]||(invData[k]={});
+    if(blank(iv.lrOpen)){ iv.lrOpen=x.o; lr++; } else keptLr++; });
+  const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
+  if(bar||lr) w('inv', invData);
+  if(brandsAdded.length){ w('tally', tallyItems); try{ rebuildIndexes(); }catch(e){} try{ invalidateCalcCache(); }catch(e){} }
+  localStorage.setItem(MK, String(TRAFFIC_INV_V));
+  return {bar, lr, keptBar, keptLr, brandsAdded};
+}
+/* When to run them. A device that was away (the PC closed overnight) would otherwise migrate its STALE copy at
    load, mark rawdata2/inv/bevmap dirty, and its next merge push would lay that stale copy over what the other
    side typed since (non-list keys: the pushing side wins). So on a cloud-connected, clean device the run waits
    for the first cloud check — nothing newer, or the auto-pull has brought the newest copy in (in place, via
    cloudRefreshState) — and only then migrates. A device with no cloud, or one already holding unpushed work,
    runs at once. Safety net: 90 s (offline, or the check never answers). */
 var _rawCatchPending=false;
+function _rawCatchDue(){ try{ const S=_rawSeedV(); if(S && localStorage.getItem(CO_PREFIX+'rawv')!==String(S.v)) return true;
+  if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC && typeof TRAFFIC_INV_V!=='undefined' && localStorage.getItem(CO_PREFIX+'invv')!==String(TRAFFIC_INV_V)) return true; }catch(e){} return false; }
 function _rawCatchRun(){
   if(!_rawCatchPending) return; _rawCatchPending=false;
-  let R=null; try{ R=rawSeedCatchUp(); }catch(e){}
-  if(!R||R.fresh||!(R.added||R.renamed.length||R.removed.length)) return;
+  let R=null, I=null; try{ R=rawSeedCatchUp(); }catch(e){} try{ I=invSeedCatchUp(); }catch(e){}
+  const rawDid=R&&!R.fresh&&(R.added||R.renamed.length||R.removed.length);
+  const invDid=I&&(I.bar||I.lr||I.brandsAdded.length);
+  if(!rawDid && !invDid) return;
+  const n=(c,w)=>c+' '+w+(c===1?'':'s');
   const say=()=>{ try{ _cloudNeedRender=true; cloudRenderIfQuiet(false); }catch(e){}
-    try{ toast('Item Master updated from your September sheet', R.added+' new name'+(R.added===1?'':'s')+' · '+R.renamed.length+' BEVCO name'+(R.renamed.length===1?'':'s')+' renamed to yours · '+R.removed.length+' dropped name'+(R.removed.length===1?'':'s')+' removed · your groups applied', 'ok'); }catch(e){} };
+    try{ if(rawDid) toast('Item Master updated from your September sheet', n(R.added,'new name')+' · '+n(R.renamed.length,'name')+' renamed to yours · '+n(R.removed.length,'extra name')+' removed'+(R.keptData.length?' · '+n(R.keptData.length,'name')+' with purchases / issues / stock kept for you to decide':'')+' · your groups applied', 'ok'); }catch(e){}
+    try{ if(invDid) toast('Opening stock filled from your September sheet', n(I.lr,'Liquor Room opening')+' · '+n(I.bar,'Beverage Control opening')+(I.keptBar+I.keptLr?' · '+n(I.keptBar+I.keptLr,'figure')+' already set — left as they were':'')+(I.brandsAdded.length?' · '+n(I.brandsAdded.length,'brand')+' added to Beverage Control':''), 'ok'); }catch(e){} };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(say, 1200)); else setTimeout(say, 50);
 }
 (function(){ try{
-  if(typeof CO_IS_CANTEEN==='undefined' || !CO_IS_CANTEEN || typeof CANTEEN_RAW_V==='undefined') return;
-  if(localStorage.getItem(CO_PREFIX+'rawv')===String(CANTEEN_RAW_V)) return;
+  if(!_rawCatchDue()) return;
   _rawCatchPending=true;
   if(!cloudOn() || cloudDirty()){ _rawCatchRun(); return; }
   const orig=cloudCheck;                                     // function declaration → rebinding the name is what the 2.5 s call and cloudWatch() pick up

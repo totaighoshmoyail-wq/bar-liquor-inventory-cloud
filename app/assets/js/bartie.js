@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.41.3';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.42.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -28,6 +28,9 @@ const CO_PREFIX = ACTIVE_CO==='main' ? 'tg2_' : 'tg2_'+ACTIVE_CO+'_';
 const CO_FRESH = (function(){ try{ return !!localStorage.getItem(CO_PREFIX+'fresh'); }catch(e){ return false; } })();
 // CANTEEN company gets its own extracted seed data (canteenseed.js); engine identical.
 const CO_IS_CANTEEN = /canteen/i.test((coList().find(c=>c.id===ACTIVE_CO)||{}).name||'');
+// TRAFFIC = the main company (or one named so): its Item Master / openings follow the Traffic workbook seeds (v2.42.0).
+// Any other non-canteen company still RUNS on the Traffic seeds but is never migrated by the Traffic catch-up.
+const CO_IS_TRAFFIC = !CO_IS_CANTEEN && (ACTIVE_CO==='main' || /traffic/i.test((coList().find(c=>c.id===ACTIVE_CO)||{}).name||''));
 function openCompanies(){
   const rows=coList().map(c=>`<div class="flex between items-center" style="padding:9px 0;border-bottom:1px solid var(--border-soft);gap:10px">
       <strong style="cursor:pointer;${c.id===ACTIVE_CO?'color:var(--gold)':''}" onclick="switchCompany('${c.id}')">${c.id===ACTIVE_CO?'✔ ':''}🏢 ${esc(c.name)}</strong>

@@ -1,1 +1,1 @@
-{"version":"2.41.3","date":"2026-09-19","notes":"Purchase search also finds entries by invoice / bill number (or its last part) and by the shop name."}
+{"version":"2.42.0","date":"2026-09-19","notes":"Traffic: Item Master + Liquor Room take the names of the September Liquor Room sheet (only those stay); opening stock for the Liquor Room and Beverage Control filled from the workbook; draught-beer kegs counted in ml exactly as the Excel does."}
