@@ -909,7 +909,7 @@ function uploadReceived(inp){
    bill no + item already exists in the register is a double entry: the save asks first (see recvDupInfo). */
 var _rcSrc='bevco', _rcRows=null, _rcHead=null;
 function _rcNewRow(){ return {item:'', qty:1, mrp:'', land:''}; }
-function openRecvAdd(){ _rcSrc='bevco'; _rcRows=[_rcNewRow()]; _rcHead={date:period.from, inv:''}; recvAddRender(); }
+function openRecvAdd(){ _rcSrc='cash'; _rcRows=[_rcNewRow()]; _rcHead={date:period.from, inv:''}; recvAddRender(); }   // a hand-typed bill is a cash buy by default (client, 2026-09-19); BEVCO is the switch
 function recvAddBody(){
   const H=_rcHead, rows=_rcRows.map((r,i)=>`<tr>
       <td class="muted num" style="width:26px">${i+1}</td>
