@@ -1,1 +1,1 @@
-{"version":"2.41.2","date":"2026-09-19","notes":"Add Purchase Entry opens on Cash by default; BEVCO is the switch."}
+{"version":"2.41.3","date":"2026-09-19","notes":"Purchase search also finds entries by invoice / bill number (or its last part) and by the shop name."}

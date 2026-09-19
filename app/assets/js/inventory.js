@@ -547,7 +547,7 @@ VIEWS.received = () => {
   const unmatched=receivedStock.filter(r=>!inRaw(r.item)).length;
   const DUP=recvDupInfo();
   const rows=receivedStock.map((r,i)=>({r,i})).filter(x=>{ const ok=inRaw(x.r.item);
-    if(iq.rv && !norm(x.r.item).includes(norm(iq.rv))) return false;
+    if(iq.rv){ const q=norm(iq.rv); if(!(norm(x.r.item)+' '+norm(x.r.inv||'')+' '+norm(x.r.shop||'')).includes(q)) return false; }   // item, invoice / bill no, or shop
     if(recvSrcF!=='all' && recvSrc(x.r)!==recvSrcF) return false;
     return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok)||(recvFilter==='dup'&&!!DUP.info[x.i]); });
   const bevVal=receivedStock.filter(r=>recvSrc(r)==='bevco').reduce((a,r)=>a+recvVal(r),0), cashVal=totalVal-bevVal;
@@ -683,7 +683,7 @@ VIEWS.received = () => {
     ${DUP.n?`<div class="card noprint" style="margin-bottom:10px;border-color:var(--red)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px"><span style="color:var(--red);font-weight:700">⚠ ${DUP.n} entr${DUP.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${DUP.nDup?DUP.nDup+' with the same bill / invoice no + item':''}${DUP.nDup&&DUP.n>DUP.nDup?' · ':''}${DUP.n>DUP.nDup?(DUP.n-DUP.nDup)+' with the same day · item · qty and no bill no':''}. Review them and ✕ the extra one.</span><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:transparent" onclick="recvFilter='dup';route()">Show duplicates</button></div></div>`:''}
     <div class="tabs">${ft('all','All ('+receivedStock.length+')')}${ft('ok','✅ Matched')}${ft('un','🔴 Unmatched ('+unmatched+')')}${DUP.n?ft('dup','⚠ Duplicates ('+DUP.n+')'):''}<span class="tabsep"></span>${fs('all','Both')}${fs('bevco','🧾 BEVCO ('+nBev+' · ₹ '+fmt(Math.round(bevVal))+')')}${fs('cash','💵 Cash ('+nCash+' · ₹ '+fmt(Math.round(cashVal))+')')}</div>
     <div class="card barinv recvtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Purchase Register</h3><p>${rows.length} shown${iq.rv?' (filtered)':''}${flat?'':' · grouped by invoice'}</p></div>
-      <div class="search" style="width:200px">🔎<input id="searchBox" placeholder="Search item…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)"></div></div>
+      <div class="search" style="width:280px">🔎<input id="searchBox" placeholder="Search item / invoice / bill no…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)" title="Matches the item name, the invoice / bill number (or its last part) and the shop"></div></div>
       <div class="table-wrap" style="max-height:540px;overflow-y:auto"><table class="tbl rawhead">
       <thead><tr><th style="width:124px">Date</th><th style="width:150px">Source · Invoice / Bill No</th><th>Item</th><th style="width:150px">Group / Match</th><th class="right" style="width:76px">Bottles</th><th class="right" style="width:66px">MRP ₹</th><th class="right nowrap" style="width:96px">Landing ₹/bot</th><th class="right nowrap" style="width:118px">Landing Amount ₹</th><th style="width:110px"></th></tr></thead>
       <tbody>${body}</tbody>${rawNamesDatalist()}
