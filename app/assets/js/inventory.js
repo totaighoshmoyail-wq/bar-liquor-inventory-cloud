@@ -1017,14 +1017,14 @@ function cashInvParse(text){
   const dm=T.match(/(?:Inv(?:oice)?[\s_.]*Date|Bill[\s_.]*Date|Date)\s*[:\-.]*\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i) || T.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2})/);
   if(dm){ const y=dm[3].length===2?'20'+dm[3]:dm[3]; meta.date=`${y}-${String(dm[2]).padStart(2,'0')}-${String(dm[1]).padStart(2,'0')}`; }
   if((m=T.match(/Paid\s*(?:By|Mode|Through)?\s*[:\-]?\s*(Cash|Card|UPI|Credit|Online)/i))) meta.paid=m[1].toLowerCase();
-  const hi=lines.findIndex(l=>/^(tax\s*)?(invoice|bill|receipt|cash\s*memo|estimate)\s*$/i.test(l));
+  const hi=lines.findIndex(l=>/^(?:[^A-Za-z0-9]?\w\s+)?(tax\s*)?(invoice|bill|receipt|cash\s*memo|estimate)\s*$/i.test(l));
   meta.shop=(hi>=0&&lines[hi+1])?lines[hi+1]:(lines.find(l=>/[A-Za-z]{4,}/.test(l)&&!/\d{3,}/.test(l)&&!/^(sl|items?|desc)/i.test(l))||'');
   const hIx=lines.findIndex(l=>/(item|desc|particular|product)/i.test(l) && /(rate|qty|quantity|amt|amount|price)/i.test(l));
   let tIx=lines.findIndex((l,i)=>i>hIx && /^(tot\b|tot\.|total|grand|net|sub\s*total|g\.?\s*total)/i.test(l)); if(tIx<0) tIx=lines.length;
   const body=lines.slice(hIx+1, tIx); const rows=[];
   body.forEach(l=>{ if(/^(rupees|rs\.?\s+[a-z]|goods|it is|paid|thank|licen|time|gst|cgst|sgst|round)/i.test(l)) return;
     const mm=l.match(/^(?:\d{1,3}[.)]?\s+)?(.*?[A-Za-z].*?)\s+((?:\d+(?:[.,]\d+)?\s*){2,3})$/); if(!mm) return;
-    const name=mm[1].replace(/[|:]+$/,'').trim(); const cols=mm[2].trim().split(/\s+/).map(x=>+x.replace(/,/g,'')); if(cols.some(isNaN)) return;
+    const name=mm[1].replace(/[|:]+$/,'').replace(/^[^A-Za-z0-9]*[A-Za-z|)\]]\s+(?=\S)/,'').trim(); const cols=mm[2].trim().split(/\s+/).map(x=>+x.replace(/,/g,'')); if(cols.some(isNaN)) return;
     let rate=0,qty=0,amt=0;
     if(cols.length>=3){ rate=cols[cols.length-3]; qty=cols[cols.length-2]; amt=cols[cols.length-1];
       if(Math.abs(rate*qty-amt)>1 && Math.abs(rate*amt-qty)<=1){ const q=amt; amt=qty; qty=q; }      // "rate amt qty" layouts
@@ -1032,8 +1032,10 @@ function cashInvParse(text){
     else { qty=cols[0]; amt=cols[1]; if(qty>amt){ const t=qty; qty=amt; amt=t; } rate=qty?Math.round(amt/qty*100)/100:0; }
     if(!(qty>0)||!(amt>0)||qty>500) return;
     rows.push({raw:name, name:name.toUpperCase(), rate, qty, amt}); });
-  if(tIx<lines.length){ const nums=[...lines[tIx].matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)/g)].map(x=>+x[1].replace(/,/g,'')).filter(n=>!isNaN(n)); if(nums.length) meta.total=nums[nums.length-1]; }
-  const sum=rows.reduce((a,r)=>a+r.amt,0); if(!meta.total || (sum && meta.total<sum*0.5)) meta.total=sum;
+  const sum=rows.reduce((a,r)=>a+r.amt,0);
+  if(tIx<lines.length){ const cand=[]; for(let i=Math.max(0,tIx-1);i<=Math.min(lines.length-1,tIx+1);i++){ [...lines[i].matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)/g)].forEach(x=>{ const n=+x[1].replace(/,/g,''); if(!isNaN(n)&&n>0) cand.push(n); }); }
+    if(cand.length){ if(sum){ cand.sort((a,b)=>Math.abs(a-sum)-Math.abs(b-sum)); meta.total=cand[0]; } else meta.total=Math.max.apply(null,cand); } }
+  if(!meta.total || (sum && (meta.total<sum*0.5 || meta.total>sum*2))) meta.total=sum;   // nothing believable printed → Σ rows
   return {meta, rows};
 }
 /* "WHITE MISCHIEF 750" → the Item Master item. Runs the BEVCO matcher over a copy of the list whose glued spellings
