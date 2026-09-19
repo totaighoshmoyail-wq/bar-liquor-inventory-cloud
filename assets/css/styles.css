@@ -1398,6 +1398,34 @@ body.bv-glass{
 .bccat .c.tot2{ background:color-mix(in srgb, var(--gold) 8%, var(--panel)); border-color:color-mix(in srgb, var(--gold) 45%, var(--border-soft)); }
 .bccat .c.tot2 .ic{ color:var(--gold); font-weight:800; font-family:Georgia,serif; }
 .bccat .c.tot2 .g b{ color:var(--gold); }
+
+/* Beverage Control head = the Liquor Room flow with six columns (v2.44.0, "look 5's head"); variance card green / red */
+.lrflow.bcflow .lrf-steps{flex:1 1 720px}
+.lrflow.bcflow .st{min-width:104px;padding:10px 11px 11px}
+.lrflow.bcflow .st .v{font-size:20px}
+.lrflow.bcflow .st .m{font-size:11px;margin-top:3px}
+.lrflow .st.vp:before{background:var(--green)} .lrflow .st.vp .v{color:var(--green)} .lrflow .st.vp{border-color:color-mix(in srgb,var(--green) 55%,var(--border-soft))}
+.lrflow .st.vn:before{background:var(--red)} .lrflow .st.vn .v{color:var(--red)} .lrflow .st.vn{border-color:color-mix(in srgb,var(--red) 55%,var(--border-soft))}
+.lrflow.bcflow .ring .amt{font-size:19px}
+
+/* Beverage Control category register — "look 1's table" (v2.44.0): a grid of theme tokens, one row per category, Σ rows */
+.bcled{display:grid;grid-template-columns:30px minmax(160px,1.6fr) repeat(4,minmax(78px,.9fr)) minmax(110px,1.3fr) 92px minmax(96px,1fr);border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel);font-variant-numeric:tabular-nums}
+.bcled .lh{padding:7px 10px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--gold);background:var(--bg-2);display:flex;align-items:center}
+.bcled .lc{padding:6px 10px;font-size:12px;color:var(--text);border-bottom:1px solid var(--border-soft);display:flex;align-items:center;min-width:0}
+.bcled .r{justify-content:flex-end;text-align:right}
+.bcled .lc.n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:1.6}
+.bcled .lc small,.bcled .lt small{font-size:9px;color:var(--text-muted);margin-left:5px;font-weight:500}
+.bcled .lc.o{color:var(--gold);font-weight:700}
+.bcled .lc.g{color:var(--green)}
+.bcled .lc.mu{color:var(--text-muted)}
+.bcled .lc.r.mu small{margin-left:4px;color:var(--text-dim);white-space:nowrap}
+.bcled .bar{width:100%;height:5px;border-radius:3px;background:var(--border-soft);overflow:hidden}
+.bcled .bar i{display:block;height:100%;border-radius:3px;background:var(--gold)}
+.bcled .bar.p i{background:var(--text-muted)}
+.bcled .lt{padding:8px 10px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:12.5px;color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--panel));border-top:2px solid var(--gold);display:flex;align-items:center;min-width:0}
+.bcled .lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt{border-top:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}   /* the second Σ row (pcs) sits under the first */
+@media print{.bcled .bar{display:none}}
+@media (max-width:1100px){.bcled{grid-template-columns:24px minmax(120px,1.4fr) repeat(4,minmax(64px,.9fr)) 70px minmax(80px,1fr)} .bcled .lh:nth-child(7),.bcled .lc:nth-child(9n+7),.bcled .lt:nth-child(9n+7){display:none}}
 .bcfoot{ display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-top:8px; }
 .bcfoot .f{ background:var(--panel); border:1px solid var(--border-soft); border-radius:10px; padding:8px 9px; text-align:center; min-width:0; }
 .bcfoot .f .ic{ width:24px; height:24px; margin:0 auto 4px; border-radius:8px; display:flex; align-items:center;

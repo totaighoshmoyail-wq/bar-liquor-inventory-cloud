@@ -1922,25 +1922,33 @@ VIEWS.barinv = () => {
   const D=biRoyalData();
   // ① Grand totals (₹) as premium KPI chips — always on top, in EVERY layout
   const R0=v=>fmt(Math.round(v));
-  // each chip also states the QUANTITY behind the ₹ — ml-unit items in ml, pcs-unit items in pcs (v2.43.0, client:
-  // "opening total ml show hochhe na") — the same figures the sheet rows add up to, kegs counted in ml like the Excel
-  const qLine=f=>{ const m=Math.round(D.qty.ml[f]), p=Math.round(D.qty.pcs[f]); const parts=[];
-    if(m||f==='open'||f==='cons') parts.push(fmt(m)+' ml'); if(p||f==='open'||f==='cons') parts.push(fmt(p)+' pcs');
-    return parts.join(' · ')||'—'; };
-  // Opening / Receipt / Closing also state the Excel's own TOTAL-row figure — the plain sum of the column as typed
-  // (D287 = 32,680.670 on the September sheet: bottle.loose, pcs and keg ml added as they are) — so the client can
-  // put the page next to the sheet (v2.43.1, client: "Excel sheet-e opening 32680.670 ache, ota kothay website-e")
-  const sheetSum=f=>{ if(!(f in D.qty.raw)) return ''; const v=D.qty.raw[f];
-    const s=f==='rec' ? fmt(v)+' btl' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:3,maximumFractionDigits:3});
-    return `<div class="q qs" title="the plain sum of this column, exactly as the Excel's TOTAL row adds it (bottles.loose, pcs and keg ml as typed)">Σ column · ${s}</div>`; };
-  const totHtml=`<div class="bck">
-    ${[['Opening','🟢',D.tot.open,'#25c685','open'],['Receipt','📥',D.tot.rec,'#4f8cff','rec'],['Closing','🔒',D.tot.close,'#8b5cf6','close'],
-       ['Consumption','📈',D.tot.cons,'#f0a73b','cons'],['Sale','🛒',D.tot.sale,'#22c1a3','sale'],['Variance','⚠️',D.tot.varv,D.tot.varv>=0?'#25c685':'#ef4f57','varv']]
-      .map(x=>`<div class="k"><span class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[1]}</span>
-        <div class="tx"><span class="l">${x[0]}</span>
-        <div class="v" style="color:${x[0]==='Variance'?(x[2]>=0?'var(--green)':'var(--red)'):'var(--gold)'}">₹ ${R0(x[2])}</div>
-        <div class="q" title="${x[0]} quantity — ml items in ml (kegs in ml), pcs items in pieces">${qLine(x[4])}</div>${sheetSum(x[4])}</div></div>`).join('')}
-  </div>`;
+  // ① Head (v2.44.0 — the client picked "look 5's head" from the mockup canvas): the Liquor Room's approved
+  //   royal flow, here with the sheet's six columns — Opening + Receipt − Closing = Consumption · − Sale = Variance.
+  //   Each card = ml quantity (kegs in ml, like the Excel) · pcs · ₹ · the Excel TOTAL-row column sum (Σ column);
+  //   ring = opening stock. Same .lrflow classes as the Liquor Room → theme tokens only, every theme fits.
+  const noSale=!(D.tot.sale>0);
+  const sheetTxt=f=>{ if(!(f in D.qty.raw)) return ''; const v=D.qty.raw[f];
+    return f==='rec' ? fmt(v)+' btl' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:3,maximumFractionDigits:3}); };
+  const stCard=(cls,ico,label,f,rup,extra)=>{ const m=Math.round(D.qty.ml[f]), p=Math.round(D.qty.pcs[f]); const sg=(f==='varv'&&m>0)?'+':'';
+    const sum=sheetTxt(f); const rc=f==='varv'?(rup>=0?'var(--green)':'var(--red)'):'var(--gold)';
+    return `<div class="st ${cls}"><div class="ic">${ico}</div><div class="l">${label}</div>
+      <div class="v" title="${label} — ml items in ml (kegs in ml)">${sg}${fmt(m)}<small>ml</small></div>
+      <div class="m sub">${sg}${fmt(p)} pcs · <span style="color:${rc};font-weight:700">₹ ${R0(rup)}</span></div>
+      ${sum?`<div class="m" title="the plain sum of this column, exactly as the Excel's TOTAL row adds it (bottles.loose, pcs and keg ml as typed)">Σ column ${sum}</div>`:`<div class="m sub">${extra}</div>`}</div>`; };
+  const bcHead=`<div class="card lrflow bcflow">
+      <div class="lrf-head"><div class="t">Beverage Control</div><div class="f">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption <b>−</b> Sale <b>=</b> Variance <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
+      <div class="lrf-body">
+        <div class="lrf-steps">
+          ${stCard('op','🏛️','Opening','open',D.tot.open,'')}<div class="arr">+</div>
+          ${stCard('rv','📦','Receipt','rec',D.tot.rec,'')}<div class="arr">−</div>
+          ${stCard('','🔒','Closing','close',D.tot.close,'')}<div class="arr">=</div>
+          ${stCard('cl','📈','Consumption','cons',D.tot.cons,'opening + receipt − closing')}<div class="arr">−</div>
+          ${stCard('','🛒','Sale','sale',D.tot.sale,noSale?'no POS sale in this period yet':'from the POS sheet')}<div class="arr">=</div>
+          ${stCard(D.tot.varv>=0?'vp':'vn','⚖️','Variance','varv',D.tot.varv,'consumption − sale')}
+        </div>
+        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Opening stock</div><div class="amt">${fmt(Math.round(D.qty.ml.open))} ml</div><div class="k2">${fmt(Math.round(D.qty.pcs.open))} pcs · ${D.rows.length} items</div><div class="k3">Σ column ${sheetTxt('open')}</div></div></div></div>
+      </div>
+    </div>`;
   // closing stock on hand — pcs items and ml items counted separately (display only)
   let pcsStock=0, mlStock=0, activeN=0;
   tallyItems.forEach(t=>{ const R=barRow(t);
@@ -1948,55 +1956,34 @@ VIEWS.barinv = () => {
     activeN++;
     if(R.u==='pcs') pcsStock+=fnum(R.iv.closeBL);
     else mlStock+=toLitres(fnum(R.iv.closeBL), sizeOf(t.name)||0)*1000; });
-  // beer-focused stats + category %-share (all real data; qty math untouched)
-  const beerRows=D.rows.filter(r=>norm(r.cat)===norm('BEER'));
-  const beerC=beerRows.reduce((a,r)=>a+r.cons,0), beerV=beerRows.reduce((a,r)=>a+r.varv,0);
-  const catVal=n=>{ const k=Object.keys(D.byCatSale).find(x=>norm(x)===norm(n)); return k?D.byCatSale[k]:0; };
-  const beerVal=catVal('BEER'), drVal=catVal('DRAUGHT BEER');
-  const liqVal=Math.max(0,D.tot.sale-beerVal-drVal);
-  const catAll=Object.entries(D.byCatSale).sort((a,b)=>b[1]-a[1]);
-  // ③ Category share — one card per category, icon + ₹ + % + bar
-  const CAT_ICO={'WHISKY':'🥃','BEER':'🍺','VODKA':'🍸','DRAUGHT BEER':'🍻','TEQUILA':'🌵','RUM':'🥂','GIN':'🍶',
-    'WINE':'🍷','BRANDY':'🍥','LIQUEUR':'🍹','ALCOPOPS':'🧃','BEVERAGE & CIGARETTE':'🚬'};
-  const catIco=n=>CAT_ICO[String(n).toUpperCase()]||'🍾';
-  // The share is of SALE ₹. Before the month's POS sales are uploaded every category reads ₹ 0 · 0.0 % (client, 2026-09-19:
-  // "category gulo sob 0 hoye ache keno") — so with no sale at all the cards show each category's OPENING STOCK instead
-  // (ml for ml items, pcs for pcs items; the bar = its share of the ml / pcs total) and the head says why. (v2.43.0)
-  const noSale=!(D.tot.sale>0);
-  const qOf=n=>D.byCatQty[n]||{ml:0,pcs:0};
-  const qTotMl=Object.values(D.byCatQty).reduce((a,q)=>a+q.ml,0), qTotPcs=Object.values(D.byCatQty).reduce((a,q)=>a+q.pcs,0);
-  const catShow=noSale ? catAll.slice().sort((a,b)=>(qOf(b[0]).ml-qOf(a[0]).ml)||(qOf(b[0]).pcs-qOf(a[0]).pcs)) : catAll;
-  const catPctHtml=`<div class="card" style="margin-bottom:10px"><div class="card-head" style="padding:9px 14px;flex-wrap:wrap;gap:6px 14px">
-      <h3 style="${SER};color:var(--gold);font-size:13px">📊 Category Share — ${noSale?'Opening stock (no sale in this period yet)':'Sale ₹ · % wise (all categories)'}</h3>
-      ${noSale?`<span class="muted" style="font-size:11px;flex:1 1 260px">The ₹ · % shares are of <b>sale</b> — upload this month's POS sales (Sales → POS Upload) and they fill in; until then each card shows its opening stock.</span>`:''}
+  // ② Category register (v2.44.0 — "look 1's table"): one row per category with its Opening · Received · Sale ·
+  //   Closing in the category's unit (a category is all-ml or all-pcs), a share bar (of that unit's opening), Sale ₹
+  //   (+ its % of the total sale once there is any), and Σ rows for the ml items and the pcs items. A grid, not .tbl —
+  //   the .barinv .tbl fixed column widths (v2.13.4) would shape it. Theme tokens only (.bcled in styles.css).
+  const cats=Object.keys(D.byCatQty).map(n=>({n, q:D.byCatQty[n], sale:D.byCatSale[n]||0}));
+  const unOf=c=>c.q.u||invUnit(c.n);
+  cats.sort((a,b)=>((unOf(a)==='pcs')-(unOf(b)==='pcs')) || (b.q.open-a.q.open) || a.n.localeCompare(b.n));
+  const totU=u=>cats.filter(c=>unOf(c)===u).reduce((T,c)=>{ T.n++; T.open+=c.q.open; T.rec+=c.q.rec; T.sale+=c.q.sale; T.close+=c.q.close; T.rs+=c.sale; return T; },{n:0,open:0,rec:0,sale:0,close:0,rs:0});
+  const TM=totU('ml'), TP=totU('pcs');
+  const RN=v=>fmt(Math.round(v));
+  const rupCell=v=>`₹ ${R0(v)}${D.tot.sale?`<small>${(v/D.tot.sale*100).toFixed(1)}%</small>`:''}`;
+  const ledRow=(i,c)=>{ const u=unOf(c), T=u==='ml'?TM:TP, p=T.open?c.q.open/T.open*100:0;
+    return `<div class="lc mu">${i}</div><div class="lc n">${esc(c.n)}<small>${u}</small></div>
+      <div class="lc r o">${RN(c.q.open)}</div><div class="lc r${c.q.rec>0?' g':''}">${RN(c.q.rec)}</div><div class="lc r">${RN(c.q.sale)}</div><div class="lc r">${RN(c.q.close)}</div>
+      <div class="lc"><div class="bar${u==='pcs'?' p':''}"><i style="width:${Math.min(100,p).toFixed(1)}%"></i></div></div>
+      <div class="lc r mu">${p.toFixed(1)}%${u==='pcs'?'<small>of pcs</small>':''}</div><div class="lc r mu">${rupCell(c.sale)}</div>`; };
+  const ledTot=(u,T)=>T.n?`<div class="lt">Σ</div><div class="lt">TOTAL · ${u} items <small>${T.n} categor${T.n===1?'y':'ies'}</small></div>
+      <div class="lt r">${RN(T.open)}</div><div class="lt r">${RN(T.rec)}</div><div class="lt r">${RN(T.sale)}</div><div class="lt r">${RN(T.close)}</div>
+      <div class="lt"><div class="bar"><i style="width:100%"></i></div></div><div class="lt r">100%</div><div class="lt r">${rupCell(T.rs)}</div>`:'';
+  const bcLedger=`<div class="card" style="margin-bottom:10px"><div class="card-head" style="padding:9px 14px;flex-wrap:wrap;gap:6px 14px">
+      <h3 style="${SER};color:var(--gold);font-size:13px">📊 Category Register — Opening · Received · Sale · Closing</h3>
+      <span class="muted" style="font-size:11px;flex:1 1 260px">${noSale?'No sale in this period yet — upload the month&#39;s POS sales (Sales → POS Upload) and the Sale column and Sale ₹ fill in. ':''}ml items in ml (kegs in ml), pcs items in pieces · share = of that unit&#39;s opening</span>
       <button class="btn btn-sm" onclick="go('reports')" title="Full category breakdown in All Reports">View All →</button></div>
     <div class="card-body" style="padding:10px 12px">
-      <div class="bccat">${catShow.map(c=>{
-        // every card carries its own Opening · Received · Sale · Closing in the category's unit (v2.43.2, client:
-        // "category-r moddhe opening, receiving, sale ml & closing ml alada kore dekha jay") — the same figures the
-        // sheet rows add up to, kegs in ml like the Excel; headline stays Sale ₹ · % (opening stock while there is no sale)
-        const q=qOf(c[0]); const un=q.u||invUnit(c[0]);
-        const grid=`<div class="g" title="${esc(c[0])} — opening · received · sale · closing, in ${un} (${un==='ml'?'kegs in ml':'pieces'})">
-            <span>Open</span><b>${fmt(Math.round(q.open||0))}</b><span>Recd</span><b>${fmt(Math.round(q.rec||0))}</b>
-            <span>Sale</span><b>${fmt(Math.round(q.sale||0))}</b><span>Close</span><b>${fmt(Math.round(q.close||0))}</b><i>${un}</i></div>`;
-        if(noSale){ const isMl=un==='ml'; const p=isMl?(qTotMl?q.ml/qTotMl*100:0):(qTotPcs?q.pcs/qTotPcs*100:0);
-          const v=fmt(Math.round(q.open||0))+' '+un;
-          return `<div class="c" title="${esc(c[0])} — opening ${v} · ${p.toFixed(1)}% of the ${un} opening">
-            <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
-            <div class="v" style="font-size:12.5px">${v}</div><div class="p">${p.toFixed(1)}% <span class="muted" style="font-size:9px">of ${un}</span></div>
-            <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div>${grid}</div>`; }
-        const p=D.tot.sale?c[1]/D.tot.sale*100:0;
-        return `<div class="c" title="${esc(c[0])} — ₹ ${R0(c[1])} · ${p.toFixed(1)}%">
-          <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
-          <div class="v">₹ ${R0(c[1])}</div><div class="p">${p.toFixed(1)}%</div>
-          <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div>${grid}</div>`; }).join('')
-        ||'<span class="muted" style="font-size:12px">Set Landing ₹ to see category-wise ₹ · % here</span>'}
-        ${catShow.length?(()=>{ // TOTAL cards — every ml category added up, and (when any) every pcs category, same four figures ("total koro ml")
-          const tot=u=>{ const T={open:0,rec:0,sale:0,close:0,n:0}; catShow.forEach(c=>{ const q=qOf(c[0]); if((q.u||invUnit(c[0]))!==u) return; T.n++; T.open+=q.open||0; T.rec+=q.rec||0; T.sale+=q.sale||0; T.close+=q.close||0; }); return T; };
-          const card=(u,T)=>T.n?`<div class="c tot2" title="${T.n} ${u} categor${T.n===1?'y':'ies'} added up — opening · received · sale · closing in ${u}">
-            <div class="ic">Σ</div><div class="n">Total · ${u} items</div><div class="v" style="font-size:12.5px">${fmt(Math.round(T.open))} ${u}</div><div class="p">${T.n} categor${T.n===1?'y':'ies'}</div>
-            <div class="g"><span>Open</span><b>${fmt(Math.round(T.open))}</b><span>Recd</span><b>${fmt(Math.round(T.rec))}</b><span>Sale</span><b>${fmt(Math.round(T.sale))}</b><span>Close</span><b>${fmt(Math.round(T.close))}</b><i>${u}</i></div></div>`:'';
-          return card('ml',tot('ml'))+card('pcs',tot('pcs')); })():''}</div>
+      ${cats.length?`<div class="bcled">
+        <div class="lh">#</div><div class="lh">Category</div><div class="lh r">Opening</div><div class="lh r">Received</div><div class="lh r">Sale</div><div class="lh r">Closing</div><div class="lh">Share of opening</div><div class="lh r">%</div><div class="lh r">Sale ₹</div>
+        ${cats.map((c,i)=>ledRow(i+1,c)).join('')}${ledTot('ml',TM)}${ledTot('pcs',TP)}</div>`
+      :'<span class="muted" style="font-size:12px">Type an opening, or switch on ☰ All brands — the categories appear here</span>'}
     </div></div>`;
   // ④ bottom summary tiles
   const avgVarPct = D.tot.sale ? (D.tot.varv/D.tot.sale*100) : 0;
@@ -2050,18 +2037,8 @@ VIEWS.barinv = () => {
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
       </div>
     </div></div>
-    ${totHtml}
-    <div class="bcs">
-      <div class="s2"><div class="l">Consumption (ml items)</div><div class="v">${fmt(mlC)} <small>ml</small></div></div>
-      <div class="s2"><div class="l">Variance (ml)</div><div class="v" style="color:${mlV>=0?'var(--green)':'var(--red)'}">${mlV>0?'+':''}${fmt(mlV)} <small>ml</small></div></div>
-      <div class="s2"><div class="l">Consumption — Bottle Beer</div><div class="v">${fmt(beerC)} <small>pcs</small></div></div>
-      <div class="s2"><div class="l">Variance — Bottle Beer</div><div class="v" style="color:${beerV>=0?'var(--green)':'var(--red)'}">${beerV>0?'+':''}${fmt(beerV)} <small>pcs</small></div></div>
-      <div class="s2"><div class="l">Beer + Draught Sale Value</div><div class="v" style="color:var(--gold)">₹ ${R0(beerVal+drVal)}</div>
-        <div class="sub">🍺 ₹ ${R0(beerVal)} · 🍻 ₹ ${R0(drVal)}</div></div>
-      <div class="s2"><div class="l">Total Liquor Sale Value</div><div class="v" style="color:var(--gold)">₹ ${R0(liqVal)}</div>
-        <div class="sub">excl. beer &amp; draught · ${D.tot.sale?(liqVal/D.tot.sale*100).toFixed(1):'0.0'}%</div></div>
-    </div>
-    ${catPctHtml}
+    ${bcHead}
+    ${bcLedger}
     ${findHtml}
     ${bcFilter}
     ${(()=>{ // sheet area — Classic table only (the Velvet Salon / Crown Glass card looks were
