@@ -649,6 +649,7 @@ VIEWS.received = () => {
         <button class="btn btn-sm" onclick="bevcoList()">📜 Invoices${invoices.length?' ('+invoices.length+')':''}</button>
         <label class="btn btn-sm" style="cursor:pointer">📂 Upload Excel/CSV<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadReceived(this)"></label>
         <button class="btn btn-sm" onclick="openRecvAdd()">＋ Add</button>
+        <button class="btn btn-sm" onclick="openCashInv()" title="Photograph a shop bill — number, date, items, rates and quantities are read and shown for checking">📷 Cash Invoice</button>
         <button class="btn btn-sm" onclick="expReport('recv','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('recv')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <button class="btn btn-danger btn-sm" onclick="clearAllRecv()">🗑️ Clear All</button></div></div>
@@ -903,7 +904,7 @@ function openRecvAdd(){
       <div class="field"><label>Date</label><input class="input" type="date" id="rcDate" value="${period.from}"></div>
       <div class="field"><label>Qty (bottles)</label><input class="input" type="number" id="rcQty" value="1"></div>
       <div class="field full"><label>Item (matches Item Master)</label><input class="input" list="rawItems" id="rcItem" placeholder="Item name" oninput="rcItemPick()" onchange="rcItemPick()"></div>
-      <div class="field"><label>Purchased from</label><div class="seg" id="rcSrc"><button type="button" class="on" data-v="bevco" onclick="rcSrcSet('bevco')">🧾 BEVCO</button><button type="button" data-v="cash" onclick="rcSrcSet('cash')">💵 Cash</button></div></div>
+      <div class="field"><label>Purchased from</label><div class="seg" id="rcSrc"><button type="button" class="on" data-v="bevco" onclick="rcSrcSet('bevco')">🧾 BEVCO</button><button type="button" data-v="cash" onclick="rcSrcSet('cash')">💵 Cash</button></div><div class="muted" style="font-size:11px;margin-top:4px"><a href="#" style="color:var(--gold)" onclick="closeModal();openCashInv();return false">📷 or read a cash bill from a photo</a></div></div>
       <div class="field"><label id="rcInvL">Invoice no (optional)</label><input class="input" id="rcInv" placeholder="BEVCO invoice no"></div>
       <div class="field"><label>MRP ₹ (per bottle)</label><input class="input" type="number" step="0.01" id="rcMrp" placeholder="from Item Master"></div>
       <div class="field"><label>Landing ₹ / bottle</label><input class="input" type="number" step="0.01" id="rcLand" placeholder="from Item Master / last invoice"></div>
@@ -927,6 +928,143 @@ function saveRecvAdd(){ const item=$('#rcItem').value.trim().toUpperCase(); if(!
   if(mrp!=='' && mrp!=null && !isNaN(+mrp)){ e.mrp=+mrp; invSet(item,'mrp',+mrp); }       // MRP is the bottle's printed price → the item's
   receivedStock.push(e); _recvRateDrop();
   bsv('recv',receivedStock); closeModal(); _rcSrc='bevco'; route(); toast('Added',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' purchase entry added'+(e.land!=null?' · landing ₹ '+fmt(e.land):''),inRaw(item)?'ok':'err'); }
+/* ---- 📷 Cash invoice from a photo (v2.40.0) ----
+   A shop bill (thermal print: shop · Inv_No · Inv_Date · Sl Items Rate Qty Amt · Tot · Paid By Cash) is photographed,
+   read by the same free online OCR the MR-by-Photo tool uses (OCR.space, or a Google-Lens paste when offline /
+   rate-limited), parsed by cashInvParse() and shown for checking: bill no, date, shop, total, one row per line with
+   the Item Master item it matches (the BEVCO matcher, on a copy of the list with glued spellings like GIN750ML
+   split so "Blue riband 750" finds it). Confirm → one cash purchase entry per row, rate = that bottle's landed
+   cost. Every value is editable before it is saved; nothing is guessed silently — a misread rate is corrected from
+   amount ÷ qty and unmatched names stay red until picked. */
+let cashInv=null;
+function openCashInv(){ if(!cashInv) cashInv={img:'', text:'', meta:null, rows:[]}; modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot()); }
+function cashInvBody(){
+  const c=cashInv; const parsed=!!c.meta;
+  const pick=`<label class="btn btn-gold btn-sm" style="cursor:pointer">📷 ${c.img?'Another photo':'Take / choose a photo'}<input type="file" accept="image/*" capture="environment" style="display:none" onchange="cashInvLoad(this)"></label>`;
+  const top=c.img
+    ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px"><img src="${c.img}" style="max-height:150px;max-width:220px;border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;flex-direction:column;gap:6px"><button class="btn btn-gold btn-sm" id="ciAutoBtn" onclick="cashInvAuto()">🤖 Auto-read (online)</button><button class="btn btn-sm" onclick="cashInvOpenTab()" title="Opens the photo in a tab — right-click → Search with Google Lens → copy the text → paste below">🔍 Open for Google Lens</button>${pick}</div></div>`
+    : `<div style="margin-bottom:8px">${pick} <span class="muted" style="font-size:11.5px">or paste the bill's text below (Google Lens / any OCR)</span></div>`;
+  const paste=`<details ${parsed?'':'open'} style="margin-bottom:8px"><summary class="muted" style="font-size:11.5px;cursor:pointer">Bill text${c.text?' (read)':''}</summary>
+      <textarea class="input" id="ciPaste" rows="6" placeholder="INVOICE … Inv_No … Inv_Date … 1 WHITE MISCHIEF 750  680  3  2040 … Tot … Paid By Cash" style="font-family:monospace;font-size:11.5px">${esc(c.text||'')}</textarea>
+      <button class="btn btn-sm" style="margin-top:6px" onclick="cashInvParseBtn()">🔎 Read this text</button></details>`;
+  if(!parsed) return top+paste+rawNamesDatalist();
+  const m=c.meta; const sum=c.rows.reduce((a,r)=>a+(+r.amt||0),0); const okSum=!m.total||Math.abs(sum-m.total)<=1;
+  const rows=c.rows.map((r,i)=>`<tr>
+      <td class="muted num" style="width:26px">${i+1}</td>
+      <td style="font-size:11px;color:var(--text-dim)">${esc(r.raw)}</td>
+      <td><input class="cell-input" list="rawItems" style="width:100%;text-align:left;${r.item?(r.sure?'':'border-color:var(--amber)'):'border-color:var(--red)'}" value="${esc(r.item||'')}" placeholder="pick your item…" title="${r.item?(r.sure?'Sure match':'Best guess — check'):'No match — pick from the Item Master, or type a new name'}" onchange="cashInvRowSet(${i},'item',this.value)"></td>
+      <td class="num"><input class="cell-input" style="width:64px" value="${r.rate}" onchange="cashInvRowSet(${i},'rate',this.value)"></td>
+      <td class="num"><input class="cell-input" style="width:52px" value="${r.qty}" onchange="cashInvRowSet(${i},'qty',this.value)"></td>
+      <td class="num"><input class="cell-input" style="width:74px" value="${r.amt}" onchange="cashInvRowSet(${i},'amt',this.value)"></td>
+      <td><button class="btn btn-danger btn-sm" onclick="cashInvDelRow(${i})">✕</button></td></tr>`).join('');
+  return top+paste+`
+    <div class="form-grid" style="margin-bottom:8px">
+      <div class="field"><label>Shop</label><input class="input" value="${esc(m.shop||'')}" onchange="cashInvSet('shop',this.value)"></div>
+      <div class="field"><label>Bill / Invoice no</label><input class="input" value="${esc(m.no||'')}" onchange="cashInvSet('no',this.value)"></div>
+      <div class="field"><label>Date</label><input class="input" type="date" value="${esc(m.date||'')}" onchange="cashInvSet('date',this.value)"></div>
+      <div class="field"><label>Bill total ₹ (as printed)</label><input class="input" type="number" step="0.01" value="${m.total||''}" onchange="cashInvSet('total',this.value)"></div>
+    </div>
+    <div class="table-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><thead><tr><th>#</th><th>As printed</th><th style="width:250px">Your item (Item Master)</th><th class="right">Rate ₹</th><th class="right">Qty</th><th class="right">Amount ₹</th><th style="width:40px"></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px"><button class="btn btn-sm" onclick="cashInvAddRow()">＋ Row</button>
+      <span id="ciSum" style="color:${okSum?'var(--green)':'var(--amber)'}">Rows ₹ ${fmt(Math.round(sum))}${m.total?' · bill says ₹ '+fmt(Math.round(m.total))+(okSum?' ✔':' ⚠ check the rows'):''} · paid by <strong>${esc(m.paid||'cash')}</strong> → saved as 💵 Cash</span></div>
+    <div class="muted" style="font-size:11px;margin-top:6px">Each row becomes one cash purchase entry: Rate = its landing ₹ per bottle (the amount is Qty × Rate). A typed name that is not in the Item Master is added to it.</div>
+    ${rawNamesDatalist()}`;
+}
+function cashInvFoot(){ const n=cashInv&&cashInv.meta?cashInv.rows.filter(r=>r.item&&+r.qty>0).length:0;
+  return `<button class="btn" onclick="cashInv=null;closeModal()">Cancel</button>${n?`<button class="btn btn-gold" onclick="cashInvConfirm()">✅ Add ${n} cash purchase${n===1?'':'s'}</button>`:''}`; }
+function cashInvRefresh(){ closeModal(); modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot()); }   // modal() stacks — replace, don't pile up
+function cashInvLoad(inp){ const f=inp.files&&inp.files[0]; if(!f) return; if(f.size>12*1024*1024){ toast('Too big','Max 12 MB image','err'); return; }
+  const rd=new FileReader(); rd.onload=()=>{ cashInv.img=rd.result; cashInvRefresh(); setTimeout(cashInvAuto,150); }; rd.readAsDataURL(f); }
+function cashInvOpenTab(){ if(!cashInv||!cashInv.img) return;
+  fetch(cashInv.img).then(r=>r.blob()).then(b=>{ window.open(URL.createObjectURL(b),'_blank'); }).catch(()=>toast('Failed','Could not open the image','err')); }
+// same free OCR the MR-by-Photo tool uses; a printed bill reads far better than handwriting
+function cashInvAuto(){
+  if(!cashInv||!cashInv.img){ toast('No photo','Choose a photo first','err'); return; }
+  const btn=$('#ciAutoBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ Reading… (online)'; }
+  const img=new Image();
+  img.onload=()=>{
+    const sc=Math.min(1, 1600/Math.max(img.width,img.height));
+    const c=document.createElement('canvas'); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const fd=new FormData(); fd.append('base64Image', c.toDataURL('image/jpeg',0.88));
+    fd.append('OCREngine','2'); fd.append('scale','true'); fd.append('language','eng'); fd.append('isTable','true');
+    fetch('https://api.ocr.space/parse/image',{method:'POST',headers:{apikey:(cfg&&cfg.ocrKey)||'helloworld'},body:fd})
+      .then(r=>r.json()).then(j=>{
+        const t=j&&j.ParsedResults&&j.ParsedResults[0]&&j.ParsedResults[0].ParsedText;
+        if(btn){ btn.disabled=false; btn.textContent='🤖 Auto-read (online)'; }
+        if(!t){ const err=String((j&&(j.ErrorMessage||j.error))||''); const busy=/throttl|overload|E551|limit/i.test(err);
+          toast(busy?'Free OCR is busy right now':'Could not read', busy?'The shared demo key is throttled — add your own free key in Settings → Company & Admin → Photo-reading key, or use 🔍 Google Lens and paste the text':(err||'The free OCR returned nothing')+' — try 🔍 Google Lens and paste the text','err'); return; }
+        cashInv.text=t; cashInvApply(t);
+      })
+      .catch(()=>{ if(btn){ btn.disabled=false; btn.textContent='🤖 Auto-read (online)'; } toast('Offline?','Auto-read needs internet — use 🔍 Google Lens and paste the text','err'); });
+  };
+  img.onerror=()=>{ if(btn){ btn.disabled=false; btn.textContent='🤖 Auto-read (online)'; } toast('Bad image','Could not load the photo','err'); };
+  img.src=cashInv.img;
+}
+function cashInvParseBtn(){ const t=($('#ciPaste')||{}).value||''; if(!t.trim()){ toast('No text','Paste the bill text first','err'); return; } cashInv.text=t; cashInvApply(t); }
+function cashInvApply(text){
+  const P=cashInvParse(text);
+  P.rows.forEach(r=>{ const m=cashInvMatch(r.name); r.item=m.item; r.sure=m.sure; });
+  cashInv.meta=P.meta; cashInv.rows=P.rows; cashInvRefresh();
+  if(!P.rows.length) toast('No item lines found','Check the text — each line needs name, rate, qty, amount (or add rows by hand)','err');
+}
+/* the bill text → {meta:{no,date,shop,paid,total}, rows:[{raw,name,rate,qty,amt}]} — pure, testable */
+function cashInvParse(text){
+  const lines=String(text||'').replace(/\r/g,'').split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const T=lines.join('\n'); const meta={no:'',date:'',shop:'',paid:'cash',total:0}; let m;
+  if((m=T.match(/(?:Inv(?:oice)?[\s_.]*(?:No|Num|Number|#)|Bill[\s_.]*(?:No|Num|Number|#)|Memo[\s_.]*No)\s*[:\-.]*\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i))) meta.no=m[1];
+  const dm=T.match(/(?:Inv(?:oice)?[\s_.]*Date|Bill[\s_.]*Date|Date)\s*[:\-.]*\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i) || T.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2})/);
+  if(dm){ const y=dm[3].length===2?'20'+dm[3]:dm[3]; meta.date=`${y}-${String(dm[2]).padStart(2,'0')}-${String(dm[1]).padStart(2,'0')}`; }
+  if((m=T.match(/Paid\s*(?:By|Mode|Through)?\s*[:\-]?\s*(Cash|Card|UPI|Credit|Online)/i))) meta.paid=m[1].toLowerCase();
+  const hi=lines.findIndex(l=>/^(tax\s*)?(invoice|bill|receipt|cash\s*memo|estimate)\s*$/i.test(l));
+  meta.shop=(hi>=0&&lines[hi+1])?lines[hi+1]:(lines.find(l=>/[A-Za-z]{4,}/.test(l)&&!/\d{3,}/.test(l)&&!/^(sl|items?|desc)/i.test(l))||'');
+  const hIx=lines.findIndex(l=>/(item|desc|particular|product)/i.test(l) && /(rate|qty|quantity|amt|amount|price)/i.test(l));
+  let tIx=lines.findIndex((l,i)=>i>hIx && /^(tot\b|tot\.|total|grand|net|sub\s*total|g\.?\s*total)/i.test(l)); if(tIx<0) tIx=lines.length;
+  const body=lines.slice(hIx+1, tIx); const rows=[];
+  body.forEach(l=>{ if(/^(rupees|rs\.?\s+[a-z]|goods|it is|paid|thank|licen|time|gst|cgst|sgst|round)/i.test(l)) return;
+    const mm=l.match(/^(?:\d{1,3}[.)]?\s+)?(.*?[A-Za-z].*?)\s+((?:\d+(?:[.,]\d+)?\s*){2,3})$/); if(!mm) return;
+    const name=mm[1].replace(/[|:]+$/,'').trim(); const cols=mm[2].trim().split(/\s+/).map(x=>+x.replace(/,/g,'')); if(cols.some(isNaN)) return;
+    let rate=0,qty=0,amt=0;
+    if(cols.length>=3){ rate=cols[cols.length-3]; qty=cols[cols.length-2]; amt=cols[cols.length-1];
+      if(Math.abs(rate*qty-amt)>1 && Math.abs(rate*amt-qty)<=1){ const q=amt; amt=qty; qty=q; }      // "rate amt qty" layouts
+      if(qty>0 && Math.abs(rate*qty-amt)>1) rate=Math.round(amt/qty*100)/100; }                          // a misread rate digit: amount ÷ qty wins
+    else { qty=cols[0]; amt=cols[1]; if(qty>amt){ const t=qty; qty=amt; amt=t; } rate=qty?Math.round(amt/qty*100)/100:0; }
+    if(!(qty>0)||!(amt>0)||qty>500) return;
+    rows.push({raw:name, name:name.toUpperCase(), rate, qty, amt}); });
+  if(tIx<lines.length){ const nums=[...lines[tIx].matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)/g)].map(x=>+x[1].replace(/,/g,'')).filter(n=>!isNaN(n)); if(nums.length) meta.total=nums[nums.length-1]; }
+  const sum=rows.reduce((a,r)=>a+r.amt,0); if(!meta.total || (sum && meta.total<sum*0.5)) meta.total=sum;
+  return {meta, rows};
+}
+/* "WHITE MISCHIEF 750" → the Item Master item. Runs the BEVCO matcher over a copy of the list whose glued spellings
+   ("GIN750ML", "750ML") are split, and maps the answer back to the stored name. */
+function cashInvMatch(name){
+  const list=[], back={};
+  rawData.forEach(r=>{ const n=String(r.item).replace(/([A-Z])(\d)/g,'$1 $2').replace(/(\d)(ML)\b/g,'$1 $2').replace(/\s+/g,' ').trim(); list.push({item:n, group:r.group}); back[norm(n)]=r.item; });
+  const q=String(name||'').replace(/(\d{2,4})\s*ML\b/i,'$1 ML');
+  let m=bevcoMatch(q,{list}); if(!m.name && !/ML\b/i.test(q) && /\d{2,4}$/.test(q)) m=bevcoMatch(q+' ML',{list});
+  const item=m.name?(back[norm(m.name)]||m.name):''; return {item, sure:!!(item&&m.sure), top:m.top?(back[norm(m.top.name)]||m.top.name):''};
+}
+function cashInvSet(f,v){ if(!cashInv||!cashInv.meta) return; cashInv.meta[f]=(f==='total')?(+v||0):v; const s=$('#ciSum'); if(s&&f==='total') cashInvRefresh(); }
+function cashInvRowSet(i,f,v){ const r=cashInv&&cashInv.rows[i]; if(!r) return;
+  if(f==='item'){ r.item=String(v||'').trim().toUpperCase(); r.sure=!!findRawExact(r.item); }
+  else { const n=+String(v).replace(/,/g,''); r[f]=isNaN(n)?0:n; if(f==='amt'&&r.qty>0) r.rate=Math.round(r.amt/r.qty*100)/100; else r.amt=Math.round(r.rate*r.qty*100)/100; }
+  cashInvRefresh(); }
+function cashInvAddRow(){ if(!cashInv||!cashInv.meta) return; cashInv.rows.push({raw:'(typed)', name:'', item:'', sure:false, rate:0, qty:1, amt:0}); cashInvRefresh(); }
+function cashInvDelRow(i){ if(!cashInv||!cashInv.meta) return; cashInv.rows.splice(i,1); cashInvRefresh(); }
+function cashInvConfirm(){
+  const c=cashInv; if(!c||!c.meta) return; const m=c.meta;
+  const use=c.rows.filter(r=>r.item&&+r.qty>0); if(!use.length){ toast('Nothing to add','Pick an Item Master item on at least one row','err'); return; }
+  const date=m.date||new Date().toISOString().slice(0,10); let added=0, created=0, total=0;
+  use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase(); let g='(ungrouped)'; try{ g=bevcoGuessGroup(nm)||g; }catch(e){} rawData.push({item:nm, group:g}); rebuildRawIdx(); it=findRawExact(nm); created++; }
+    const rate=+r.rate||(r.qty?Math.round(r.amt/r.qty*100)/100:0);
+    const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date, item:it.item, qty:+r.qty, group:it.group||'', src:'cash', land:rate, mrp:rate};
+    if(m.no) e.inv=String(m.no).trim(); if(m.shop) e.shop=String(m.shop).trim();
+    const iv=invGet(it.item); if(iv.mrp==null||iv.mrp==='') invSet(it.item,'mrp',rate);
+    receivedStock.push(e); added++; total+=(+r.qty)*rate; });
+  _recvRateDrop(); if(created) saveRaw(); bsv('recv',receivedStock); cashInv=null; closeModal(); recvSrcF='all'; route();
+  toast('Cash invoice added', added+' entr'+(added===1?'y':'ies')+' · ₹ '+fmt(Math.round(total))+(m.no?' · bill '+m.no:'')+(created?' · '+created+' new item'+(created===1?'':'s')+' in Item Master':''), 'ok');
+}
 function delRecv(i){ confirmAsk('Delete this received-stock entry?', ()=>{ receivedStock.splice(i,1); bsv('recv',receivedStock); route(); toast('Deleted','Entry removed','err'); }); }
 
 /* ============================================================

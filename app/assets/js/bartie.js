@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.39.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.40.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2541,6 +2541,7 @@ VIEWS.settings = () => {
         <div class="field full"><label>Address (printed on every report letterhead)</label><input class="input" id="cfgAddr" value="${esc(coAddress())}" placeholder="e.g. 12 Russel Street, Kolkata 700071"></div>
         <div class="field"><label>Admin Name</label><input class="input" id="cfgAdmin" value="${esc(cfg.admin)}"></div>
         <div class="field"><label>Designation (printed on every report)</label><input class="input" id="cfgDesig" value="${esc(cfg.designation!=null?cfg.designation:'F&B Controller')}" placeholder="e.g. F&amp;B Controller"></div>
+        <div class="field full"><label>Photo-reading key (OCR.space, free) — for 📷 Cash Invoice / MR by Photo</label><input class="input" id="cfgOcr" value="${esc(cfg.ocrKey||'')}" placeholder="blank = the shared demo key (often busy)"><div class="muted" style="font-size:11px;margin-top:3px">Get a free key at <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener" style="color:var(--gold)">ocr.space/ocrapi/freekey</a> (e-mail only) and paste it here — the shared demo key is throttled when many people use it. Photos go to OCR.space for reading; Google Lens paste works without any key.</div></div>
         <div class="field"><label>Admin Mobile</label><input class="input" id="cfgMobile" value="${esc(cfg.mobile||'')}"></div>
       </div>
       <button class="btn btn-gold btn-sm" onclick="saveCfg()">💾 Save Company &amp; Admin</button>`},
@@ -2964,6 +2965,7 @@ function uploadLogo(inp){ readImg(inp, d=>{ cfg.logo=d; bsv('cfg',cfg); renderSh
 function saveCfg(){ cfg.company=$('#cfgCo').value.trim()||cfg.company; cfg.subtitle=$('#cfgSub')?$('#cfgSub').value.trim():cfg.subtitle;
   if($('#cfgAddr')) cfg.address=$('#cfgAddr').value.trim(); cfg.admin=$('#cfgAdmin').value.trim()||cfg.admin; cfg.mobile=$('#cfgMobile').value.trim()||cfg.mobile;
   if($('#cfgDesig')) cfg.designation=$('#cfgDesig').value.trim();   // '' allowed = hide the line
+  if($('#cfgOcr')) cfg.ocrKey=$('#cfgOcr').value.replace(/\s+/g,'');
   bsv('cfg',cfg); renderShell(); startClock(); route(); toast('Saved','Company & admin updated','ok'); }
 /* Raw Data intake (GROUP + ITEM DESCRIPTION — the inventory master's own style) */
 function rawPasteAdd(){
