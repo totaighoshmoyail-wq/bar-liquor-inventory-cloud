@@ -1,1 +1,1 @@
-{"version":"2.40.2","date":"2026-09-19","notes":"Cash Invoice check screen: a Category column - a matched line shows the item’s own category from your Item Master; a new name gets a picker of your categories (or + New category) and is added under it. Wider screen, all columns visible."}
+{"version":"2.40.3","date":"2026-09-19","notes":"Cash Invoice: choose many bill photos at once (Shift / Ctrl / long-press in the picker) - they are read one after another: check, Add, next; Skip and Cancel all; a photo x of N counter and a summary at the end."}

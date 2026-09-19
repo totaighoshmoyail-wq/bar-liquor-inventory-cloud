@@ -937,10 +937,10 @@ function saveRecvAdd(){ const item=$('#rcItem').value.trim().toUpperCase(); if(!
    cost. Every value is editable before it is saved; nothing is guessed silently — a misread rate is corrected from
    amount ÷ qty and unmatched names stay red until picked. */
 let cashInv=null;
-function openCashInv(){ if(!cashInv) cashInv={img:'', text:'', meta:null, rows:[]}; modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot()); }
+function openCashInv(){ if(!cashInv) cashInv={img:'', text:'', meta:null, rows:[], queue:[], total:0, done:0, sumN:0, sumAmt:0}; modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot()); }
 function cashInvBody(){
   const c=cashInv; const parsed=!!c.meta;
-  const pick=`<label class="btn btn-gold btn-sm" style="cursor:pointer">📷 ${c.img?'Another photo':'Take / choose a photo'}<input type="file" accept="image/*" capture="environment" style="display:none" onchange="cashInvLoad(this)"></label>`;
+  const pick=`<label class="btn btn-gold btn-sm" style="cursor:pointer">📷 ${c.img?'More photos':'Take / choose photos'}<input type="file" accept="image/*" multiple style="display:none" onchange="cashInvLoad(this)"></label>${c.total>1?` <span class="muted" style="font-size:11.5px">photo ${c.done+1} of ${c.total}${c.queue.length?' · '+c.queue.length+' waiting':''}</span>`:''}`;
   const top=c.img
     ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px"><img src="${c.img}" style="max-height:150px;max-width:220px;border-radius:8px;border:1px solid var(--border)">
         <div style="display:flex;flex-direction:column;gap:6px"><button class="btn btn-gold btn-sm" id="ciAutoBtn" onclick="cashInvAuto()">🤖 Auto-read (online)</button><button class="btn btn-sm" onclick="cashInvOpenTab()" title="Opens the photo in a tab — right-click → Search with Google Lens → copy the text → paste below">🔍 Open for Google Lens</button>${pick}</div></div>`
@@ -972,12 +972,23 @@ function cashInvBody(){
     <div class="muted" style="font-size:11px;margin-top:6px">Each row becomes one cash purchase entry: Rate = its landing ₹ per bottle (the amount is Qty × Rate). A typed name that is not in the Item Master is added to it.</div>
     ${rawNamesDatalist()}`;
 }
-function cashInvFoot(){ const n=cashInv&&cashInv.meta?cashInv.rows.filter(r=>r.item&&+r.qty>0).length:0;
-  return `<button class="btn" onclick="cashInv=null;closeModal()">Cancel</button>${n?`<button class="btn btn-gold" onclick="cashInvConfirm()">✅ Add ${n} cash purchase${n===1?'':'s'}</button>`:''}`; }
+function cashInvFoot(){ const c=cashInv||{}; const n=c.meta?c.rows.filter(r=>r.item&&+r.qty>0).length:0; const q=(c.queue||[]).length;
+  return `<button class="btn" onclick="cashInvCancelAll()">${q?'Cancel all':'Cancel'}</button>${q?`<button class="btn" onclick="cashInvSkip()" title="Leave this photo out and go to the next">Skip →</button>`:''}${n?`<button class="btn btn-gold" onclick="cashInvConfirm()">✅ Add ${n} cash purchase${n===1?'':'s'}${q?' · next ('+q+' more)':''}</button>`:''}`; }
 function cashInvRefresh(){ closeModal(); modal('📷 Cash Invoice — read from a photo', cashInvBody(), cashInvFoot());   // modal() stacks — replace, don't pile up
   const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide'); }
-function cashInvLoad(inp){ const f=inp.files&&inp.files[0]; if(!f) return; if(f.size>12*1024*1024){ toast('Too big','Max 12 MB image','err'); return; }
-  const rd=new FileReader(); rd.onload=()=>{ cashInv.img=rd.result; cashInvRefresh(); setTimeout(cashInvAuto,150); }; rd.readAsDataURL(f); }
+function cashInvLoad(inp){ const files=[...(inp.files||[])].filter(f=>f.size<=12*1024*1024); if(!files.length){ toast('No photo','Choose an image up to 12 MB','err'); return; }
+  if(files.length<(inp.files||[]).length) toast('Skipped','Images over 12 MB were left out','err');
+  if(!cashInv) cashInv={img:'', text:'', meta:null, rows:[], queue:[], total:0, done:0, sumN:0, sumAmt:0};
+  cashInv.queue=files.slice(1); cashInv.total=(cashInv.done||0)+files.length;
+  cashInvShow(files[0]); }
+// one photo onto the screen (fresh state for it) → auto-read
+function cashInvShow(f){ const rd=new FileReader(); rd.onload=()=>{ cashInv.img=rd.result; cashInv.text=''; cashInv.meta=null; cashInv.rows=[]; cashInvRefresh(); setTimeout(cashInvAuto,150); }; rd.readAsDataURL(f); }
+function cashInvNext(){ const c=cashInv; if(!c) return;
+  if(c.queue.length){ const f=c.queue.shift(); cashInvShow(f); return; }
+  const n=c.sumN, amt=c.sumAmt, ph=c.total; cashInv=null; closeModal(); route();
+  if(ph>1) toast('All photos done', ph+' photos · '+n+' cash entr'+(n===1?'y':'ies')+' · ₹ '+fmt(Math.round(amt)), 'ok'); }
+function cashInvSkip(){ if(!cashInv) return; cashInv.done++; cashInvNext(); }
+function cashInvCancelAll(){ cashInv=null; closeModal(); }
 function cashInvOpenTab(){ if(!cashInv||!cashInv.img) return;
   fetch(cashInv.img).then(r=>r.blob()).then(b=>{ window.open(URL.createObjectURL(b),'_blank'); }).catch(()=>toast('Failed','Could not open the image','err')); }
 // same free OCR the MR-by-Photo tool uses; a printed bill reads far better than handwriting
@@ -1080,8 +1091,10 @@ function cashInvConfirm(){
     if(m.no) e.inv=String(m.no).trim(); if(m.shop) e.shop=String(m.shop).trim();
     const iv=invGet(it.item); if(iv.mrp==null||iv.mrp==='') invSet(it.item,'mrp',rate);
     receivedStock.push(e); added++; total+=(+r.qty)*rate; });
-  _recvRateDrop(); if(created) saveRaw(); bsv('recv',receivedStock); cashInv=null; closeModal(); recvSrcF='all'; route();
+  _recvRateDrop(); if(created) saveRaw(); bsv('recv',receivedStock); recvSrcF='all';
   toast('Cash invoice added', added+' entr'+(added===1?'y':'ies')+' · ₹ '+fmt(Math.round(total))+(m.no?' · bill '+m.no:'')+(created?' · '+created+' new item'+(created===1?'':'s')+' in Item Master':''), 'ok');
+  c.sumN+=added; c.sumAmt+=total; c.done++;
+  if(c.queue.length){ cashInvNext(); } else { cashInv=null; closeModal(); route(); if(c.total>1) toast('All photos done', c.total+' photos · '+c.sumN+' cash entr'+(c.sumN===1?'y':'ies')+' · ₹ '+fmt(Math.round(c.sumAmt)), 'ok'); }
 }
 function delRecv(i){ confirmAsk('Delete this received-stock entry?', ()=>{ receivedStock.splice(i,1); bsv('recv',receivedStock); route(); toast('Deleted','Entry removed','err'); }); }
 
