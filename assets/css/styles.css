@@ -1364,6 +1364,7 @@ body.bv-glass{
 .bck .k .l{ display:block; font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bck .k .v{ font-size:15.5px; font-weight:800; margin-top:1px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.bck .k .q{ font-size:9.5px; color:var(--text-dim); margin-top:1px; font-variant-numeric:tabular-nums; white-space:nowrap; letter-spacing:.02em; }   /* quantity behind the ₹ (v2.43.0) */
 .bcs{ display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-bottom:7px; }
 .bcs .s2{ background:var(--bg-2); border:1px solid var(--border-soft); border-radius:10px; padding:7px 10px; min-width:0; }
 .bcs .s2 .l{ font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);

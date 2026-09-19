@@ -14,10 +14,10 @@ const _seedRaw = ((typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN && typeof
 let rawData       = bls('rawdata2', _seedRaw);      // [{item, group}]  ← Raw Data master
 let receivedStock = bls('recv', []);                // [{date, item, qty, group}]
 let mrDetail      = bls('mr',   []);                // [{date, group, item, qty}]
-// Traffic's opening seed (v2.42.0) = the September-2026 workbook: main-sheet OPENING BAL per brand (openBL) + the
-// Liquor Room sheet's OPENING QTY per item (lrOpen), both from invseed.js. Same shape as CANTEEN_INV.
+// Traffic's opening seed (v2.42.0) = the September-2026 workbook: main-sheet OPENING BAL per brand (openBL, the TRAFFIC_BAR
+// rows that carry `o`) + the Liquor Room sheet's OPENING QTY per item (lrOpen), both from invseed.js. Same shape as CANTEEN_INV.
 function _trafficInv(){ const o={};
-  if(typeof TRAFFIC_BAR_OPEN!=='undefined') TRAFFIC_BAR_OPEN.forEach(x=>{ const k=norm(x.b); (o[k]=o[k]||{}).openBL=x.o; });
+  if(typeof TRAFFIC_BAR!=='undefined') TRAFFIC_BAR.forEach(x=>{ if(x.o==null) return; const k=norm(x.b); (o[k]=o[k]||{}).openBL=x.o; });
   if(typeof TRAFFIC_LR_OPEN!=='undefined')  TRAFFIC_LR_OPEN.forEach(x=>{ const k=norm(x.f); (o[k]=o[k]||{}).lrOpen=x.o; });
   return o; }
 const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN) ? (typeof CANTEEN_INV!=='undefined' ? CANTEEN_INV : {})
@@ -1849,7 +1849,9 @@ function biRowHtml(t){
 }
 // royal-look dashboard data over ACTIVE items (same activity rule as the sheet)
 function biRoyalData(){
-  const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},plus:0,minus:0};
+  const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},plus:0,minus:0,
+    // quantities behind the ₹ (v2.43.0, display only): ml-unit items in ml (kegs in ml too), pcs-unit items in pcs
+    qty:{ml:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}, pcs:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}}, byCatQty:{}};
   tallyItems.forEach(t=>{ const R=barRow(t);
     if(!(R.sale>0||R.recBtl>0||R.iv.openBL!=null||R.iv.closeBL!=null)) return;
     const A=biAmt(t,R); d.rows.push({name:t.name,cat:t.category,A,cons:R.cons,varv:R.varv,u:R.u});
@@ -1857,6 +1859,10 @@ function biRoyalData(){
     d.byCatCons[t.category]=(d.byCatCons[t.category]||0)+A.cons;
     d.tot.open+=A.open; d.tot.rec+=A.rec; d.tot.close+=A.close; d.tot.cons+=A.cons; d.tot.sale+=A.sale; d.tot.varv+=A.varv;
     if(A.varv>0) d.plus+=A.varv; else d.minus+=-A.varv;
+    let q; if(R.u==='pcs'){ q=d.qty.pcs; q.open+=fnum(R.iv.openBL); q.rec+=R.recBtl; q.close+=fnum(R.iv.closeBL); }
+    else { q=d.qty.ml; const sl=sizeOf(t.name)||0; q.open+=toLitres(fnum(R.iv.openBL),sl)*1000; q.rec+=R.recBtl*sl*1000; q.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
+    q.cons+=R.cons; q.sale+=R.sale; q.varv+=R.varv;
+    const cq=d.byCatQty[t.category]||(d.byCatQty[t.category]={ml:0,pcs:0}); if(R.u==='pcs') cq.pcs+=fnum(R.iv.openBL); else cq.ml+=toLitres(fnum(R.iv.openBL),sizeOf(t.name)||0)*1000;
   });
   return d;
 }
@@ -1908,12 +1914,18 @@ VIEWS.barinv = () => {
   const D=biRoyalData();
   // ① Grand totals (₹) as premium KPI chips — always on top, in EVERY layout
   const R0=v=>fmt(Math.round(v));
+  // each chip also states the QUANTITY behind the ₹ — ml-unit items in ml, pcs-unit items in pcs (v2.43.0, client:
+  // "opening total ml show hochhe na") — the same figures the sheet rows add up to, kegs counted in ml like the Excel
+  const qLine=f=>{ const m=Math.round(D.qty.ml[f]), p=Math.round(D.qty.pcs[f]); const parts=[];
+    if(m||f==='open'||f==='cons') parts.push(fmt(m)+' ml'); if(p||f==='open'||f==='cons') parts.push(fmt(p)+' pcs');
+    return parts.join(' · ')||'—'; };
   const totHtml=`<div class="bck">
-    ${[['Opening','🟢',D.tot.open,'#25c685'],['Receipt','📥',D.tot.rec,'#4f8cff'],['Closing','🔒',D.tot.close,'#8b5cf6'],
-       ['Consumption','📈',D.tot.cons,'#f0a73b'],['Sale','🛒',D.tot.sale,'#22c1a3'],['Variance','⚠️',D.tot.varv,D.tot.varv>=0?'#25c685':'#ef4f57']]
+    ${[['Opening','🟢',D.tot.open,'#25c685','open'],['Receipt','📥',D.tot.rec,'#4f8cff','rec'],['Closing','🔒',D.tot.close,'#8b5cf6','close'],
+       ['Consumption','📈',D.tot.cons,'#f0a73b','cons'],['Sale','🛒',D.tot.sale,'#22c1a3','sale'],['Variance','⚠️',D.tot.varv,D.tot.varv>=0?'#25c685':'#ef4f57','varv']]
       .map(x=>`<div class="k"><span class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[1]}</span>
         <div class="tx"><span class="l">${x[0]}</span>
-        <div class="v" style="color:${x[0]==='Variance'?(x[2]>=0?'var(--green)':'var(--red)'):'var(--gold)'}">₹ ${R0(x[2])}</div></div></div>`).join('')}
+        <div class="v" style="color:${x[0]==='Variance'?(x[2]>=0?'var(--green)':'var(--red)'):'var(--gold)'}">₹ ${R0(x[2])}</div>
+        <div class="q" title="${x[0]} quantity — ml items in ml (kegs in ml), pcs items in pieces">${qLine(x[4])}</div></div></div>`).join('')}
   </div>`;
   // closing stock on hand — pcs items and ml items counted separately (display only)
   let pcsStock=0, mlStock=0, activeN=0;
@@ -1933,18 +1945,33 @@ VIEWS.barinv = () => {
   const CAT_ICO={'WHISKY':'🥃','BEER':'🍺','VODKA':'🍸','DRAUGHT BEER':'🍻','TEQUILA':'🌵','RUM':'🥂','GIN':'🍶',
     'WINE':'🍷','BRANDY':'🍥','LIQUEUR':'🍹','ALCOPOPS':'🧃','BEVERAGE & CIGARETTE':'🚬'};
   const catIco=n=>CAT_ICO[String(n).toUpperCase()]||'🍾';
-  const catPctHtml=`<div class="card" style="margin-bottom:10px"><div class="card-head" style="padding:9px 14px">
-      <h3 style="${SER};color:var(--gold);font-size:13px">📊 Category Share — Sale ₹ · % wise (all categories)</h3>
+  // The share is of SALE ₹. Before the month's POS sales are uploaded every category reads ₹ 0 · 0.0 % (client, 2026-09-19:
+  // "category gulo sob 0 hoye ache keno") — so with no sale at all the cards show each category's OPENING STOCK instead
+  // (ml for ml items, pcs for pcs items; the bar = its share of the ml / pcs total) and the head says why. (v2.43.0)
+  const noSale=!(D.tot.sale>0);
+  const qOf=n=>D.byCatQty[n]||{ml:0,pcs:0};
+  const qTotMl=Object.values(D.byCatQty).reduce((a,q)=>a+q.ml,0), qTotPcs=Object.values(D.byCatQty).reduce((a,q)=>a+q.pcs,0);
+  const catShow=noSale ? catAll.slice().sort((a,b)=>(qOf(b[0]).ml-qOf(a[0]).ml)||(qOf(b[0]).pcs-qOf(a[0]).pcs)) : catAll;
+  const catPctHtml=`<div class="card" style="margin-bottom:10px"><div class="card-head" style="padding:9px 14px;flex-wrap:wrap;gap:6px 14px">
+      <h3 style="${SER};color:var(--gold);font-size:13px">📊 Category Share — ${noSale?'Opening stock (no sale in this period yet)':'Sale ₹ · % wise (all categories)'}</h3>
+      ${noSale?`<span class="muted" style="font-size:11px;flex:1 1 260px">The ₹ · % shares are of <b>sale</b> — upload this month's POS sales (Sales → POS Upload) and they fill in; until then each card shows its opening stock.</span>`:''}
       <button class="btn btn-sm" onclick="go('reports')" title="Full category breakdown in All Reports">View All →</button></div>
     <div class="card-body" style="padding:10px 12px">
-      <div class="bccat">${catAll.map(c=>{ const p=D.tot.sale?c[1]/D.tot.sale*100:0;
+      <div class="bccat">${catShow.map(c=>{
+        if(noSale){ const q=qOf(c[0]); const isMl=q.ml>0||!q.pcs; const p=isMl?(qTotMl?q.ml/qTotMl*100:0):(qTotPcs?q.pcs/qTotPcs*100:0);
+          const v=(q.ml?fmt(Math.round(q.ml))+' ml':'')+(q.ml&&q.pcs?' · ':'')+(q.pcs?fmt(Math.round(q.pcs))+' pcs':'')||'0';
+          return `<div class="c" title="${esc(c[0])} — opening ${v} · ${p.toFixed(1)}% of the ${isMl?'ml':'pcs'} opening">
+            <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
+            <div class="v" style="font-size:12.5px">${v}</div><div class="p">${p.toFixed(1)}% <span class="muted" style="font-size:9px">of ${isMl?'ml':'pcs'}</span></div>
+            <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div></div>`; }
+        const p=D.tot.sale?c[1]/D.tot.sale*100:0;
         return `<div class="c" title="${esc(c[0])} — ₹ ${R0(c[1])} · ${p.toFixed(1)}%">
           <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
           <div class="v">₹ ${R0(c[1])}</div><div class="p">${p.toFixed(1)}%</div>
           <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div></div>`; }).join('')
         ||'<span class="muted" style="font-size:12px">Set Landing ₹ to see category-wise ₹ · % here</span>'}
-        ${catAll.length?`<div class="c tot" title="${catAll.length} categories with sale value in this period">
-          <div class="ring"><span>${catAll.length}</span></div><div class="n">Total Categories</div></div>`:''}</div>
+        ${catShow.length?`<div class="c tot" title="${catShow.length} categories with ${noSale?'stock':'sale value'} in this period">
+          <div class="ring"><span>${catShow.length}</span></div><div class="n">Total Categories</div></div>`:''}</div>
     </div></div>`;
   // ④ bottom summary tiles
   const avgVarPct = D.tot.sale ? (D.tot.varv/D.tot.sale*100) : 0;
@@ -3667,11 +3694,11 @@ function rawSeedCatchUp(){
   localStorage.setItem(MK, String(S.v));
   return {added, renamed:renames, removed, kept:keep.length, keptData, fresh:false};
 }
-/* ---- Opening figures from the Traffic workbook (v2.42.0) ----
-   TRAFFIC_BAR_OPEN (main sheet OPENING BAL per brand) → invData[brand].openBL; TRAFFIC_LR_OPEN (Liquor Room OPENING
-   QTY) → invData[item].lrOpen. Fills BLANKS only — a figure the client has typed is never overwritten (counted as
-   kept). A brand the sheet carries an opening for but the Tally Sheet does not know is created in the mapped
-   category (the workbook's own group → app category), so the opening has a Beverage Control row to sit on.
+/* ---- Beverage Control rows + opening figures from the Traffic workbook (v2.42.0, all rows since v2.43.0) ----
+   TRAFFIC_BAR = every brand row of the main sheet: a brand the Tally Sheet does not know is created in the mapped
+   category (the workbook's own group → app category) so Beverage Control shows the same rows as the Excel page;
+   a row with `o` (OPENING BAL) → invData[brand].openBL; TRAFFIC_LR_OPEN (Liquor Room OPENING QTY) → invData[item].lrOpen.
+   Openings fill BLANKS only — a figure the client has typed is never overwritten (counted as kept).
    Once per TRAFFIC_INV_V per company (CO_PREFIX+'invv'); a Start-Fresh company gets its figures back this way too. */
 function invSeedCatchUp(){
   if(typeof CO_IS_TRAFFIC==='undefined' || !CO_IS_TRAFFIC || typeof TRAFFIC_INV_V==='undefined') return null;
@@ -3679,9 +3706,10 @@ function invSeedCatchUp(){
   if(localStorage.getItem(MK)===String(TRAFFIC_INV_V)) return null;
   const blank=v=>v==null||v==='';
   let bar=0, lr=0, keptBar=0, keptLr=0; const brandsAdded=[];
-  (typeof TRAFFIC_BAR_OPEN!=='undefined'?TRAFFIC_BAR_OPEN:[]).forEach(x=>{
+  (typeof TRAFFIC_BAR!=='undefined'?TRAFFIC_BAR:[]).forEach(x=>{
     if(!getTallyItem(x.b)){ const cat=(typeof CATEGORIES!=='undefined'&&CATEGORIES.includes(x.c))?x.c:'WHISKY'; const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[cat])||{unit:'ml',peg:30};
       tallyItems.push({name:x.b, category:cat, posQty:0, unit:d.unit, pegMl:d.peg||30, cocktailMl:0, straightMl:0, bogo:0}); brandsAdded.push(x.b); }
+    if(x.o==null) return;
     const k=norm(x.b); const iv=invData[k]||(invData[k]={});
     if(blank(iv.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; });
   (typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]).forEach(x=>{
@@ -3711,7 +3739,8 @@ function _rawCatchRun(){
   const n=(c,w)=>c+' '+w+(c===1?'':'s');
   const say=()=>{ try{ _cloudNeedRender=true; cloudRenderIfQuiet(false); }catch(e){}
     try{ if(rawDid) toast('Item Master updated from your September sheet', n(R.added,'new name')+' · '+n(R.renamed.length,'name')+' renamed to yours · '+n(R.removed.length,'extra name')+' removed'+(R.keptData.length?' · '+n(R.keptData.length,'name')+' with purchases / issues / stock kept for you to decide':'')+' · your groups applied', 'ok'); }catch(e){}
-    try{ if(invDid) toast('Opening stock filled from your September sheet', n(I.lr,'Liquor Room opening')+' · '+n(I.bar,'Beverage Control opening')+(I.keptBar+I.keptLr?' · '+n(I.keptBar+I.keptLr,'figure')+' already set — left as they were':'')+(I.brandsAdded.length?' · '+n(I.brandsAdded.length,'brand')+' added to Beverage Control':''), 'ok'); }catch(e){} };
+    try{ if(invDid){ if(I.bar||I.lr) toast('Opening stock filled from your September sheet', n(I.lr,'Liquor Room opening')+' · '+n(I.bar,'Beverage Control opening')+(I.keptBar+I.keptLr?' · '+n(I.keptBar+I.keptLr,'figure')+' already set — left as they were':'')+(I.brandsAdded.length?' · '+n(I.brandsAdded.length,'brand')+' added to Beverage Control':''), 'ok');
+      else toast('Beverage Control now lists every brand of your September sheet', n(I.brandsAdded.length,'brand')+' added (openings already in place)', 'ok'); } }catch(e){} };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(say, 1200)); else setTimeout(say, 50);
 }
 (function(){ try{
