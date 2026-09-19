@@ -1922,31 +1922,27 @@ VIEWS.barinv = () => {
   const D=biRoyalData();
   // ① Grand totals (₹) as premium KPI chips — always on top, in EVERY layout
   const R0=v=>fmt(Math.round(v));
-  // ① Head (v2.44.0 — the client picked "look 5's head" from the mockup canvas): the Liquor Room's approved
-  //   royal flow, here with the sheet's six columns — Opening + Receipt − Closing = Consumption · − Sale = Variance.
-  //   Each card = ml quantity (kegs in ml, like the Excel) · pcs · ₹ · the Excel TOTAL-row column sum (Σ column);
-  //   ring = opening stock. Same .lrflow classes as the Liquor Room → theme tokens only, every theme fits.
+  // ① Head (v2.45.0 — the client picked "look 1 · Royal Ledger" whole from the mockup canvas): the Excel's own TOTAL
+  //   row drawn as a gilded ledger — one grid, the six sheet columns across (Opening + Receipt − Closing = Consumption
+  //   − Sale = Variance) and four rows down: Landing ₹ · ml items (kegs in ml, like the Excel) · pcs items · Σ column
+  //   (the plain sum of the column as typed, = the sheet's TOTAL row; the three columns the sheet has no Σ for carry
+  //   the formula / POS hint instead). Same figures as before (biRoyalData); .bcledger in styles.css, theme tokens only.
   const noSale=!(D.tot.sale>0);
   const sheetTxt=f=>{ if(!(f in D.qty.raw)) return ''; const v=D.qty.raw[f];
     return f==='rec' ? fmt(v)+' btl' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:3,maximumFractionDigits:3}); };
-  const stCard=(cls,ico,label,f,rup,extra)=>{ const m=Math.round(D.qty.ml[f]), p=Math.round(D.qty.pcs[f]); const sg=(f==='varv'&&m>0)?'+':'';
-    const sum=sheetTxt(f); const rc=f==='varv'?(rup>=0?'var(--green)':'var(--red)'):'var(--gold)';
-    return `<div class="st ${cls}"><div class="ic">${ico}</div><div class="l">${label}</div>
-      <div class="v" title="${label} — ml items in ml (kegs in ml)">${sg}${fmt(m)}<small>ml</small></div>
-      <div class="m sub">${sg}${fmt(p)} pcs · <span style="color:${rc};font-weight:700">₹ ${R0(rup)}</span></div>
-      ${sum?`<div class="m" title="the plain sum of this column, exactly as the Excel's TOTAL row adds it (bottles.loose, pcs and keg ml as typed)">Σ column ${sum}</div>`:`<div class="m sub">${extra}</div>`}</div>`; };
-  const bcHead=`<div class="card lrflow bcflow">
-      <div class="lrf-head"><div class="t">Beverage Control</div><div class="f">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption <b>−</b> Sale <b>=</b> Variance <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
-      <div class="lrf-body">
-        <div class="lrf-steps">
-          ${stCard('op','🏛️','Opening','open',D.tot.open,'')}<div class="arr">+</div>
-          ${stCard('rv','📦','Receipt','rec',D.tot.rec,'')}<div class="arr">−</div>
-          ${stCard('','🔒','Closing','close',D.tot.close,'')}<div class="arr">=</div>
-          ${stCard('cl','📈','Consumption','cons',D.tot.cons,'opening + receipt − closing')}<div class="arr">−</div>
-          ${stCard('','🛒','Sale','sale',D.tot.sale,noSale?'no POS sale in this period yet':'from the POS sheet')}<div class="arr">=</div>
-          ${stCard(D.tot.varv>=0?'vp':'vn','⚖️','Variance','varv',D.tot.varv,'consumption − sale')}
-        </div>
-        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Opening stock</div><div class="amt">${fmt(Math.round(D.qty.ml.open))} ml</div><div class="k2">${fmt(Math.round(D.qty.pcs.open))} pcs · ${D.rows.length} items</div><div class="k3">Σ column ${sheetTxt('open')}</div></div></div></div>
+  const BCOLS=[['open','Opening'],['rec','Receipt'],['close','Closing'],['cons','Consumption'],['sale','Sale'],['varv','Variance']];
+  const bcSign=(f,v)=>f==='varv'?(v>=0?' vp':' vn'):'';
+  const bcPlus=(f,v)=>(f==='varv'&&v>0)?'+':'';
+  const bcHint={cons:'opening + receipt − closing', sale:noSale?'no POS sale in this period yet':'from the POS sheet', varv:'consumption − sale'};
+  const bcCell=(cls,f,v,unit)=>`<div class="${cls}${bcSign(f,v)}">${bcPlus(f,v)}${fmt(Math.round(v))}<small>${unit}</small></div>`;
+  const bcHead=`<div class="card bcledger">
+      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption <b>−</b> Sale <b>=</b> Variance</div><div class="p">${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
+      <div class="bclh">
+        <div class="h c">Column</div>${BCOLS.map(([f,l])=>`<div class="h">${l}</div>`).join('')}
+        <div class="k">Landing ₹</div>${BCOLS.map(([f])=>`<div class="rs${bcSign(f,D.tot[f])}">₹ ${R0(D.tot[f])}</div>`).join('')}
+        <div class="k" title="ml items in ml — kegs in ml, like the Excel">ml items</div>${BCOLS.map(([f])=>bcCell('q',f,D.qty.ml[f],'ml')).join('')}
+        <div class="k">pcs items</div>${BCOLS.map(([f])=>bcCell('q',f,D.qty.pcs[f],'pcs')).join('')}
+        <div class="k s" title="the plain sum of each column, exactly as the Excel's TOTAL row adds it (bottles.loose, pcs and keg ml as typed)">Σ column <small>Excel total row</small></div>${BCOLS.map(([f])=>{ const s=sheetTxt(f); return s?`<div class="s">${s}</div>`:`<div class="s hint">${bcHint[f]||'—'}</div>`; }).join('')}
       </div>
     </div>`;
   // closing stock on hand — pcs items and ml items counted separately (display only)
