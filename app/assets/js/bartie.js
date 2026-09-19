@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.45.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.46.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2560,6 +2560,8 @@ VIEWS.settings = () => {
       </div>
       <label class="muted" style="font-size:12px">Clock format</label>
       <div class="tabs mt-8" style="margin-bottom:16px"><div class="tab ${pref.clk12?'active':''}" onclick="setClk(true);route()">12 Hour</div><div class="tab ${!pref.clk12?'active':''}" onclick="setClk(false);route()">24 Hour</div></div>
+      <label class="muted" style="font-size:12px">Liquor Room head <span style="color:var(--text-dim)">· how the top of the Liquor Room page is drawn</span></label>
+      <div class="tabs mt-8" style="margin-bottom:16px">${(typeof LR_HEADS!=='undefined'?LR_HEADS:[]).map(o=>`<div class="tab ${(typeof lrHeadNow==='function'?lrHeadNow():'ledger')===o[0]?'active':''}" onclick="setLrHead('${o[0]}')">${o[1]}</div>`).join('')}</div>
       <label class="muted" style="font-size:12px">Animations</label>
       <div class="anim-grid mt-8">${ANIMS.map(a=>{ const on=(pref.anims||[]).includes(a.id);
         return `<button class="anim-tog ${on?'on':''}" onclick="toggleAnim('${a.id}')" title="${a.desc}"><span class="dot"></span><span><b>${a.name}</b><i>${a.desc}</i></span></button>`; }).join('')}</div>`},

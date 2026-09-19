@@ -1737,3 +1737,58 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .tbl .lrinv.dupx{border-color:var(--red);color:var(--red);font-weight:700}
 .tbl .lrinv.dupm{border-color:var(--amber);color:var(--amber)}
 .recvtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)}
+
+/* ---- Liquor Room head looks (v2.46.0) — ① Royal Ledger · ② Crown Seal, the client's picks from the canvas; ③ Classic = the
+   v2.31.0 .lrflow head. pref.lrHead. Theme tokens only, so every theme keeps its own colours. ---- */
+.lrbar{margin-bottom:10px} .lrbar .card-body{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 12px}
+.lrsep{width:1px;height:22px;background:var(--border-soft);margin:0 4px}
+.lrpill{border:1px solid var(--border-soft);border-radius:999px;padding:4px 11px;font-size:12px;background:transparent;color:var(--text-dim);cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;line-height:1.2}
+.lrpill:hover{color:var(--text);border-color:var(--border)}
+.lrpill.on{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold-soft);border-color:color-mix(in srgb,var(--gold) 50%,transparent);font-weight:600}
+.lrpill .d{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--text-muted)} .lrpill .d.g{background:var(--green)} .lrpill .d.r{background:var(--red)}
+.lrbar .search.lrq,.lrseal .band .search.lrq{flex:1 1 120px;min-width:110px;width:auto;padding:5px 12px;border-radius:999px} .lrbar .search.lrq input,.lrseal .band .search.lrq input{min-width:0;flex:1 1 0;width:0;font-size:12.5px}
+.lrbar .selbar,.lrseal .band .selbar{display:inline-flex;align-items:center;gap:8px;font-size:12px}
+/* ① ledger: the .bcledger title + .bclh grid, five columns, the .lrflow ring beside it */
+.lrledger{border-color:color-mix(in srgb,var(--gold) 55%,var(--border));margin-bottom:12px}
+.lrledger .bh{align-items:center}
+.lrledger .tl,.lrseal .tl{display:flex;gap:6px;align-items:center;margin-left:12px}
+.lrseal .tl{position:absolute;right:16px;top:11px;z-index:1;background:var(--panel);padding-left:8px;margin:0}
+.lrledger .lrl-body{display:flex;align-items:stretch;gap:14px}
+.lrledger .bclh{flex:1 1 auto;min-width:0}
+.bclh.lr5{grid-template-columns:minmax(120px,150px) repeat(4,minmax(0,1fr))}
+.bclh.lr5>div{border-left:1px solid var(--border-soft)} .bclh.lr5>div:nth-child(5n+1){border-left:0}
+.bclh .rs.big{font-size:22px;min-height:38px} .bclh .rs.tx{color:var(--text)} .bclh .rs.mu,.bclh .q.mu{color:var(--text-muted)}
+.bclh .rs small{font-family:'Inter',sans-serif;font-size:9px;letter-spacing:1px;color:var(--text-muted);margin-left:5px;text-transform:uppercase;font-weight:500}
+.bclh .hi{background:color-mix(in srgb,var(--gold) 6%,transparent)} .bclh .s.hi{background:color-mix(in srgb,var(--gold) 13%,transparent)}
+.bclh .s .bar{flex:1 1 auto;height:4px;border-radius:2px;background:var(--border-soft);overflow:hidden;margin-left:10px;min-width:30px} .bclh .s .bar i{display:block;height:100%;background:var(--gold)} .bclh .s .bar.g i{background:var(--green)} .bclh .s .bar.r i{background:var(--red)}
+.lrledger .lrf-ring{flex:0 0 190px} .lrledger .ring{width:160px;height:160px} .lrledger .ring .amt{font-size:19px}
+/* ② seal: double frame with corner diamonds, ribbon title, two + two cards around the seal, the gold band */
+.lrseal{position:relative;padding:14px 18px 12px;border-color:color-mix(in srgb,var(--gold) 60%,var(--border));border-radius:16px;margin-bottom:12px}
+.lrseal:before{content:'';position:absolute;inset:7px;border:1px solid color-mix(in srgb,var(--gold) 28%,transparent);border-radius:11px;pointer-events:none}
+.lrseal .cd{position:absolute;width:9px;height:9px;background:var(--gold);transform:rotate(45deg)} .lrseal .cd.tl{left:3px;top:3px} .lrseal .cd.tr{right:3px;top:3px} .lrseal .cd.bl{left:3px;bottom:3px} .lrseal .cd.br{right:3px;bottom:3px}
+.lrseal .rib{display:flex;align-items:center;gap:18px;padding:0 12px;margin-bottom:12px}
+.lrseal .rib .ln{flex:1;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--gold) 60%,transparent))} .lrseal .rib .ln.r{background:linear-gradient(90deg,color-mix(in srgb,var(--gold) 60%,transparent),transparent)}
+.lrseal .rib .c{text-align:center} .lrseal .rib .t{font-family:Georgia,'Times New Roman',serif;font-size:17px;letter-spacing:4px;text-transform:uppercase;color:var(--gold)}
+.lrseal .rib .f{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-top:3px} .lrseal .rib .f b{color:var(--gold);margin:0 4px} .lrseal .rib .f .p{color:var(--text-muted);margin-left:10px;letter-spacing:.08em}
+.lrseal .sg{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr) 226px minmax(0,1fr) 22px minmax(0,1fr);align-items:center;gap:0 4px;padding:0 6px}
+.lrseal .sc{background:var(--panel-2);border:1px solid var(--border-soft);border-top:2px solid var(--text-dim);border-radius:12px;padding:12px 14px 11px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.lrseal .sc.rv{border-top-color:var(--green)} .lrseal .sc.is{border-top-color:var(--red)}
+.lrseal .sc.cl{border-color:var(--gold);border-top-color:var(--gold);background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 12%,transparent),var(--panel-2));box-shadow:0 10px 30px color-mix(in srgb,var(--gold) 14%,transparent)}
+.lrseal .sc .l{font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);white-space:nowrap} .lrseal .sc.cl .l{color:var(--gold)}
+.lrseal .sc .v{font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:var(--text);line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lrseal .sc.rv .v{color:var(--green)} .lrseal .sc.is .v{color:var(--red)} .lrseal .sc.cl .v{color:var(--gold)}
+.lrseal .sc .v small{font-family:'Inter',sans-serif;font-size:10px;letter-spacing:1px;color:var(--text-muted);margin-left:5px;text-transform:uppercase;font-weight:500}
+.lrseal .sc .m{font-family:Georgia,'Times New Roman',serif;font-size:14px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}
+.lrseal .sc .n{font-size:9.5px;color:var(--text-muted);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrseal .opr{font-family:Georgia,serif;font-size:22px;color:var(--gold);text-align:center}
+.lrseal .sealwrap{display:flex;align-items:center;justify-content:center}
+.lrseal .seal{width:196px;height:196px;border-radius:50%;padding:9px;box-sizing:border-box;background:conic-gradient(var(--gold) 0 100%,color-mix(in srgb,var(--gold) 16%,transparent) 0);box-shadow:0 0 0 6px var(--panel),0 0 0 7px color-mix(in srgb,var(--gold) 35%,transparent),0 14px 40px color-mix(in srgb,var(--gold) 14%,transparent)}
+.lrseal .seal .in{width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 50% 30%,color-mix(in srgb,var(--gold) 10%,var(--panel)),var(--panel) 70%);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px;box-sizing:border-box;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gold) 45%,transparent)}
+.lrseal .seal .ico{font-size:22px;color:var(--gold);line-height:1} .lrseal .seal .k{font-size:8.5px;letter-spacing:2.4px;text-transform:uppercase;color:var(--text-muted);margin-top:5px}
+.lrseal .seal .amt{font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;color:var(--gold);margin:3px 0 2px;font-variant-numeric:tabular-nums}
+.lrseal .seal .k2{font-size:10.5px;color:var(--text-dim)} .lrseal .seal .rule{display:block;width:60px;height:1px;background:color-mix(in srgb,var(--gold) 50%,transparent);margin:6px 0 4px}
+.lrseal .seal .k3{font-size:8.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-dim)}
+.lrseal .band{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding:7px 12px;background:color-mix(in srgb,var(--gold) 7%,transparent);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent);border-radius:10px}
+@media (max-width:1100px){ .lrseal .tl{position:static;justify-content:flex-end;margin-bottom:6px} .lrledger .bh .tl{flex-basis:100%;margin:0} .lrseal .sg{display:flex;flex-wrap:wrap;gap:8px} .lrseal .opr{display:none} .lrseal .sc{flex:1 1 200px} .lrseal .sealwrap{flex:1 1 100%;order:-1} .lrledger .lrl-body{flex-wrap:wrap} .lrledger .lrf-ring{flex-basis:100%} }
+@media (max-width:1460px){ .lrbar .perinl>.muted,.lrseal .band .perinl>.muted{display:none} }   /* the 📅 Period label goes first when the row is tight */
+@media print{ .lrbar,.lrseal .band{display:none} .lrseal:before,.lrseal .cd{display:none} }

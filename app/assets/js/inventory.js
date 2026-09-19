@@ -1719,17 +1719,65 @@ VIEWS.liquorroom = () => {
           <div style="width:150px;flex:none;text-align:center"><div style="width:110px;height:110px;margin:0 auto;position:relative"><canvas id="lrC4"></canvas></div></div></div></div>`;
     }
   }
-  return `
+  // ---- head looks (v2.46.0): the client picked BOTH mockups of the Liquor Room canvas — ① Royal Ledger (the Excel
+  //   TOTAL row as a gilded grid + the stock ring, every control in ONE toolbar row above) and ② Crown Seal (double
+  //   frame, centre seal, two + two cards, the controls in a gold band below) — with the v2.31.0 flow kept as ③ Classic.
+  //   pref.lrHead picks one (here and in Settings → Appearance). Same totals as always; theme tokens only.
+  const headLook=lrHeadNow();
+  const nInHand=groups.reduce((a,g)=>a+g.items.filter(r=>{const v=calc(r.item);return pass(v.cl)&&passB(v)&&v.cl!==0;}).length,0);
+  const nOpen=groups.reduce((a,g)=>a+g.items.filter(r=>{const v=calc(r.item);return pass(v.cl)&&passB(v)&&v.op>0;}).length,0);
+  const per=(v,b)=>b>0?'₹ '+fmt(Math.round(v/b)):'—';
+  const pctOf=v=>tVal>0?v/tVal*100:0;
+  const smallSel=(title,onchange,opts,cur)=>`<select class="input" style="width:auto;padding:4px 8px;font-size:11.5px" title="${title}" onchange="${onchange}">${opts.map(o=>`<option value="${o[0]}" ${cur===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select>`;
+  const LOOK_OPTS=[['def','① Classic'],['donut','② Royal Donut'],['bars','③ Golden Bars'],['gauge','④ Crown Gauge'],['register','⑤ Monogram Register']];
+  const BLANK_OPTS=[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']];
+  const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
+  const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
+  const tools=`${periodBar(true)}<span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
+      <div class="search lrq">🔎<input id="searchBox" placeholder="Search item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
+      <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>`;
+  const tl=`<div class="tl noprint">${headSel}${smallSel('Premium look','setLrLook(this.value)',LOOK_OPTS,look)}${layDrop('liquorroom')}</div>`;
+  // ① Royal Ledger — the .bcledger title + .bclh grid of the Beverage Control head, five columns, the .lrflow ring
+  const shareCell=(v,c,hi)=>{ const p=pctOf(v); return `<div class="s${hi?' hi':''}">${p.toFixed(1)}%<span class="bar ${c}"><i style="width:${Math.min(100,p).toFixed(1)}%"></i></span></div>`; };
+  const ledgerHead=`<div class="card lrflow bcledger lrledger">
+      <div class="bh"><div class="t">Liquor Room Ledger</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued to bar <b>=</b> Closing</div><div class="p">${nInHand} items in hand · ${esc(period.from)} → ${esc(period.to)}</div>${tl}</div>
+      <div class="lrl-body">
+        <div class="bclh lr5">
+          <div class="h c">Column</div><div class="h">🏛️ Opening</div><div class="h">📦 Received</div><div class="h">🍸 Issued to bar</div><div class="h">♛ Closing stock</div>
+          <div class="k">Bottles</div><div class="rs big tx">${fmt(tOpen)}<small>btl</small></div><div class="rs big vp">${tRecv>0?'+':''}${fmt(tRecv)}<small>btl</small></div><div class="rs big ${tIss>0?'vn':'mu'}">${tIss>0?'−':''}${fmt(tIss)}<small>btl</small></div><div class="rs big hi">${fmt(tClose)}<small>btl</small></div>
+          <div class="k">Landing ₹</div><div class="rs">₹ ${fmt(Math.round(tValO))}</div><div class="rs">₹ ${fmt(Math.round(tValR))}</div><div class="rs">₹ ${fmt(Math.round(tValI))}</div><div class="rs hi">₹ ${fmt(Math.round(tVal))}</div>
+          <div class="k">₹ per bottle</div><div class="q">${per(tValO,tOpen)}</div><div class="q">${per(tValR,tRecv)}</div><div class="q ${tIss>0?'':'mu'}">${per(tValI,tIss)}</div><div class="q hi">${per(tVal,tClose)}</div>
+          <div class="k s" title="each column's landing value as a share of the closing stock value">Share of stock value <small>of closing ₹</small></div>${shareCell(tValO,'')}${shareCell(tValR,'g')}${shareCell(tValI,'r')}${shareCell(tVal,'',true)}
+        </div>
+        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${nInHand} items</div><div class="k3">${per(tVal,tClose)} per bottle</div></div></div></div>
+      </div>
+    </div>`;
+  // ② Crown Seal — double frame, ribbon title, Opening + Received · seal · Issued = Closing, the controls in a gold band
+  const sc=(cls,ico,label,btl,sgn,val,sub)=>`<div class="sc ${cls}"><div class="l">${ico} ${label}</div><div class="v">${sgn}${fmt(btl)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(val))}</div><div class="n">${sub}</div></div>`;
+  const sealHead=`<div class="card lrflow lrseal"><i class="cd tl"></i><i class="cd tr"></i><i class="cd bl"></i><i class="cd br"></i>${tl}
+      <div class="rib"><span class="ln"></span><div class="c"><div class="t">❖ Liquor Room ❖</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${nInHand} items in hand · ${esc(period.from)} → ${esc(period.to)}</span></div></div><span class="ln r"></span></div>
+      <div class="sg">
+        ${sc('op','🏛️','Opening',tOpen,'',tValO,`${nOpen} items · ${per(tValO,tOpen)} / bottle`)}<div class="opr">+</div>
+        ${sc('rv','📦','Received',tRecv,tRecv>0?'+':'',tValR,tRecv>0?`from Purchase · ${per(tValR,tRecv)} / bottle`:'nothing purchased in this period')}
+        <div class="sealwrap"><div class="seal"><div class="in"><div class="ico">♛</div><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${nInHand} items</div><i class="rule"></i><div class="k3">${per(tVal,tClose)} per bottle</div></div></div></div>
+        ${sc('is','🍸','Issued to bar',tIss,tIss>0?'−':'',tValI,tIss>0?`to Bar Stock Issue · ${per(tValI,tIss)} / bottle`:'no Bar Stock Issue yet')}<div class="opr">=</div>
+        ${sc('cl','♛','Closing stock',tClose,'',tVal,`${nInHand} items · ${per(tVal,tClose)} / bottle`)}
+      </div>
+      <div class="band noprint">${tools}</div>
+    </div>`;
+  // ③ Classic — the v2.31.0 page exactly as it was (head-look selector added to its actions)
+  const classicTop=`
     <div class="page-head"><div><h1>Liquor Room</h1><p>Formula · <span class="gold">Opening + Received − Issued = Closing</span>. Filter by stock status.</p></div>
       <div class="page-actions">
+        ${headSel}
         <select class="input" style="width:auto;padding:6px 9px;font-size:12px" title="Premium look" onchange="setLrLook(this.value)">
-          ${[['def','① Classic'],['donut','② Royal Donut'],['bars','③ Golden Bars'],['gauge','④ Crown Gauge'],['register','⑤ Monogram Register']].map(o=>`<option value="${o[0]}" ${look===o[0]?'selected':''}>${o[1]}</option>`).join('')}
+          ${LOOK_OPTS.map(o=>`<option value="${o[0]}" ${look===o[0]?'selected':''}>${o[1]}</option>`).join('')}
         </select>
         ${layDrop('liquorroom')}<button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
     ${periodBar()}
     <div class="tabs" style="align-items:center">${ftab('all','All')}${ftab('instock','✅ In Stock (&gt;0)')}${ftab('zero','⚪ Zero')}${ftab('neg','🔴 Negative')}
       <select class="input" style="width:auto;padding:5px 8px;font-size:12px;margin-left:10px" title="Blank / zero filter" onchange="lrBlank=this.value;route()">
-        ${[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']].map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
+        ${BLANK_OPTS.map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
       </select>${rdSelBarHtml()}</div>
     <div class="card lrflow">
       <div class="lrf-head"><div class="t">Liquor Room</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
@@ -1743,16 +1791,26 @@ VIEWS.liquorroom = () => {
           <div class="arr">=</div>
           <div class="st cl"><div class="ic">♛</div><div class="l">Closing Stock</div><div class="v">${fmt(tClose)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tVal))}</div></div>
         </div>
-        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${groups.reduce((a,g)=>a+g.items.filter(r=>{const v=calc(r.item);return pass(v.cl)&&passB(v)&&v.cl!==0;}).length,0)} items</div></div></div></div>
+        <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${nInHand} items</div></div></div></div>
       </div>
-    </div>
-    ${lrRoyal}
-    ${bevDupNotice()}
+    </div>`;
+  const classicSearch=`
     <div class="card noprint" style="margin-bottom:12px;border-color:var(--gold-dim)"><div class="card-body" style="padding:12px 14px">
       <div class="bigsearch"><span style="font-size:22px">🔎</span><input id="searchBox" placeholder="Search any item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
-    </div></div>
+    </div></div>`;
+  const top = headLook==='ledger' ? `<div class="card lrbar noprint"><div class="card-body">${tools}</div></div>${ledgerHead}`
+            : headLook==='seal'   ? sealHead
+            : classicTop;
+  return `
+    ${top}
+    ${lrRoyal}
+    ${bevDupNotice()}
+    ${headLook==='flow'?classicSearch:''}
     ${bodyHtml}`;
 };
+const LR_HEADS=[['ledger','① Royal Ledger'],['seal','② Crown Seal'],['flow','③ Classic Flow']];
+function lrHeadNow(){ return LR_HEADS.some(o=>o[0]===pref.lrHead) ? pref.lrHead : 'ledger'; }
+function setLrHead(v){ pref.lrHead=v; bsv('pref',pref); route(); }
 function setLrLook(v){ pref.lrLook=v; bsv('pref',pref); route(); }
 AFTER.liquorroom = () => {
   if(typeof Chart==='undefined') return;
