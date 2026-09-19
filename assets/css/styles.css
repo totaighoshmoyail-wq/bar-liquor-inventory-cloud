@@ -1668,3 +1668,8 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .recvtbl .cell-input.rvinv{width:100%;max-width:140px;text-align:left;font-size:11.5px;margin-top:3px;display:block}
 .recvtbl .cell-input.rvqty{width:60px}
 .modal.xwide{max-width:min(1000px,96vw)}   /* the cash-invoice check screen (v2.40.2) */
+/* double entries (v2.41.0) — red row + pills; placed after .rvcash so it wins on a cash row */
+.tbl tr.rvdup td{background:color-mix(in srgb,var(--red) 10%,transparent)}
+.tbl tr.rvdup td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+.tbl .lrinv.dupx{border-color:var(--red);color:var(--red);font-weight:700}
+.tbl .lrinv.dupm{border-color:var(--amber);color:var(--amber)}

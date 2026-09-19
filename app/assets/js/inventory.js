@@ -544,19 +544,21 @@ VIEWS.received = () => {
   const total=receivedStock.reduce((a,r)=>a+fnum(r.qty),0);
   const totalVal=receivedStock.reduce((a,r)=>a+recvVal(r),0);   // LANDING value = the main amount (each entry at its own invoice rate)
   const unmatched=receivedStock.filter(r=>!inRaw(r.item)).length;
+  const DUP=recvDupInfo();
   const rows=receivedStock.map((r,i)=>({r,i})).filter(x=>{ const ok=inRaw(x.r.item);
     if(iq.rv && !norm(x.r.item).includes(norm(iq.rv))) return false;
     if(recvSrcF!=='all' && recvSrc(x.r)!==recvSrcF) return false;
-    return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok); });
+    return recvFilter==='all'||(recvFilter==='ok'&&ok)||(recvFilter==='un'&&!ok)||(recvFilter==='dup'&&!!DUP.info[x.i]); });
   const bevVal=receivedStock.filter(r=>recvSrc(r)==='bevco').reduce((a,r)=>a+recvVal(r),0), cashVal=totalVal-bevVal;
   const nCash=receivedStock.filter(r=>recvSrc(r)==='cash').length, nBev=receivedStock.length-nCash;
   // one sheet row — same figures as before (qty, MRP, landing ₹/bot, qty × landing), royal styling only
   const rowHtml=({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
     const q=fnum(r.qty), val=recvVal(r), qd=Number.isInteger(q)?fmt(q):String(r.qty); const eland=Math.round(recvLand(r)*100)/100;
     const imp=recvImported(r);
-    return `<tr class="${ok?'':'row-alert'}${recvSrc(r)==='cash'?' rvcash':''}">
+    const dk=DUP.info[i]; const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same bill / invoice no + same item appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date, item, quantity and source as another entry, with no bill no — check whether it was entered twice">? same day·item·qty</span>':'';
+    return `<tr class="${ok?'':'row-alert'}${recvSrc(r)==='cash'?' rvcash':''}${dk?' rvdup':''}">
       <td class="nowrap">${imp?(r.date||'—'):`<input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Purchase date — editable" onchange="recvSetField(${i},'date',this.value)">`}</td>
-      <td title="${esc(r.inv||'')}">${recvSrcChip(r,i)}${imp?(r.inv?` <span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:''):`<input class="cell-input rvinv" value="${esc(r.inv||'')}" placeholder="${recvSrc(r)==='cash'?'bill no':'invoice no'}" title="${recvSrc(r)==='cash'?'Shop bill / memo no':'Invoice no'} — editable" onchange="recvSetField(${i},'inv',this.value)">`}</td>
+      <td title="${esc(r.inv||'')}">${recvSrcChip(r,i)}${dupPill}${imp?(r.inv?` <span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:''):`<input class="cell-input rvinv" value="${esc(r.inv||'')}" placeholder="${recvSrc(r)==='cash'?'bill no':'invoice no'}" title="${recvSrc(r)==='cash'?'Shop bill / memo no':'Invoice no'} — editable" onchange="recvSetField(${i},'inv',this.value)">`}</td>
       <td class="lrname"><strong>${r.item}</strong></td>
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
       <td class="num">${imp?`<span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span>`:`<input class="cell-input rvqty" value="${esc(String(r.qty==null?'':r.qty))}" placeholder="0" title="Bottles — editable (12+12 works)" onchange="recvSetField(${i},'qty',this.value)">`}</td>
@@ -652,6 +654,7 @@ VIEWS.received = () => {
         <button class="btn btn-sm" onclick="openCashInv()" title="Photograph a shop bill — number, date, items, rates and quantities are read and shown for checking">📷 Cash Invoice</button>
         <button class="btn btn-sm" onclick="expReport('recv','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('recv')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
+        ${nCash?`<button class="btn btn-danger btn-sm" onclick="clearCashRecv()" title="Delete every cash purchase entry — BEVCO entries stay">🗑️ Clear cash (${nCash})</button>`:''}
         <button class="btn btn-danger btn-sm" onclick="clearAllRecv()">🗑️ Clear All</button></div></div>
     ${periodBar()}
     ${(()=>{ // royal head (v2.32.0) — same figures the old stat strip showed, plus honest sub-lines; nothing recomputed differently
@@ -676,7 +679,8 @@ VIEWS.received = () => {
       </div>
     </div>`; })()}
     ${royalHtml}
-    <div class="tabs">${ft('all','All ('+receivedStock.length+')')}${ft('ok','✅ Matched')}${ft('un','🔴 Unmatched ('+unmatched+')')}<span class="tabsep"></span>${fs('all','Both')}${fs('bevco','🧾 BEVCO ('+nBev+' · ₹ '+fmt(Math.round(bevVal))+')')}${fs('cash','💵 Cash ('+nCash+' · ₹ '+fmt(Math.round(cashVal))+')')}</div>
+    ${DUP.n?`<div class="card noprint" style="margin-bottom:10px;border-color:var(--red)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px"><span style="color:var(--red);font-weight:700">⚠ ${DUP.n} entr${DUP.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${DUP.nDup?DUP.nDup+' with the same bill / invoice no + item':''}${DUP.nDup&&DUP.n>DUP.nDup?' · ':''}${DUP.n>DUP.nDup?(DUP.n-DUP.nDup)+' with the same day · item · qty and no bill no':''}. Review them and ✕ the extra one.</span><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:transparent" onclick="recvFilter='dup';route()">Show duplicates</button></div></div>`:''}
+    <div class="tabs">${ft('all','All ('+receivedStock.length+')')}${ft('ok','✅ Matched')}${ft('un','🔴 Unmatched ('+unmatched+')')}${DUP.n?ft('dup','⚠ Duplicates ('+DUP.n+')'):''}<span class="tabsep"></span>${fs('all','Both')}${fs('bevco','🧾 BEVCO ('+nBev+' · ₹ '+fmt(Math.round(bevVal))+')')}${fs('cash','💵 Cash ('+nCash+' · ₹ '+fmt(Math.round(cashVal))+')')}</div>
     <div class="card barinv recvtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Purchase Register</h3><p>${rows.length} shown${iq.rv?' (filtered)':''}${flat?'':' · grouped by invoice'}</p></div>
       <div class="search" style="width:200px">🔎<input id="searchBox" placeholder="Search item…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)"></div></div>
       <div class="table-wrap" style="max-height:540px;overflow-y:auto"><table class="tbl rawhead">
@@ -898,41 +902,85 @@ function uploadReceived(inp){
   }catch(err){ inp.value=''; toast('Upload failed', String(err.message||err),'err'); } };
   reader.readAsArrayBuffer(f);
 }
-function openRecvAdd(){
-  modal('Add Purchase Entry', `
-    <div class="form-grid">
-      <div class="field"><label>Date</label><input class="input" type="date" id="rcDate" value="${period.from}"></div>
-      <div class="field"><label>Qty (bottles)</label><input class="input" type="number" id="rcQty" value="1"></div>
-      <div class="field full"><label>Item (matches Item Master)</label><input class="input" list="rawItems" id="rcItem" placeholder="Item name" oninput="rcItemPick()" onchange="rcItemPick()"></div>
-      <div class="field"><label>Purchased from</label><div class="seg" id="rcSrc"><button type="button" class="on" data-v="bevco" onclick="rcSrcSet('bevco')">🧾 BEVCO</button><button type="button" data-v="cash" onclick="rcSrcSet('cash')">💵 Cash</button></div><div class="muted" style="font-size:11px;margin-top:4px"><a href="#" style="color:var(--gold)" onclick="closeModal();openCashInv();return false">📷 or read a cash bill from a photo</a></div></div>
-      <div class="field"><label id="rcInvL">Invoice no (optional)</label><input class="input" id="rcInv" placeholder="BEVCO invoice no"></div>
-      <div class="field"><label>MRP ₹ (per bottle)</label><input class="input" type="number" step="0.01" id="rcMrp" placeholder="from Item Master"></div>
-      <div class="field"><label>Landing ₹ / bottle</label><input class="input" type="number" step="0.01" id="rcLand" placeholder="from Item Master / last invoice"></div>
-      <div class="muted full" style="font-size:11px">Landing ₹ is this entry's own rate (Bottles × Landing = its amount). MRP typed here is saved on the item. The Item Master's own landing rate is not changed by a purchase.</div>
-    </div>${rawNamesDatalist()}`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveRecvAdd(true)" title="Save this line and stay here for the next item — date, source and bill no are kept">＋ Add &amp; next</button><button class="btn btn-gold" onclick="saveRecvAdd()">Add</button>`);
+/* ---- manual purchase entry: one bill, several item lines (v2.41.0) ----
+   Date · Purchased from · Invoice/Bill no are the bill's; under them one row per item (item · qty · MRP · landing),
+   ＋ Add item for the next line, one Add saves every row as its own entry sharing date/source/bill no. A row whose
+   bill no + item already exists in the register is a double entry: the save asks first (see recvDupInfo). */
+var _rcSrc='bevco', _rcRows=null, _rcHead=null;
+function _rcNewRow(){ return {item:'', qty:1, mrp:'', land:''}; }
+function openRecvAdd(){ _rcSrc='bevco'; _rcRows=[_rcNewRow()]; _rcHead={date:period.from, inv:''}; recvAddRender(); }
+function recvAddBody(){
+  const H=_rcHead, rows=_rcRows.map((r,i)=>`<tr>
+      <td class="muted num" style="width:26px">${i+1}</td>
+      <td><input class="cell-input" id="rcIt${i}" list="rawItems" style="width:100%;text-align:left${r.item&&!findRawExact(r.item)?';border-color:var(--red)':''}" value="${esc(r.item)}" placeholder="item name (Item Master)" title="${r.item&&!findRawExact(r.item)?'Not in the Item Master — it will be added':'Item Master name'}" onchange="rcRowSet(${i},'item',this.value)"></td>
+      <td class="num"><input class="cell-input" id="rcQ${i}" style="width:56px" value="${esc(String(r.qty))}" placeholder="1" title="Bottles — 12+12 works" onchange="rcRowSet(${i},'qty',this.value)"></td>
+      <td class="num"><input class="cell-input" id="rcM${i}" style="width:72px" value="${esc(String(r.mrp))}" placeholder="MRP" title="MRP ₹ per bottle — saved on the item" onchange="rcRowSet(${i},'mrp',this.value)"></td>
+      <td class="num"><input class="cell-input" id="rcL${i}" style="width:80px" value="${esc(String(r.land))}" placeholder="landing" title="Landing ₹ per bottle — this entry's own rate" onchange="rcRowSet(${i},'land',this.value)"></td>
+      <td class="num muted" id="rcAmt${i}" style="font-size:11px;white-space:nowrap">${(+r.qty>0&&+r.land>0)?'₹ '+fmt(Math.round(+r.qty*+r.land)):'—'}</td>
+      <td style="width:34px">${_rcRows.length>1?`<button class="btn btn-danger btn-sm rmx" onclick="rcDelRow(${i})">✕</button>`:''}</td></tr>`).join('');
+  return `<div class="form-grid" style="margin-bottom:10px">
+      <div class="field"><label>Date</label><input class="input" type="date" id="rcDate" value="${esc(H.date||'')}" onchange="_rcHead.date=this.value"></div>
+      <div class="field"><label>Purchased from</label><div class="seg" id="rcSrc"><button type="button" class="${_rcSrc==='bevco'?'on':''}" data-v="bevco" onclick="rcSrcSet('bevco')">🧾 BEVCO</button><button type="button" class="${_rcSrc==='cash'?'on':''}" data-v="cash" onclick="rcSrcSet('cash')">💵 Cash</button></div><div class="muted" style="font-size:11px;margin-top:4px"><a href="#" style="color:var(--gold)" onclick="closeModal();openCashInv();return false">📷 or read a cash bill from a photo</a></div></div>
+      <div class="field full"><label id="rcInvL">${_rcSrc==='cash'?'Bill no (optional)':'Invoice no (optional)'}</label><input class="input" id="rcInv" value="${esc(H.inv||'')}" placeholder="${_rcSrc==='cash'?'shop bill / memo no':'BEVCO invoice no'}" onchange="_rcHead.inv=this.value.trim()"></div>
+    </div>
+    <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl" style="min-width:640px"><thead><tr><th>#</th><th>Item (matches Item Master)</th><th class="right">Qty</th><th class="right">MRP ₹</th><th class="right">Landing ₹/bot</th><th class="right">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><button class="btn btn-sm" onclick="rcAddRow()">＋ Add item</button><span class="muted" id="rcSum" style="font-size:11px">${rcSumText()}</span></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Landing ₹ is each line's own rate (Bottles × Landing = its amount). MRP typed here is saved on the item. The Item Master's own landing rate is not changed by a purchase.</div>
+    ${rawNamesDatalist()}`;
 }
-var _rcSrc='bevco';
-function rcSrcSet(v){ _rcSrc=v==='cash'?'cash':'bevco'; document.querySelectorAll('#rcSrc button').forEach(b=>b.classList.toggle('on',b.getAttribute('data-v')===_rcSrc));
-  const l=$('#rcInvL'), i=$('#rcInv'); if(l) l.textContent=_rcSrc==='cash'?'Bill no (optional)':'Invoice no (optional)'; if(i) i.placeholder=_rcSrc==='cash'?'shop bill / memo no':'BEVCO invoice no'; }
-// typing / picking an item prefills MRP + landing from what the system already knows (only into boxes still empty)
-function rcItemPick(){ const it=($('#rcItem')||{}).value||''; const r=findRawExact(it)||findRaw(it); if(!r) return;
-  const m=$('#rcMrp'), l=$('#rcLand'); const iv=invGet(r.item);
-  if(m && m.value==='' && iv.mrp!=null && iv.mrp!=='') m.value=iv.mrp;
-  if(l && l.value==='' && landOf(r.item)>0) l.value=Math.round(landOf(r.item)*100)/100; }
-function saveRecvAdd(keep){ const item=$('#rcItem').value.trim().toUpperCase(); if(!item){ toast('Item?','Enter item','err'); return; }
-  const g=findRaw(item)?findRaw(item).group:''; const inv=($('#rcInv')||{}).value||''; const mrp=($('#rcMrp')||{}).value, land=($('#rcLand')||{}).value;
-  const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date:$('#rcDate').value, item, qty:+$('#rcQty').value||0, group:g};
-  if(_rcSrc==='cash') e.src='cash'; if(inv.trim()) e.inv=inv.trim();
-  if(land!=='' && land!=null && !isNaN(+land)) e.land=Math.round(+land*10000)/10000;
-  if(mrp!=='' && mrp!=null && !isNaN(+mrp)){ e.mrp=+mrp; invSet(item,'mrp',+mrp); }       // MRP is the bottle's printed price → the item's
-  receivedStock.push(e); _recvRateDrop();
-  bsv('recv',receivedStock); route();
-  if(keep){ ['rcItem','rcMrp','rcLand'].forEach(id=>{ const el=$('#'+id); if(el) el.value=''; }); const q=$('#rcQty'); if(q) q.value='1';
-    let box=$('#rcAdded'); if(!box){ box=document.createElement('div'); box.id='rcAdded'; box.className='muted'; box.style.cssText='font-size:11px;margin-top:6px;grid-column:1/-1'; const grid=document.querySelector('#modalBack .form-grid'); if(grid) grid.appendChild(box); }
-    if(box) box.innerHTML+=(box.innerHTML?'<br>':'<b>Added just now:</b><br>')+'✓ '+esc(item)+' × '+e.qty+(e.land!=null?' @ ₹'+fmt(e.land):'');
-    const it=$('#rcItem'); if(it) it.focus(); toast('Added — next item',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' · '+item+' × '+e.qty,'ok'); return; }
-  closeModal(); _rcSrc='bevco'; toast('Added',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' purchase entry added'+(e.land!=null?' · landing ₹ '+fmt(e.land):''),inRaw(item)?'ok':'err'); }
+function rcSumText(){ return `${_rcRows.length} line${_rcRows.length===1?'':'s'} on this bill · ₹ ${fmt(Math.round(_rcRows.reduce((a,r)=>a+((+r.qty>0&&+r.land>0)?+r.qty*+r.land:0),0)))}`; }
+function rcAddLabel(){ const n=_rcRows.filter(r=>r.item&&+evalNum(r.qty)>0).length; return 'Add'+(n>1?' '+n+' items':''); }
+function recvAddFoot(){ return `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" id="rcAddBtn" onclick="saveRecvAdd()">${rcAddLabel()}</button>`; }
+function recvAddRender(focusRow){ const had=!!document.querySelector('.modal-back'); if(had) closeModal(); modal('Add Purchase Entry', recvAddBody(), recvAddFoot());
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+  if(focusRow!=null){ const inp=document.querySelectorAll('#modalBack tbody tr')[focusRow]; const f=inp&&inp.querySelector('input'); if(f) f.focus(); } }
+function rcSrcSet(v){ _rcSrc=v==='cash'?'cash':'bevco'; recvAddRender(); }
+function rcAddRow(){ _rcRows.push(_rcNewRow()); recvAddRender(_rcRows.length-1); }
+function rcDelRow(i){ _rcRows.splice(i,1); if(!_rcRows.length) _rcRows.push(_rcNewRow()); recvAddRender(); }
+// picking an item prefills MRP + landing from what the system already knows (only into boxes still empty)
+function rcRowSet(i,f,v){ const r=_rcRows[i]; if(!r) return;
+  if(f==='item'){ r.item=String(v||'').trim().toUpperCase(); const ex=findRawExact(r.item)||findRaw(r.item);
+    if(ex){ const iv=invGet(ex.item); if(r.mrp==='' && iv.mrp!=null && iv.mrp!=='') r.mrp=iv.mrp; if(r.land==='' && landOf(ex.item)>0) r.land=Math.round(landOf(ex.item)*100)/100;
+      const m=$('#rcM'+i), l=$('#rcL'+i); if(m&&m.value==='') m.value=r.mrp; if(l&&l.value==='') l.value=r.land; }
+    const it=$('#rcIt'+i); if(it) it.style.borderColor=(r.item&&!findRawExact(r.item))?'var(--red)':''; }
+  else if(f==='qty'){ const n=evalNum(v); r.qty=(n===''||isNaN(+n))?'':+n; const q=$('#rcQ'+i); if(q&&r.qty!=='') q.value=r.qty; }
+  else r[f]=String(v||'').trim();
+  // patch in place — a re-render here would steal the focus from the field the person is tabbing to
+  const a=$('#rcAmt'+i); if(a) a.textContent=(+r.qty>0&&+r.land>0)?'₹ '+fmt(Math.round(+r.qty*+r.land)):'—';
+  const sm=$('#rcSum'); if(sm) sm.textContent=rcSumText(); const b=$('#rcAddBtn'); if(b) b.textContent=rcAddLabel(); }
+function rcItemPick(){}   // kept for old onclick strings
+function saveRecvAdd(force){
+  const H=_rcHead||{}; const inv=String(($('#rcInv')||{}).value||H.inv||'').trim(); const date=String(($('#rcDate')||{}).value||H.date||'').trim();
+  const rows=_rcRows.map(r=>({...r, item:String(r.item||'').trim().toUpperCase(), qty:+evalNum(r.qty)||0})).filter(r=>r.item&&r.qty>0);
+  if(!rows.length){ toast('Item?','Type at least one item with a quantity','err'); return; }
+  if(!force && inv){ const d=recvDupCheck(inv, rows.map(r=>r.item)); if(d.length){ confirmAsk(`This ${_rcSrc==='cash'?'bill':'invoice'} <strong>${esc(inv)}</strong> already has <strong>${d.map(esc).join(', ')}</strong> in the register — adding again would be a <span style="color:var(--red)">double entry</span>. Add anyway?`, ()=>saveRecvAdd(true)); return; } }
+  let added=0, total=0;
+  rows.forEach(r=>{ const g=findRaw(r.item)?findRaw(r.item).group:'';
+    const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date, item:r.item, qty:r.qty, group:g};
+    if(_rcSrc==='cash') e.src='cash'; if(inv) e.inv=inv;
+    if(r.land!=='' && !isNaN(+r.land)) e.land=Math.round(+r.land*10000)/10000;
+    if(r.mrp!=='' && !isNaN(+r.mrp)){ e.mrp=+r.mrp; invSet(r.item,'mrp',+r.mrp); }       // MRP is the bottle's printed price → the item's
+    receivedStock.push(e); added++; total+=r.qty*(e.land!=null?e.land:landOf(r.item)); });
+  _recvRateDrop(); bsv('recv',receivedStock); closeModal(); _rcRows=null; route();
+  toast('Added', added+' '+(_rcSrc==='cash'?'💵 cash':'🧾 BEVCO')+' purchase line'+(added===1?'':'s')+(inv?' on '+inv:'')+' · ₹ '+fmt(Math.round(total)), rows.every(r=>inRaw(r.item))?'ok':'err'); }
+/* ---- double entries (v2.41.0) ----
+   Same bill / invoice number + same item twice = a double entry (red). Without a bill number the app can only
+   suspect: same date, item, quantity and source as another entry (amber). Shown on the rows, counted in a red card
+   above the register with a Duplicates filter, and asked about before a manual or photo save. */
+function recvDupCheck(inv, items){ const k=String(inv||'').trim(); if(!k) return []; const want=new Set(items.map(norm));
+  return receivedStock.filter(r=>r.inv&&String(r.inv).trim()===k&&want.has(norm(r.item))).map(r=>r.item).filter((x,i,a)=>a.indexOf(x)===i); }
+function recvDupInfo(){
+  const byInv={}, byDay={}; const info={};
+  receivedStock.forEach((r,i)=>{ const it=norm(r.item); if(r.inv){ const k=String(r.inv).trim()+''+it; (byInv[k]=byInv[k]||[]).push(i); }
+    const d=(r.date||'')+''+it+''+fnum(r.qty)+''+recvSrc(r); (byDay[d]=byDay[d]||[]).push(i); });
+  Object.values(byInv).forEach(ix=>{ if(ix.length>1) ix.forEach(i=>{ info[i]='dup'; }); });
+  Object.values(byDay).forEach(ix=>{ if(ix.length>1 && ix.some(i=>!receivedStock[i].inv)) ix.forEach(i=>{ if(!info[i]) info[i]='maybe'; }); });
+  return {info, n:Object.keys(info).length, nDup:Object.values(info).filter(v=>v==='dup').length};
+}
+function clearCashRecv(){ const cash=receivedStock.filter(r=>recvSrc(r)==='cash'); if(!cash.length){ toast('No cash purchases','Nothing to clear','ok'); return; }
+  const amt=cash.reduce((a,r)=>a+recvVal(r),0);
+  confirmAsk(`Delete <strong>all ${cash.length}</strong> 💵 cash purchase entr${cash.length===1?'y':'ies'} (₹ ${fmt(Math.round(amt))})? BEVCO entries and the invoice register stay.`, ()=>{
+    receivedStock=receivedStock.filter(r=>recvSrc(r)!=='cash'); _recvRateDrop(); bsv('recv',receivedStock); recvSrcF='all'; route(); toast('Cleared', cash.length+' cash purchase'+(cash.length===1?'':'s')+' removed','err'); }); }
 /* ---- 📷 Cash invoice from a photo (v2.40.0) ----
    A shop bill (thermal print: shop · Inv_No · Inv_Date · Sl Items Rate Qty Amt · Tot · Paid By Cash) is photographed,
    read by the same free online OCR the MR-by-Photo tool uses (OCR.space, or a Google-Lens paste when offline /
@@ -1092,9 +1140,10 @@ function cashInvRowSet(i,f,v){ const r=cashInv&&cashInv.rows[i]; if(!r) return;
   cashInvRefresh(); }
 function cashInvAddRow(){ if(!cashInv||!cashInv.meta) return; cashInv.rows.push({raw:'(typed)', name:'', item:'', sure:false, rate:0, qty:1, amt:0}); cashInvRefresh(); }
 function cashInvDelRow(i){ if(!cashInv||!cashInv.meta) return; cashInv.rows.splice(i,1); cashInvRefresh(); }
-function cashInvConfirm(){
+function cashInvConfirm(force){
   const c=cashInv; if(!c||!c.meta) return; const m=c.meta;
   const use=c.rows.filter(r=>r.item&&+r.qty>0); if(!use.length){ toast('Nothing to add','Pick an Item Master item on at least one row','err'); return; }
+  if(!force && m.no){ const d=recvDupCheck(m.no, use.map(r=>r.item)); if(d.length){ confirmAsk(`Bill <strong>${esc(m.no)}</strong> already has <strong>${d.map(esc).join(', ')}</strong> in the register — adding again would be a <span style="color:var(--red)">double entry</span> (was this photo read before?). Add anyway?`, ()=>cashInvConfirm(true)); return; } }
   const date=m.date||new Date().toISOString().slice(0,10); let added=0, created=0, total=0;
   const missingCat=use.filter(r=>!findRawExact(r.item)&&!(r.grp||'').trim()); if(missingCat.length){ toast('Category?','Choose a category for the new item'+(missingCat.length>1?'s':'')+': '+missingCat.map(r=>r.item).join(', '),'err'); return; }
   use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase(); rawData.push({item:nm, group:(r.grp||'').trim()||'(ungrouped)'}); rebuildRawIdx(); it=findRawExact(nm); created++; }
