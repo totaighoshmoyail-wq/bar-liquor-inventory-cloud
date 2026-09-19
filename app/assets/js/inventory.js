@@ -910,7 +910,7 @@ function openRecvAdd(){
       <div class="field"><label>Landing ₹ / bottle</label><input class="input" type="number" step="0.01" id="rcLand" placeholder="from Item Master / last invoice"></div>
       <div class="muted full" style="font-size:11px">Landing ₹ is this entry's own rate (Bottles × Landing = its amount). MRP typed here is saved on the item. The Item Master's own landing rate is not changed by a purchase.</div>
     </div>${rawNamesDatalist()}`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveRecvAdd()">Add</button>`);
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveRecvAdd(true)" title="Save this line and stay here for the next item — date, source and bill no are kept">＋ Add &amp; next</button><button class="btn btn-gold" onclick="saveRecvAdd()">Add</button>`);
 }
 var _rcSrc='bevco';
 function rcSrcSet(v){ _rcSrc=v==='cash'?'cash':'bevco'; document.querySelectorAll('#rcSrc button').forEach(b=>b.classList.toggle('on',b.getAttribute('data-v')===_rcSrc));
@@ -920,14 +920,19 @@ function rcItemPick(){ const it=($('#rcItem')||{}).value||''; const r=findRawExa
   const m=$('#rcMrp'), l=$('#rcLand'); const iv=invGet(r.item);
   if(m && m.value==='' && iv.mrp!=null && iv.mrp!=='') m.value=iv.mrp;
   if(l && l.value==='' && landOf(r.item)>0) l.value=Math.round(landOf(r.item)*100)/100; }
-function saveRecvAdd(){ const item=$('#rcItem').value.trim().toUpperCase(); if(!item){ toast('Item?','Enter item','err'); return; }
+function saveRecvAdd(keep){ const item=$('#rcItem').value.trim().toUpperCase(); if(!item){ toast('Item?','Enter item','err'); return; }
   const g=findRaw(item)?findRaw(item).group:''; const inv=($('#rcInv')||{}).value||''; const mrp=($('#rcMrp')||{}).value, land=($('#rcLand')||{}).value;
   const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date:$('#rcDate').value, item, qty:+$('#rcQty').value||0, group:g};
   if(_rcSrc==='cash') e.src='cash'; if(inv.trim()) e.inv=inv.trim();
   if(land!=='' && land!=null && !isNaN(+land)) e.land=Math.round(+land*10000)/10000;
   if(mrp!=='' && mrp!=null && !isNaN(+mrp)){ e.mrp=+mrp; invSet(item,'mrp',+mrp); }       // MRP is the bottle's printed price → the item's
   receivedStock.push(e); _recvRateDrop();
-  bsv('recv',receivedStock); closeModal(); _rcSrc='bevco'; route(); toast('Added',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' purchase entry added'+(e.land!=null?' · landing ₹ '+fmt(e.land):''),inRaw(item)?'ok':'err'); }
+  bsv('recv',receivedStock); route();
+  if(keep){ ['rcItem','rcMrp','rcLand'].forEach(id=>{ const el=$('#'+id); if(el) el.value=''; }); const q=$('#rcQty'); if(q) q.value='1';
+    let box=$('#rcAdded'); if(!box){ box=document.createElement('div'); box.id='rcAdded'; box.className='muted'; box.style.cssText='font-size:11px;margin-top:6px;grid-column:1/-1'; const grid=document.querySelector('#modalBack .form-grid'); if(grid) grid.appendChild(box); }
+    if(box) box.innerHTML+=(box.innerHTML?'<br>':'<b>Added just now:</b><br>')+'✓ '+esc(item)+' × '+e.qty+(e.land!=null?' @ ₹'+fmt(e.land):'');
+    const it=$('#rcItem'); if(it) it.focus(); toast('Added — next item',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' · '+item+' × '+e.qty,'ok'); return; }
+  closeModal(); _rcSrc='bevco'; toast('Added',(e.src==='cash'?'💵 Cash':'🧾 BEVCO')+' purchase entry added'+(e.land!=null?' · landing ₹ '+fmt(e.land):''),inRaw(item)?'ok':'err'); }
 /* ---- 📷 Cash invoice from a photo (v2.40.0) ----
    A shop bill (thermal print: shop · Inv_No · Inv_Date · Sl Items Rate Qty Amt · Tot · Paid By Cash) is photographed,
    read by the same free online OCR the MR-by-Photo tool uses (OCR.space, or a Google-Lens paste when offline /
@@ -945,7 +950,7 @@ function cashInvBody(){
     ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px"><img src="${c.img}" style="max-height:150px;max-width:220px;border-radius:8px;border:1px solid var(--border)">
         <div style="display:flex;flex-direction:column;gap:6px"><button class="btn btn-gold btn-sm" id="ciAutoBtn" onclick="cashInvAuto()">🤖 Auto-read (online)</button><button class="btn btn-sm" onclick="cashInvOpenTab()" title="Opens the photo in a tab — right-click → Search with Google Lens → copy the text → paste below">🔍 Open for Google Lens</button>${pick}</div></div>`
     : `<div style="margin-bottom:8px">${pick} <span class="muted" style="font-size:11.5px">or paste the bill's text below (Google Lens / any OCR)</span></div>`;
-  const paste=`<details ${parsed?'':'open'} style="margin-bottom:8px"><summary class="muted" style="font-size:11.5px;cursor:pointer">Bill text${c.text?' (read)':''}</summary>
+  const paste=`<details ${(parsed&&c.rows.length)?'':'open'} style="margin-bottom:8px"><summary class="muted" style="font-size:11.5px;cursor:pointer">Bill text${c.text?' (read)':''}</summary>
       <textarea class="input" id="ciPaste" rows="6" placeholder="INVOICE … Inv_No … Inv_Date … 1 WHITE MISCHIEF 750  680  3  2040 … Tot … Paid By Cash" style="font-family:monospace;font-size:11.5px">${esc(c.text||'')}</textarea>
       <button class="btn btn-sm" style="margin-top:6px" onclick="cashInvParseBtn()">🔎 Read this text</button></details>`;
   if(!parsed) return top+paste+rawNamesDatalist();
@@ -1027,7 +1032,9 @@ function cashInvApply(text){
 function cashInvParse(text){
   const lines=String(text||'').replace(/\r/g,'').split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
   const T=lines.join('\n'); const meta={no:'',date:'',shop:'',paid:'cash',total:0}; let m;
-  if((m=T.match(/(?:Inv(?:oice)?[\s_.]*(?:No|Num|Number|#)|Bill[\s_.]*(?:No|Num|Number|#)|Memo[\s_.]*No)\s*[:\-.]*\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i))) meta.no=m[1];
+  // bill number: "Inv_No :- 2627-834341", "Bill No: 45", "lnv No:- …" (OCR l for I), "Receipt / Voucher / Memo / Ref No", or the keyword + ":" alone
+  if((m=T.match(/(?:[Il1]nv(?:oice)?|Bill|Memo|Receipt|Rcpt|Voucher|Ref(?:erence)?|Txn|Order|Slip)[\s_.]*(?:No|Num|Number|#|ID)[\s_.]*[:\-.]*\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i)) ||
+     (m=T.match(/(?:[Il1]nv(?:oice)?|Bill|Memo|Receipt|Voucher)\s*[:#\-]+\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i))) meta.no=m[1];
   const dm=T.match(/(?:Inv(?:oice)?[\s_.]*Date|Bill[\s_.]*Date|Date)\s*[:\-.]*\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i) || T.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2})/);
   if(dm){ const y=dm[3].length===2?'20'+dm[3]:dm[3]; meta.date=`${y}-${String(dm[2]).padStart(2,'0')}-${String(dm[1]).padStart(2,'0')}`; }
   if((m=T.match(/Paid\s*(?:By|Mode|Through)?\s*[:\-]?\s*(Cash|Card|UPI|Credit|Online)/i))) meta.paid=m[1].toLowerCase();
@@ -1035,8 +1042,13 @@ function cashInvParse(text){
   meta.shop=(hi>=0&&lines[hi+1])?lines[hi+1]:(lines.find(l=>/[A-Za-z]{4,}/.test(l)&&!/\d{3,}/.test(l)&&!/^(sl|items?|desc)/i.test(l))||'');
   const hIx=lines.findIndex(l=>/(item|desc|particular|product)/i.test(l) && /(rate|qty|quantity|amt|amount|price)/i.test(l));
   let tIx=lines.findIndex((l,i)=>i>hIx && /^(tot\b|tot\.|total|grand|net|sub\s*total|g\.?\s*total)/i.test(l)); if(tIx<0) tIx=lines.length;
-  const body=lines.slice(hIx+1, tIx); const rows=[];
+  // OCR sometimes breaks a line: "1 OLD MONK 750" then "680 1 680" — a lettered line with fewer than 2 trailing numbers takes the next numbers-only line
+  const body=[]; const raw=lines.slice(hIx+1, tIx);
+  for(let i=0;i<raw.length;i++){ const l=raw[i], nx=raw[i+1]||'';
+    if(/[A-Za-z]/.test(l) && !/(\d[\d.,]*\s+){2,}\d[\d.,]*$/.test(l) && /^(\d[\d.,]*\s*){2,3}$/.test(nx)){ body.push(l+' '+nx); i++; } else body.push(l); }
+  const rows=[];
   body.forEach(l=>{ if(/^(rupees|rs\.?\s+[a-z]|goods|it is|paid|thank|licen|time|gst|cgst|sgst|round)/i.test(l)) return;
+    if(/\b(tot\.?|total|ltr|litre|liter|time)\b|\bqty\s*[:\-]/i.test(l)) return;                        // a totals / litres line is never an item row
     const mm=l.match(/^(?:\d{1,3}[.)]?\s+)?(.*?[A-Za-z].*?)\s+((?:\d+(?:[.,]\d+)?\s*){2,3})$/); if(!mm) return;
     const name=mm[1].replace(/[|:]+$/,'').replace(/^[^A-Za-z0-9]*[A-Za-z|)\]]\s+(?=\S)/,'').trim(); const cols=mm[2].trim().split(/\s+/).map(x=>+x.replace(/,/g,'')); if(cols.some(isNaN)) return;
     let rate=0,qty=0,amt=0;
@@ -1044,7 +1056,7 @@ function cashInvParse(text){
       if(Math.abs(rate*qty-amt)>1 && Math.abs(rate*amt-qty)<=1){ const q=amt; amt=qty; qty=q; }      // "rate amt qty" layouts
       if(qty>0 && Math.abs(rate*qty-amt)>1) rate=Math.round(amt/qty*100)/100; }                          // a misread rate digit: amount ÷ qty wins
     else { qty=cols[0]; amt=cols[1]; if(qty>amt){ const t=qty; qty=amt; amt=t; } rate=qty?Math.round(amt/qty*100)/100:0; }
-    if(!(qty>0)||!(amt>0)||qty>500) return;
+    if(!(qty>0)||!(amt>0)||qty>500||!Number.isInteger(qty)) return;                                    // bottles are whole numbers — 0.750 is a litre figure, not a qty
     const nm2=name.replace(new RegExp('^'+(rows.length+1)+'\\s+(?=[A-Za-z])'),'');
     rows.push({raw:nm2, name:nm2.toUpperCase(), rate, qty, amt}); });
   const sum=rows.reduce((a,r)=>a+r.amt,0);
