@@ -1,1 +1,1 @@
-{"version":"2.43.0","date":"2026-09-19","notes":"Traffic Beverage Control lists every brand of the September sheet (all 262 rows); the six KPI chips show the ml / pcs quantity behind each rupee figure; Category Share shows opening stock per category until the month's POS sales are uploaded."}
+{"version":"2.43.1","date":"2026-09-19","notes":"Beverage Control: the Opening / Receipt / Closing chips also show the plain column total exactly as the Excel TOTAL row adds it (Σ column · 32,680.670 on the September sheet)."}

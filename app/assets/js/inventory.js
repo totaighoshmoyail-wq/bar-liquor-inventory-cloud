@@ -1851,7 +1851,10 @@ function biRowHtml(t){
 function biRoyalData(){
   const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},plus:0,minus:0,
     // quantities behind the ₹ (v2.43.0, display only): ml-unit items in ml (kegs in ml too), pcs-unit items in pcs
-    qty:{ml:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}, pcs:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}}, byCatQty:{}};
+    qty:{ml:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}, pcs:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},
+      // the plain column sums the Excel's TOTAL row shows (D287 = Σ OPENING BAL as typed — bottle.loose, pcs and keg ml
+      // mixed; E287 = Σ receipt bottles; F287 = Σ CLOSING BAL) — the figure the client compares with (v2.43.1)
+      raw:{open:0,rec:0,close:0}}, byCatQty:{}};
   tallyItems.forEach(t=>{ const R=barRow(t);
     if(!(R.sale>0||R.recBtl>0||R.iv.openBL!=null||R.iv.closeBL!=null)) return;
     const A=biAmt(t,R); d.rows.push({name:t.name,cat:t.category,A,cons:R.cons,varv:R.varv,u:R.u});
@@ -1862,6 +1865,7 @@ function biRoyalData(){
     let q; if(R.u==='pcs'){ q=d.qty.pcs; q.open+=fnum(R.iv.openBL); q.rec+=R.recBtl; q.close+=fnum(R.iv.closeBL); }
     else { q=d.qty.ml; const sl=sizeOf(t.name)||0; q.open+=toLitres(fnum(R.iv.openBL),sl)*1000; q.rec+=R.recBtl*sl*1000; q.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
     q.cons+=R.cons; q.sale+=R.sale; q.varv+=R.varv;
+    d.qty.raw.open+=fnum(R.iv.openBL); d.qty.raw.rec+=R.recBtl; d.qty.raw.close+=fnum(R.iv.closeBL);
     const cq=d.byCatQty[t.category]||(d.byCatQty[t.category]={ml:0,pcs:0}); if(R.u==='pcs') cq.pcs+=fnum(R.iv.openBL); else cq.ml+=toLitres(fnum(R.iv.openBL),sizeOf(t.name)||0)*1000;
   });
   return d;
@@ -1919,13 +1923,19 @@ VIEWS.barinv = () => {
   const qLine=f=>{ const m=Math.round(D.qty.ml[f]), p=Math.round(D.qty.pcs[f]); const parts=[];
     if(m||f==='open'||f==='cons') parts.push(fmt(m)+' ml'); if(p||f==='open'||f==='cons') parts.push(fmt(p)+' pcs');
     return parts.join(' · ')||'—'; };
+  // Opening / Receipt / Closing also state the Excel's own TOTAL-row figure — the plain sum of the column as typed
+  // (D287 = 32,680.670 on the September sheet: bottle.loose, pcs and keg ml added as they are) — so the client can
+  // put the page next to the sheet (v2.43.1, client: "Excel sheet-e opening 32680.670 ache, ota kothay website-e")
+  const sheetSum=f=>{ if(!(f in D.qty.raw)) return ''; const v=D.qty.raw[f];
+    const s=f==='rec' ? fmt(v)+' btl' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:3,maximumFractionDigits:3});
+    return `<div class="q qs" title="the plain sum of this column, exactly as the Excel's TOTAL row adds it (bottles.loose, pcs and keg ml as typed)">Σ column · ${s}</div>`; };
   const totHtml=`<div class="bck">
     ${[['Opening','🟢',D.tot.open,'#25c685','open'],['Receipt','📥',D.tot.rec,'#4f8cff','rec'],['Closing','🔒',D.tot.close,'#8b5cf6','close'],
        ['Consumption','📈',D.tot.cons,'#f0a73b','cons'],['Sale','🛒',D.tot.sale,'#22c1a3','sale'],['Variance','⚠️',D.tot.varv,D.tot.varv>=0?'#25c685':'#ef4f57','varv']]
       .map(x=>`<div class="k"><span class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[1]}</span>
         <div class="tx"><span class="l">${x[0]}</span>
         <div class="v" style="color:${x[0]==='Variance'?(x[2]>=0?'var(--green)':'var(--red)'):'var(--gold)'}">₹ ${R0(x[2])}</div>
-        <div class="q" title="${x[0]} quantity — ml items in ml (kegs in ml), pcs items in pieces">${qLine(x[4])}</div></div></div>`).join('')}
+        <div class="q" title="${x[0]} quantity — ml items in ml (kegs in ml), pcs items in pieces">${qLine(x[4])}</div>${sheetSum(x[4])}</div></div>`).join('')}
   </div>`;
   // closing stock on hand — pcs items and ml items counted separately (display only)
   let pcsStock=0, mlStock=0, activeN=0;
