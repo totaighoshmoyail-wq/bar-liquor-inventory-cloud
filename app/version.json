@@ -1,1 +1,1 @@
-{"version":"2.43.1","date":"2026-09-19","notes":"Beverage Control: the Opening / Receipt / Closing chips also show the plain column total exactly as the Excel TOTAL row adds it (Σ column · 32,680.670 on the September sheet)."}
+{"version":"2.43.2","date":"2026-09-20","notes":"Beverage Control Category Share: every category card lists its Opening, Received, Sale and Closing in ml (pcs for beer / alcopops), plus Σ total cards for the ml items and the pcs items."}

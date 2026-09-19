@@ -1866,7 +1866,11 @@ function biRoyalData(){
     else { q=d.qty.ml; const sl=sizeOf(t.name)||0; q.open+=toLitres(fnum(R.iv.openBL),sl)*1000; q.rec+=R.recBtl*sl*1000; q.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
     q.cons+=R.cons; q.sale+=R.sale; q.varv+=R.varv;
     d.qty.raw.open+=fnum(R.iv.openBL); d.qty.raw.rec+=R.recBtl; d.qty.raw.close+=fnum(R.iv.closeBL);
-    const cq=d.byCatQty[t.category]||(d.byCatQty[t.category]={ml:0,pcs:0}); if(R.u==='pcs') cq.pcs+=fnum(R.iv.openBL); else cq.ml+=toLitres(fnum(R.iv.openBL),sizeOf(t.name)||0)*1000;
+    // per category, in that category's unit (a category is all-ml or all-pcs): opening · received · closing · consumption · sale · variance (v2.43.2)
+    const cq=d.byCatQty[t.category]||(d.byCatQty[t.category]={u:R.u,ml:0,pcs:0,open:0,rec:0,close:0,cons:0,sale:0,varv:0});
+    if(R.u==='pcs'){ const o=fnum(R.iv.openBL); cq.pcs+=o; cq.open+=o; cq.rec+=R.recBtl; cq.close+=fnum(R.iv.closeBL); }
+    else { const sl=sizeOf(t.name)||0, o=toLitres(fnum(R.iv.openBL),sl)*1000; cq.ml+=o; cq.open+=o; cq.rec+=R.recBtl*sl*1000; cq.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
+    cq.cons+=R.cons; cq.sale+=R.sale; cq.varv+=R.varv;
   });
   return d;
 }
@@ -1968,20 +1972,31 @@ VIEWS.barinv = () => {
       <button class="btn btn-sm" onclick="go('reports')" title="Full category breakdown in All Reports">View All →</button></div>
     <div class="card-body" style="padding:10px 12px">
       <div class="bccat">${catShow.map(c=>{
-        if(noSale){ const q=qOf(c[0]); const isMl=q.ml>0||!q.pcs; const p=isMl?(qTotMl?q.ml/qTotMl*100:0):(qTotPcs?q.pcs/qTotPcs*100:0);
-          const v=(q.ml?fmt(Math.round(q.ml))+' ml':'')+(q.ml&&q.pcs?' · ':'')+(q.pcs?fmt(Math.round(q.pcs))+' pcs':'')||'0';
-          return `<div class="c" title="${esc(c[0])} — opening ${v} · ${p.toFixed(1)}% of the ${isMl?'ml':'pcs'} opening">
+        // every card carries its own Opening · Received · Sale · Closing in the category's unit (v2.43.2, client:
+        // "category-r moddhe opening, receiving, sale ml & closing ml alada kore dekha jay") — the same figures the
+        // sheet rows add up to, kegs in ml like the Excel; headline stays Sale ₹ · % (opening stock while there is no sale)
+        const q=qOf(c[0]); const un=q.u||invUnit(c[0]);
+        const grid=`<div class="g" title="${esc(c[0])} — opening · received · sale · closing, in ${un} (${un==='ml'?'kegs in ml':'pieces'})">
+            <span>Open</span><b>${fmt(Math.round(q.open||0))}</b><span>Recd</span><b>${fmt(Math.round(q.rec||0))}</b>
+            <span>Sale</span><b>${fmt(Math.round(q.sale||0))}</b><span>Close</span><b>${fmt(Math.round(q.close||0))}</b><i>${un}</i></div>`;
+        if(noSale){ const isMl=un==='ml'; const p=isMl?(qTotMl?q.ml/qTotMl*100:0):(qTotPcs?q.pcs/qTotPcs*100:0);
+          const v=fmt(Math.round(q.open||0))+' '+un;
+          return `<div class="c" title="${esc(c[0])} — opening ${v} · ${p.toFixed(1)}% of the ${un} opening">
             <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
-            <div class="v" style="font-size:12.5px">${v}</div><div class="p">${p.toFixed(1)}% <span class="muted" style="font-size:9px">of ${isMl?'ml':'pcs'}</span></div>
-            <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div></div>`; }
+            <div class="v" style="font-size:12.5px">${v}</div><div class="p">${p.toFixed(1)}% <span class="muted" style="font-size:9px">of ${un}</span></div>
+            <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div>${grid}</div>`; }
         const p=D.tot.sale?c[1]/D.tot.sale*100:0;
         return `<div class="c" title="${esc(c[0])} — ₹ ${R0(c[1])} · ${p.toFixed(1)}%">
           <div class="ic">${catIco(c[0])}</div><div class="n">${esc(c[0])}</div>
           <div class="v">₹ ${R0(c[1])}</div><div class="p">${p.toFixed(1)}%</div>
-          <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div></div>`; }).join('')
+          <div class="tr"><div class="fl" style="width:${Math.min(100,p).toFixed(1)}%"></div></div>${grid}</div>`; }).join('')
         ||'<span class="muted" style="font-size:12px">Set Landing ₹ to see category-wise ₹ · % here</span>'}
-        ${catShow.length?`<div class="c tot" title="${catShow.length} categories with ${noSale?'stock':'sale value'} in this period">
-          <div class="ring"><span>${catShow.length}</span></div><div class="n">Total Categories</div></div>`:''}</div>
+        ${catShow.length?(()=>{ // TOTAL cards — every ml category added up, and (when any) every pcs category, same four figures ("total koro ml")
+          const tot=u=>{ const T={open:0,rec:0,sale:0,close:0,n:0}; catShow.forEach(c=>{ const q=qOf(c[0]); if((q.u||invUnit(c[0]))!==u) return; T.n++; T.open+=q.open||0; T.rec+=q.rec||0; T.sale+=q.sale||0; T.close+=q.close||0; }); return T; };
+          const card=(u,T)=>T.n?`<div class="c tot2" title="${T.n} ${u} categor${T.n===1?'y':'ies'} added up — opening · received · sale · closing in ${u}">
+            <div class="ic">Σ</div><div class="n">Total · ${u} items</div><div class="v" style="font-size:12.5px">${fmt(Math.round(T.open))} ${u}</div><div class="p">${T.n} categor${T.n===1?'y':'ies'}</div>
+            <div class="g"><span>Open</span><b>${fmt(Math.round(T.open))}</b><span>Recd</span><b>${fmt(Math.round(T.rec))}</b><span>Sale</span><b>${fmt(Math.round(T.sale))}</b><span>Close</span><b>${fmt(Math.round(T.close))}</b><i>${u}</i></div></div>`:'';
+          return card('ml',tot('ml'))+card('pcs',tot('pcs')); })():''}</div>
     </div></div>`;
   // ④ bottom summary tiles
   const avgVarPct = D.tot.sale ? (D.tot.varv/D.tot.sale*100) : 0;
