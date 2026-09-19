@@ -533,6 +533,7 @@ function recvSetField(i,f,v){ const r=receivedStock[i]; if(!r) return;
   if(f==='qty'){ const n=evalNum(v); r.qty=(n===''||isNaN(+n))?0:+n; }
   else if(f==='date'){ r.date=String(v||'').trim(); }
   else if(f==='inv'){ const s=String(v||'').trim(); if(s) r.inv=s; else delete r.inv; }
+  else if(f==='item'){ const nm=String(v||'').replace(/\s+/g,' ').trim().toUpperCase(); if(!nm){ route(); return; } const ex=findRawExact(nm)||findRaw(nm); r.item=ex?ex.item:nm; r.group=ex?(ex.group||''):(r.group||''); }
   _recvRateDrop(); bsv('recv',receivedStock); route(); }
 function recvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):landOf(r?r.item:''); }
 function recvInvLand(r){ return (r&&r.land!=null&&r.land!=='')?(+r.land||0):0; }
@@ -559,7 +560,7 @@ VIEWS.received = () => {
     return `<tr class="${ok?'':'row-alert'}${recvSrc(r)==='cash'?' rvcash':''}${dk?' rvdup':''}">
       <td class="nowrap">${imp?(r.date||'—'):`<input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Purchase date — editable" onchange="recvSetField(${i},'date',this.value)">`}</td>
       <td title="${esc(r.inv||'')}">${recvSrcChip(r,i)}${dupPill}${imp?(r.inv?` <span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:''):`<input class="cell-input rvinv" value="${esc(r.inv||'')}" placeholder="${recvSrc(r)==='cash'?'bill no':'invoice no'}" title="${recvSrc(r)==='cash'?'Shop bill / memo no':'Invoice no'} — editable" onchange="recvSetField(${i},'inv',this.value)">`}</td>
-      <td class="lrname"><strong>${r.item}</strong></td>
+      <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — editable: pick your Item Master item or type; the group follows" onchange="recvSetField(${i},'item',this.value)"></td>
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
       <td class="num">${imp?`<span class="lrsg ${q>0?'plus':'zero'}">${q>0?'+':''}${qd}</span>`:`<input class="cell-input rvqty" value="${esc(String(r.qty==null?'':r.qty))}" placeholder="0" title="Bottles — editable (12+12 works)" onchange="recvSetField(${i},'qty',this.value)">`}</td>
       <td class="num"><input class="cell-input" style="width:60px" value="${mrp!=null?mrp:''}" placeholder="₹" title="MRP (₹) — printed on the bottle / invoice" onchange='invSet(${JSON.stringify(r.item)},"mrp",this.value);route()'></td>
@@ -685,7 +686,7 @@ VIEWS.received = () => {
       <div class="search" style="width:200px">🔎<input id="searchBox" placeholder="Search item…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)"></div></div>
       <div class="table-wrap" style="max-height:540px;overflow-y:auto"><table class="tbl rawhead">
       <thead><tr><th style="width:124px">Date</th><th style="width:150px">Source · Invoice / Bill No</th><th>Item</th><th style="width:150px">Group / Match</th><th class="right" style="width:76px">Bottles</th><th class="right" style="width:66px">MRP ₹</th><th class="right nowrap" style="width:96px">Landing ₹/bot</th><th class="right nowrap" style="width:118px">Landing Amount ₹</th><th style="width:110px"></th></tr></thead>
-      <tbody>${body}</tbody>
+      <tbody>${body}</tbody>${rawNamesDatalist()}
       <tfoot>${(()=>{ const sb=rows.filter(x=>recvSrc(x.r)==='bevco'), sc=rows.filter(x=>recvSrc(x.r)==='cash'); if(!sb.length||!sc.length) return '';
         const line=(lbl,arr)=>`<tr class="lrsub rvsplit"><td colspan="4" class="right">${lbl}</td><td class="num">+${fmt(arr.reduce((a,x)=>a+fnum(x.r.qty),0))}</td><td colspan="2"></td><td class="num">₹ ${fmt(Math.round(arr.reduce((a,x)=>a+recvVal(x.r),0)))}</td><td></td></tr>`;
         return line('🧾 BEVCO',sb)+line('💵 Cash',sc); })()}<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="4" class="right"><strong>${rows.some(x=>recvSrc(x.r)==='cash')&&rows.some(x=>recvSrc(x.r)==='bevco')?'GRAND TOTAL (BEVCO + Cash)':'TOTAL'}${rows.length!==receivedStock.length?' (shown)':''}</strong></td><td class="num"><strong class="lrsg ${rows.length?'plus':'zero'}">${rows.length?'+':''}${fmt(rows.reduce((a,x)=>a+fnum(x.r.qty),0))}</strong></td><td colspan="2" class="right muted" style="font-size:10.5px">landing amount</td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(shownVal))}</strong></td><td></td></tr></tfoot>
