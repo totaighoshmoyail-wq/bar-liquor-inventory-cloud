@@ -1351,7 +1351,7 @@ VIEWS.mrdetail = () => {
   const LT=lrTotals(), avail=LT.op+LT.rv, pctIs=avail>0?Math.min(100,Math.round(LT.is/avail*100)):0;
   const avgIs=total>0?totalAmt/total:0;
   return `
-    <div class="page-head"><div><h1>Bar Stock Issue</h1><p>Liquor Room → Bar issues. Search an item — live stock shows instantly; qty + Enter = issued.</p></div>
+    <div class="page-head"><div><h1>Bar Stock Issue</h1><p>Liquor Room → Bar issues. Issue Slip: type the item, pick it, bottles, Enter — live stock beside it; the next line opens by itself.</p></div>
       <div class="page-actions">
         <button class="btn btn-sm" onclick="mrImportModal()" title="Bulk add from Excel / CSV or copy-paste lines">📂 Excel / Paste</button>
         <button class="btn btn-sm" onclick="openPhotoRecv()">📷 Photo</button>
@@ -1421,17 +1421,92 @@ function mrHitsHtml(){
     </div>`; }).join('')
     || `<div class="muted center" style="padding:14px;font-size:12px">No Item Master entry matches “${esc(mrFind)}” — add it in Item Master first.</div>`;
 }
+/* ---- Issue Slip (v2.48.0) — the client: "one box: search item · issue date · item name · qty; after one item the next
+   line opens by itself; live available stock; royal, compact". One ledger-framed box: the issue date in the head, a
+   grid whose FIRST row is the live entry (item box = search with a dropdown of matches carrying their Liquor-Room stock
+   → pick → qty → Enter = saved), the lines of that date beneath it (newest first). Same figures as before: stock =
+   Opening + Received − Issued (`_msStock`), amount = qty × landOf. Saving pushes the same {date,group,item,qty} entry
+   (plus an id, like manual purchases) and re-renders quietly, so the empty entry row is simply there again. */
+var _ms={i:-1, q:'', sel:0, hits:[]};   // the live row: picked rawData index · typed text · dropdown highlight · matches
+var _msLast=-1;                            // index of the line just saved — flashed green once
+function _msStock(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op, rv, is, cl:op+rv-is}; }
+function _msHits(q){ q=norm(q); if(!q) return []; const starts=[], incl=[];
+  rawData.forEach((r,i)=>{ const n=norm(r.item); if(n.startsWith(q)) starts.push(i); else if(n.includes(q)||norm(r.group||'').includes(q)) incl.push(i); });
+  const byStock=arr=>arr.map((i,k)=>({i,k,r:_msStock(rawData[i].item).cl>0?0:1})).sort((a,b)=>a.r-b.r||a.k-b.k).map(x=>x.i);   // what is in hand first, sheet order within
+  return byStock(starts).concat(byStock(incl)).slice(0,8); }
+function _msNewId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function mrSlipLinesHtml(){
+  const d=_mqDate||period.from; const all=mrDetail.map((r,i)=>({r,i})).filter(x=>x.r.date===d).reverse(); const show=all.slice(0,12);
+  if(!all.length) return `<div class="empty">No issue on ${esc(d)} yet — type an item above, pick it, enter the bottles and press <b>Enter</b>.</div>`;
+  return show.map((x,k)=>{ const r=x.r, ok=inRaw(r.item), q=fnum(r.qty), amt=q*landOf(r.item); const cl=ok?_msStock(r.item).cl:null;
+    return `<div class="c n ${x.i===_msLast?'new':''}">${all.length-k}</div><div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
+      <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−${Number.isInteger(q)?fmt(q):esc(String(r.qty))}</span></div>
+      <div class="c r amt">${amt?'₹ '+fmt(Math.round(amt)):'<span class="mu">—</span>'}</div><div class="c x"><button class="btn rmx" onclick="delMr(${x.i})" title="Remove this issue">✕</button></div>`; }).join('')
+    + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
+}
+function mrSlipHead(){ const d=_mqDate||period.from; const L=mrDetail.filter(r=>r.date===d); const q=L.reduce((a,r)=>a+fnum(r.qty),0), amt=L.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
+  return L.length?`${fmt(L.length)} line${L.length===1?'':'s'} · ${fmt(q)} btl · ₹ ${fmt(Math.round(amt))}`:'no line on this date yet'; }
 function mrFindPanel(){
-  const SER="font-family:Georgia,'Times New Roman',serif";
-  return `<div class="card royalmr noprint" style="margin-bottom:14px">
-    <div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3 style="${SER};color:var(--gold)">🔎 Search &amp; Issue — Liquor Room → Bar</h3><p>Live closing stock while you type · ↓ to qty · Enter = issue</p></div>
-      <div class="flex gap-8 items-center"><span class="muted" style="font-size:11px">Issue date</span>
-        <input class="input" type="date" id="mqDate" value="${_mqDate||period.from}" oninput="_mqDate=this.value" onchange="_mqDate=this.value" style="width:auto;padding:5px 8px"></div></div>
-    <div class="card-body" style="padding:10px 14px">
-      <div class="bigsearch" style="margin-bottom:10px"><span style="font-size:22px">🔎</span><input id="mrFindBox" placeholder="Search any Item Master entry — live Liquor-Room stock…" value="${esc(mrFind)}" oninput="mrFindType(this.value)" onkeydown="mrFindKey(event)"></div>
-      <div id="mrHits">${mrHitsHtml()}</div>
+  return `<div class="card bcledger mrslip noprint">
+    <div class="bh"><div class="t">Issue Slip</div><div class="f">Liquor Room <b>→</b> Bar · type the item, pick it, bottles, <b>Enter</b> — the next line opens by itself</div>
+      <div class="dt"><label for="mqDate">Issue date</label><input class="input" type="date" id="mqDate" value="${esc(_mqDate||period.from)}" oninput="_mqDate=this.value" onchange="mrSlipDate(this.value)"></div>
+      <div class="p" id="msHead">${mrSlipHead()}</div></div>
+    <div class="msg">
+      <div class="h c">#</div><div class="h">Item · type to search</div><div class="h">Group</div><div class="h r" title="Opening + Received − Issued, as it stands now">In Liquor Room</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h"></div>
+      <div class="c lv n">→</div>
+      <div class="c lv it"><input id="msItem" class="cell-input msin" placeholder="Search item…" autocomplete="off" value="${esc(_ms.q)}" oninput="mrSlipType(this.value)" onfocus="mrSlipType(this.value)" onblur="mrSlipBlur()" onkeydown="mrSlipItemKey(event)"><div id="msDD" class="msdd"></div></div>
+      <div class="c lv g" id="msGrp"><span class="mu">—</span></div>
+      <div class="c lv r stk" id="msStk"><span class="mu">—</span></div>
+      <div class="c lv r"><input id="msQty" class="cell-input msin q" type="number" min="0" step="any" placeholder="qty" oninput="mrSlipLive()" onkeydown="mrSlipQtyKey(event)"></div>
+      <div class="c lv r amt" id="msAmt"><span class="mu">—</span></div>
+      <div class="c lv x"><button class="btn btn-gold btn-sm" onclick="mrSlipAdd()" title="Save this line (Enter does the same)">＋</button></div>
+      <div id="msLines" style="display:contents">${mrSlipLinesHtml()}</div>
     </div></div>`;
 }
+function mrSlipDate(v){ if(!v) return; _mqDate=v; const l=$('#msLines'), h=$('#msHead'); if(l) l.innerHTML=mrSlipLinesHtml(); if(h) h.textContent=mrSlipHead(); }
+function mrSlipType(v){ _ms.q=v; _ms.i=-1; _ms.hits=_msHits(v); _ms.sel=0; mrSlipDD(); mrSlipLive(); }
+function mrSlipDD(){ const d=$('#msDD'); if(!d) return;
+  if(!_ms.hits.length){ d.innerHTML=_ms.q.trim()?`<div class="none">No Item Master entry matches “${esc(_ms.q)}” — add it in Item Master first.</div>`:''; d.classList.toggle('open', !!_ms.q.trim()); return; }
+  d.innerHTML=_ms.hits.map((i,k)=>{ const r=rawData[i], s=_msStock(r.item);
+    return `<div class="o ${k===_ms.sel?'on':''}" onmousedown="event.preventDefault();mrSlipPick(${i})"><span class="nm">${esc(r.item)}</span><span class="gp">${esc(r.group||'')}</span><b class="st ${s.cl<=0?'z':''}" title="Opening ${fmt(s.op)} + Received ${fmt(s.rv)} − Issued ${fmt(s.is)}">${fmt(s.cl)}<small>btl</small></b></div>`; }).join('');
+  d.classList.add('open'); const on=d.querySelector('.o.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }
+function mrSlipPick(i){ const r=rawData[i]; if(!r) return; _ms.i=i; _ms.q=r.item; _ms.hits=[]; const inp=$('#msItem'); if(inp) inp.value=r.item;
+  const d=$('#msDD'); if(d){ d.classList.remove('open'); d.innerHTML=''; } mrSlipLive(); const q=$('#msQty'); if(q){ q.focus(); if(q.select) q.select(); } }
+function mrSlipBlur(){ setTimeout(()=>{ const d=$('#msDD'); if(d) d.classList.remove('open'); },150);
+  if(_ms.i<0){ const v=(($('#msItem')||{}).value||'').trim(); const ex=v&&findRawExact(v); if(ex){ const i=rawData.indexOf(ex); if(i>=0){ _ms.i=i; _ms.q=ex.item; mrSlipLive(); } } } }
+function mrSlipLive(){   // group · stock (→ after) · amount of the live row, from the picked item and the qty as typed
+  const g=$('#msGrp'), s=$('#msStk'), a=$('#msAmt'); const r=_ms.i>=0?rawData[_ms.i]:null; const qty=fnum(($('#msQty')||{}).value);
+  if(!r){ [g,s,a].forEach(el=>{ if(el) el.innerHTML='<span class="mu">—</span>'; }); return; }
+  const st=_msStock(r.item), after=st.cl-qty, amt=qty*landOf(r.item);
+  if(g) g.innerHTML=`<span class="pill gray">${esc(r.group||'—')}</span>`;
+  if(s) s.innerHTML=`<b class="${st.cl<=0?'z':''}" title="Opening ${fmt(st.op)} + Received ${fmt(st.rv)} − Issued ${fmt(st.is)}">${fmt(st.cl)}</b>${qty>0?`<span class="ar">→</span><b class="${after<0?'neg':'ok'}" title="after this issue">${fmt(after)}</b>`:''}<small>btl</small>`;
+  if(a) a.innerHTML=amt>0?'₹ '+fmt(Math.round(amt)):'<span class="mu">—</span>';
+}
+function mrSlipItemKey(e){
+  if(e.key==='ArrowDown'){ e.preventDefault(); if(_ms.hits.length){ _ms.sel=Math.min(_ms.hits.length-1,_ms.sel+1); mrSlipDD(); } else if(_ms.i>=0){ const q=$('#msQty'); if(q) q.focus(); } }
+  else if(e.key==='ArrowUp'){ if(_ms.hits.length){ e.preventDefault(); _ms.sel=Math.max(0,_ms.sel-1); mrSlipDD(); } }
+  else if(e.key==='Enter'||e.key==='Tab'){ if(_ms.i<0 && _ms.hits.length){ e.preventDefault(); mrSlipPick(_ms.hits[_ms.sel]); } else if(e.key==='Enter' && _ms.i>=0){ e.preventDefault(); const q=$('#msQty'); if(q){ q.focus(); if(q.select) q.select(); } } }
+  else if(e.key==='Escape'){ e.target.value=''; mrSlipType(''); }
+}
+function mrSlipQtyKey(e){
+  if(e.key==='Enter'){ e.preventDefault(); mrSlipAdd(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); const b=$('#msItem'); if(b){ b.focus(); try{ b.select(); }catch(err){} } }
+  else if(e.key==='Escape'){ e.target.value=''; mrSlipLive(); }
+}
+function mrSlipAdd(){
+  let r=_ms.i>=0?rawData[_ms.i]:null;
+  if(!r){ const v=(($('#msItem')||{}).value||'').trim(); const ex=v&&findRawExact(v); if(ex) r=ex; else if(_ms.hits.length===1) r=rawData[_ms.hits[0]]; }
+  if(!r){ toast('Which item?','Type a name and pick it from the list','err'); const b=$('#msItem'); if(b) b.focus(); return; }
+  const q=fnum(($('#msQty')||{}).value); if(!(q>0)){ toast('Qty?','Enter the bottles to issue','err'); const qb=$('#msQty'); if(qb) qb.focus(); return; }
+  const d=(($('#mqDate')||{}).value)||_mqDate||period.from; _mqDate=d;
+  const left=_msStock(r.item).cl-q;
+  mrDetail.push({id:_msNewId(), date:d, group:r.group||'', item:String(r.item).toUpperCase(), qty:q});
+  bsv('mr',mrDetail); _msLast=mrDetail.length-1; _ms={i:-1, q:'', sel:0, hits:[]};
+  routeQuiet();   // the register, the head figures and the slip lines follow; the entry row comes back empty
+  toast('Issued', r.item+' — '+fmt(q)+' → Bar · '+fmt(left)+' left in Liquor Room', left<0?'err':'ok');
+  const b=$('#msItem'); if(b) b.focus();
+}
+AFTER.mrdetail=function(){ if(document.activeElement===document.body && ((document.scrollingElement||document.documentElement).scrollTop||0)<40){ const b=$('#msItem'); if(b) b.focus(); } };
 /* keyboard flow in the panel: search ↓ → first qty · qty ↓/↑ → next/prev qty (↑ from the
    first goes back to search) · Enter = issue · Esc clears the search */
 function mrFindKey(e){
@@ -2508,7 +2583,7 @@ document.addEventListener('keydown', function(e){
   const t=e.target||{};
   const inField=t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT';
   if(k==='/' && !inField){                            // "/" = jump to this page's search box
-    const s=$('#mrFindBox')||$('#biFindBox')||$('#searchBox');
+    const s=$('#msItem')||$('#mrFindBox')||$('#biFindBox')||$('#searchBox');
     if(s && s.offsetParent){ s.focus(); try{ s.select(); }catch(err){} e.preventDefault(); }
     return;
   }
