@@ -1329,21 +1329,7 @@ let mrVoiceLang='en-US', mrVoiceOn=false, mrVoiceHeard='', mrVoiceItem='', mrVoi
 VIEWS.mrdetail = () => {
   const total=mrDetail.reduce((a,r)=>a+fnum(r.qty),0);
   const totalAmt=mrDetail.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
-  // per-item Liquor-Room closing as it stands NOW (Opening + Received − Issued) — cached per name so a long list
-  // does not recompute the same item; display only, the same figures the Search & Issue panel shows
-  const _lrNow={}; const lrNow=name=>{ if(_lrNow[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _lrNow[name]=op+rv-is; } return _lrNow[name]; };
-  const body=mrDetail.map((r,i)=>{ const ok=inRaw(r.item); const q=fnum(r.qty), amt=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty);
-    const cl=ok?lrNow(r.item):null;
-    // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
-    return `<tr class="${ok?'':'row-alert'}">
-      <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
-      <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
-      <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
-      <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
-      <td class="num"><span class="lrval">${amt?('₹ '+fmt(Math.round(amt))):'<span class="muted">—</span>'}</span></td>
-      <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
-      <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('')
-    || '<tr><td colspan="7" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>';
+  const RG=mrRegHtml(); const body=RG.body;   // rows of the register under the current search / filters (v2.49.1)
   // royal head figures (v2.32.0) — the same totals the old stat strip showed, plus today's issues and the
   // issued-of-available share (Liquor Room Opening + Received) that the Crown Gauge look already uses
   const today=new Date().toISOString().slice(0,10);
@@ -1377,22 +1363,72 @@ VIEWS.mrdetail = () => {
     </div>
     ${mrFindPanel()}
     ${(()=>{ const lay=pageLay('mrdetail');
-      const defCard=`<div class="card barinv laydense mrtbl"><div class="card-head"><div><h3>Issue Register</h3><p>All issues, Liquor Room → Bar · last column = that item's Liquor-Room stock <em>now</em></p></div>
-      <div class="flex gap-8 items-center">${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>
+      const defCard=`<div class="card barinv laydense mrtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Issue Register</h3><p>All issues, Liquor Room → Bar · last column = that item's Liquor-Room stock <em>now</em> · search by date, group or item</p></div>
+      <div class="flex gap-8 items-center" style="flex-wrap:wrap">${mrRegFilterHtml()}${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>
       <div class="table-wrap" style="max-height:460px;overflow-y:auto"><table class="tbl">
       <thead><tr><th style="width:96px">Date</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
-      <tbody>${body}</tbody>
-      <tfoot><tr class="lrsub" style="position:sticky;bottom:0"><td colspan="3" class="right"><strong>TOTAL</strong></td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(totalAmt))}</strong></td><td colspan="2"></td></tr></tfoot>
+      <tbody id="mrRegBody">${body}</tbody>
+      <tfoot id="mrRegFoot">${RG.foot}</tfoot>
       </table></div>${rawNamesDatalist()}</div>`;
       if(lay==='def') return defCard;
       if(lay==='dense') return `<div class="laydense">${defCard}</div>`;
-      const byG={}; mrDetail.forEach((r,i)=>{ const k=r.group||'— no group'; (byG[k]=byG[k]||[]).push({r,i}); });
+      const byG={}; RG.idx.forEach(i=>{ const r=mrDetail[i]; const k=r.group||'— no group'; (byG[k]=byG[k]||[]).push({r,i}); });
       const grp=Object.keys(byG).sort().map(k=>({ id:k, title:k, sub:`${byG[k].length} issues`,
         right:`<span class="num gold" style="font-weight:700">${fmt(byG[k].reduce((a,x)=>a+fnum(x.r.qty),0))}</span>`,
         detail: byG[k].map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis"><span class="muted">${x.r.date||'—'}</span> ${x.r.item}</span><span class="nowrap"><strong>${x.r.qty}</strong> <button class="btn btn-danger btn-sm" onclick="delMr(${x.i})">✕</button></span></div>`).join('') }));
       return `<div class="card-head" style="padding:0 0 8px 0;border:none"><div><h3>Saved Issues</h3></div><div class="flex gap-8 items-center">${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>`+renderLay('mrdetail',lay,grp,{listTitle:'Groups'});
     })()}`;
 };
+/* ---- Issue Register search & check (v2.49.1) — client: "issue hobar por date, group, item-wise register search & check
+   option". A filter bar in the register head: From → To date, Group, a text search (item / group / date). Filtering
+   rewrites only the tbody / tfoot / count (no route), so typing never re-renders the page; the head cards keep the
+   page totals, the tfoot shows the SHOWN total when a filter is on. Row markup is shared with the full render. */
+var _mrf={q:'', from:'', to:'', grp:''};
+function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp); const out=[];
+  mrDetail.forEach((r,i)=>{ if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
+    const ex=findRaw(r.item); const grp=ex?(ex.group||''):(r.group||'');
+    if(g && norm(grp)!==g) return;
+    if(q && !(norm(r.item).includes(q) || norm(grp).includes(q) || String(r.date||'').includes(_mrf.q.trim()))) return;
+    out.push(i); });
+  return out; }
+function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp); }
+function mrRegHtml(){
+  const _c={}; const lrNow=name=>{ if(_c[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _c[name]=op+rv-is; } return _c[name]; };
+  const idx=mrRegIdx(); let total=0, amt=0;
+  const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
+    const cl=ok?lrNow(r.item):null;
+    // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
+    return `<tr class="${ok?'':'row-alert'}">
+      <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
+      <td>${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:redBadge()}</td>
+      <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
+      <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
+      <td class="num"><span class="lrval">${a?('₹ '+fmt(Math.round(a))):'<span class="muted">—</span>'}</span></td>
+      <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
+      <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('');
+  const body=rows || (mrDetail.length
+    ? `<tr><td colspan="7" class="center muted" style="padding:20px">No issue matches this search — <a href="#" onclick="mrRegClear();return false" style="color:var(--gold)">clear the filters</a>.</td></tr>`
+    : '<tr><td colspan="7" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>');
+  const on=mrRegOn();
+  const foot=`<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="3" class="right"><strong>TOTAL${on?' (shown)':''}</strong>${on?`<span class="muted" style="font-weight:500;margin-left:6px;font-size:11px">${fmt(idx.length)} of ${fmt(mrDetail.length)} issues</span>`:''}</td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(amt))}</strong></td><td colspan="2"></td></tr>`;
+  const count=on?`<b>${fmt(idx.length)}</b> of ${fmt(mrDetail.length)} · ${fmt(total)} btl · ₹ ${fmt(Math.round(amt))}`:`${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'}`;
+  return {body, foot, count, idx, total, amt};
+}
+function mrRegFilterHtml(){
+  const groups=[...new Set(mrDetail.map(r=>{ const ex=findRaw(r.item); return ex?(ex.group||''):(r.group||''); }).filter(Boolean))].sort();
+  return `<div class="mrfilt noprint">
+    <span class="lb" title="Issue date from → to">📅</span><input class="input" type="date" id="mrfFrom" value="${esc(_mrf.from)}" onchange="mrRegSet('from',this.value)"><span class="lb">→</span><input class="input" type="date" id="mrfTo" value="${esc(_mrf.to)}" onchange="mrRegSet('to',this.value)">
+    <select class="input" id="mrfGrp" onchange="mrRegSet('grp',this.value)"><option value="">All groups</option>${groups.map(g=>`<option value="${esc(g)}" ${norm(g)===norm(_mrf.grp)?'selected':''}>${esc(g)}</option>`).join('')}</select>
+    <input class="input q" id="mrfQ" placeholder="🔎 Search item / group / date…" value="${esc(_mrf.q)}" oninput="mrRegType(this.value)" onkeydown="if(event.key==='Escape'){this.value='';mrRegType('');}">
+    <button class="btn btn-sm" id="mrfClear" onclick="mrRegClear()" title="Clear the search and filters" ${mrRegOn()?'':'style="display:none"'}>✕ Clear</button>
+    <span class="muted n" id="mrfN">${mrRegHtml().count}</span>
+  </div>`;
+}
+function mrRegPaint(){ const R=mrRegHtml(); const b=$('#mrRegBody'), f=$('#mrRegFoot'), n=$('#mrfN'), c=$('#mrfClear');
+  if(b) b.innerHTML=R.body; if(f) f.innerHTML=R.foot; if(n) n.innerHTML=R.count; if(c) c.style.display=mrRegOn()?'':'none'; }
+function mrRegType(v){ _mrf.q=v; mrRegPaint(); }
+function mrRegSet(k,v){ _mrf[k]=v||''; mrRegPaint(); }
+function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:''}; ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
 function mrSetField(i,f,v){ const r=mrDetail[i]; if(!r) return;   // v2.48.3 — the register's date · item · qty edited in place
   if(f==='qty'){ const n=evalNum(v); if(n===''||isNaN(+n)||!(+n>0)){ toast('Qty?','Bottles issued must be more than 0 — ✕ removes the line','err'); route(); return; } r.qty=+n; }
   else if(f==='date'){ const d=String(v||'').trim(); if(!d){ route(); return; } r.date=d; }
