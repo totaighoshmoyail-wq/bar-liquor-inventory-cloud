@@ -1798,7 +1798,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 
 /* ---- Bar Stock Issue — Issue Slip (v2.48.0): one ledger-framed box = issue date · live entry row (item search with a
    dropdown that carries each match's Liquor-Room stock → qty → Enter) · that date's lines beneath. Theme tokens only. */
-.card.mrslip{overflow:visible;padding:6px 12px 9px}
+.card.mrslip{overflow:visible;padding:6px 12px 9px;position:relative;z-index:5}   /* above the register card: the page-entry animation (fill both) makes every #view child its own stacking context, so the dropdown was painted under the next card */
 .mrslip .bh{align-items:center}
 .mrslip .bh .dt{display:flex;align-items:center;gap:7px;margin-left:auto;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
 .mrslip .bh .dt input{width:auto;padding:3px 8px;font-size:12px;border-radius:7px;border-color:color-mix(in srgb,var(--gold) 45%,var(--border))}

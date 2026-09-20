@@ -1,1 +1,1 @@
-{"version":"2.48.0","date":"2026-09-20","notes":"Bar Stock Issue has an Issue Slip: one box with the issue date, an item box that searches as you type and shows each match’s live Liquor-Room stock, the bottles, and Enter to save — the next line opens by itself; the slip lists that date’s issues beneath. Compact royal design in the theme’s own colours."}
+{"version":"2.48.1","date":"2026-09-20","notes":"Issue Slip: the item search dropdown now draws above the Issue Register card (it was cut through the middle by the card below)."}
