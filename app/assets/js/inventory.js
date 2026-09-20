@@ -11,6 +11,7 @@
 /* ---------------- master + state ---------------- */
 const _seedRaw = ((typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN && typeof CANTEEN_RAW!=='undefined') ? CANTEEN_RAW
   : (typeof REAL_ITEMS!=='undefined' ? REAL_ITEMS : [])).map(i=>({item:i.f, group:i.g}));
+const _seedRawKeys = new Set(_seedRaw.map(r=>norm(r.item)));   // the seed names as loaded — rawData IS _seedRaw on a pure-seed company, so read this, never the array later (v2.47.0)
 let rawData       = bls('rawdata2', _seedRaw);      // [{item, group}]  ← Raw Data master
 let receivedStock = bls('recv', []);                // [{date, item, qty, group}]
 let mrDetail      = bls('mr',   []);                // [{date, group, item, qty}]
@@ -381,13 +382,21 @@ function rawMoveRefs(oldName, newName){
    page full of BEVCO names offered no button at all). Per row the person merges it into their item, or
    gives it their own name + group, or keeps it. Purchases, issues, prices and mappings follow either way. */
 var _bevDupCache={ver:-1, list:null};
-function _looksBevco(r){ return r.group==='BEVCO IMPORT' || /,\s*\d{2,5}\s*ML\.?$/i.test(r.item||''); }
+function _bevWorded(r){ return r.group==='BEVCO IMPORT' || /,\s*\d{2,5}\s*ML\.?$/i.test(r.item||''); }
+var _bevCleanSet=null, _bevCleanKey='';
+function _importedNames(){   // names an invoice import CREATED (the clean BEVCO wording, not in the seed list) — v2.47.0
+  const key=invoices.length+':'+((invoices[0]&&invoices[0].no)||''); if(_bevCleanSet && _bevCleanKey===key) return _bevCleanSet;
+  const st=new Set();
+  invoices.forEach(v=>(v.items||[]).forEach(x=>{ const c=norm(bevcoCleanName(x.name)); if(c && !_seedRawKeys.has(c)) st.add(c); }));
+  _bevCleanSet=st; _bevCleanKey=key; return st; }
+function _looksBevco(r){ return _bevWorded(r) || _importedNames().has(norm(r.item)); }
 function bevDupCandidates(){
   if(_bevDupCache.ver===_rawIdxVer && _bevDupCache.list) return _bevDupCache.list;
   const own=rawData.filter(r=>!_looksBevco(r));
   const out=[];
   rawData.forEach(r=>{ if(!_looksBevco(r)) return;
     const m=bevcoMatch(r.item,{list:own}); const to=(m.name && norm(m.name)!==norm(r.item)) ? m.name : '';
+    if(!_bevWorded(r) && !to) return;                                                          // an import-created name that matches none of your items is simply a new product — nothing to fix (v2.47.0)
     const top=(m.top && m.top.name && norm(m.top.name)!==norm(r.item) && m.top.score>=0.45) ? m.top.name : '';
     let grp=(top && m.top.group && m.top.group!=='BEVCO IMPORT') ? m.top.group : '';           // the closest own item's shelf is the best guess for its group
     if(!grp){ try{ grp=bevcoGuessGroup(r.item); }catch(e){} } if(grp==='BEVCO IMPORT') grp='';
@@ -401,7 +410,7 @@ function bevDupNotice(){
   const eg=ex.to ? `e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> → <strong style="color:var(--text)">${esc(ex.to)}</strong>`
                  : `e.g. <strong style="color:var(--text)">${esc(ex.dup)}</strong> — none of your items matches it; give it your own name & group`;
   return `<div class="card noprint" style="margin-bottom:10px;border-color:var(--amber)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px">
-    <span style="color:var(--amber);font-weight:700">⚠ ${c.length} item${c.length>1?'s':''} still carr${c.length>1?'y':'ies'} BEVCO's wording</span><span class="muted">${nTo?nTo+' look'+(nTo>1?'':'s')+' like your own item'+(nTo>1?'s':'')+' · ':''}${eg}. Merging moves the received bottles, landing rate and BEVCO mapping onto your item; renaming keeps it as a separate item under your name and group.</span>
+    <span style="color:var(--amber);font-weight:700">⚠ ${c.length} item${c.length>1?'s':''} came in with BEVCO's wording</span><span class="muted">${nTo?nTo+' look'+(nTo>1?'':'s')+' like your own item'+(nTo>1?'s':'')+' · ':''}${eg}. Merging moves the received bottles, landing rate and BEVCO mapping onto your item; renaming keeps it as a separate item under your name and group.</span>
     <button class="btn btn-gold btn-sm" onclick="bevDupPlan()">🧹 Fix BEVCO names</button><button class="btn btn-sm" title="Hide this notice for now" onclick="try{sessionStorage.setItem('tg2_bevDupHide','${c.length}')}catch(e){};route()">✕</button></div></div>`;
 }
 var _bdPlan=null;
@@ -566,8 +575,8 @@ VIEWS.received = () => {
   const rowHtml=({r,i})=>{ const ok=inRaw(r.item); const mrp=invGet(r.item).mrp; const land=invGet(r.item).land;
     const q=fnum(r.qty), val=recvVal(r), qd=Number.isInteger(q)?fmt(q):String(r.qty); const eland=Math.round(recvLand(r)*100)/100;
     const imp=recvImported(r);
-    const dk=DUP.info[i]; const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same bill / invoice no + same item appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date, item, quantity and source as another entry, with no bill no — check whether it was entered twice">? same day·item·qty</span>':'';
-    return `<tr class="${ok?'':'row-alert'}${recvSrc(r)==='cash'?' rvcash':''}${dk?' rvdup':''}">
+    const dk=DUP.info[i]; const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same bill / invoice no + same item appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='coll'?' <span class="lrinv dupc" title="Same invoice, same name, different landed rates — two different BEVCO products were mapped onto one Item Master name; 🔧 Fix names gives each its own">⚠ 2 products · 1 name</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date, item, quantity and source as another entry, with no bill no — check whether it was entered twice">? same day·item·qty</span>':'';
+    return `<tr class="${ok?'':'row-alert'}${recvSrc(r)==='cash'?' rvcash':''}${dk==='coll'?' rvcoll':dk?' rvdup':''}">
       <td class="nowrap">${imp?(r.date||'—'):`<input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Purchase date — editable" onchange="recvSetField(${i},'date',this.value)">`}</td>
       <td title="${esc(r.inv||'')}">${recvSrcChip(r,i)}${dupPill}${imp?(r.inv?` <span class="lrinv">${esc(String(r.inv).split('/').slice(-3).join('/'))}</span>`:''):`<input class="cell-input rvinv" value="${esc(r.inv||'')}" placeholder="${recvSrc(r)==='cash'?'bill no':'invoice no'}" title="${recvSrc(r)==='cash'?'Shop bill / memo no':'Invoice no'} — editable" onchange="recvSetField(${i},'inv',this.value)">`}</td>
       <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — editable: pick your Item Master item or type; the group follows" onchange="recvSetField(${i},'item',this.value)"></td>
@@ -690,7 +699,7 @@ VIEWS.received = () => {
       </div>
     </div>`; })()}
     ${royalHtml}
-    ${DUP.n?`<div class="card noprint" style="margin-bottom:10px;border-color:var(--red)"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px"><span style="color:var(--red);font-weight:700">⚠ ${DUP.n} entr${DUP.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${DUP.nDup?DUP.nDup+' with the same bill / invoice no + item':''}${DUP.nDup&&DUP.n>DUP.nDup?' · ':''}${DUP.n>DUP.nDup?(DUP.n-DUP.nDup)+' with the same day · item · qty and no bill no':''}. Review them and ✕ the extra one.</span><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:transparent" onclick="recvFilter='dup';route()">Show duplicates</button></div></div>`:''}
+    ${DUP.n?`<div class="card noprint" style="margin-bottom:10px;border-color:var(--${DUP.nDup||DUP.n>DUP.nColl?'red':'amber'})"><div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 14px;font-size:12px"><span style="color:var(--${DUP.nDup?'red':'amber'});font-weight:700">⚠ ${DUP.n} entr${DUP.n===1?'y needs':'ies need'} a look</span><span class="muted">${DUP.nDup?DUP.nDup+' entered twice (same bill / invoice no + item + rate) — ✕ the extra one':''}${DUP.nDup&&DUP.nColl?' · ':''}${DUP.nColl?DUP.nColl+' on one invoice share ONE Item Master name at different landed rates — two different BEVCO products mapped onto the same name (e.g. Old No. 7 and Gentleman Jack); give each its own':''}${(DUP.nDup||DUP.nColl)&&DUP.n>DUP.nDup+DUP.nColl?' · ':''}${DUP.n>DUP.nDup+DUP.nColl?(DUP.n-DUP.nDup-DUP.nColl)+' with the same day · item · qty and no bill no':''}.</span>${DUP.nColl?`<button class="btn btn-gold btn-sm" onclick="recvCollFix()">🔧 Fix names</button>`:''}<button class="btn btn-sm" style="background:var(--${DUP.nDup?'red':'amber'});color:#fff;border-color:transparent" onclick="recvFilter='dup';route()">Show them</button></div></div>`:''}
     <div class="tabs">${ft('all','All ('+receivedStock.length+')')}${ft('ok','✅ Matched')}${ft('un','🔴 Unmatched ('+unmatched+')')}${DUP.n?ft('dup','⚠ Duplicates ('+DUP.n+')'):''}<span class="tabsep"></span>${fs('all','Both')}${fs('bevco','🧾 BEVCO ('+nBev+' · ₹ '+fmt(Math.round(bevVal))+')')}${fs('cash','💵 Cash ('+nCash+' · ₹ '+fmt(Math.round(cashVal))+')')}</div>
     <div class="card barinv recvtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Purchase Register</h3><p>${rows.length} shown${iq.rv?' (filtered)':''}${flat?'':' · grouped by invoice'}</p></div>
       <div class="search" style="width:280px">🔎<input id="searchBox" placeholder="Search item / invoice / bill no…" value="${esc(iq.rv||'')}" oninput="isearch('rv',this.value)" title="Matches the item name, the invoice / bill number (or its last part) and the shop"></div></div>
@@ -984,9 +993,59 @@ function recvDupInfo(){
   const byInv={}, byDay={}; const info={};
   receivedStock.forEach((r,i)=>{ const it=norm(r.item); if(r.inv){ const k=String(r.inv).trim()+''+it; (byInv[k]=byInv[k]||[]).push(i); }
     const d=(r.date||'')+''+it+''+fnum(r.qty)+''+recvSrc(r); (byDay[d]=byDay[d]||[]).push(i); });
-  Object.values(byInv).forEach(ix=>{ if(ix.length>1) ix.forEach(i=>{ info[i]='dup'; }); });
+  // same bill + same item twice: identical landed rates = the same line entered twice (dup, red); different rates = two
+  // different BEVCO products mapped onto ONE Item Master name (coll, amber → 🔧 Fix names) (v2.47.0)
+  const groups=[];
+  Object.values(byInv).forEach(ix=>{ if(ix.length>1){ const rates=new Set(ix.map(i=>Math.round(fnum(receivedStock[i].land)*100))); const kind=rates.size>1?'coll':'dup';
+    ix.forEach(i=>{ info[i]=kind; }); groups.push({ix, kind, inv:String(receivedStock[ix[0]].inv).trim(), item:receivedStock[ix[0]].item}); } });
   Object.values(byDay).forEach(ix=>{ if(ix.length>1 && ix.some(i=>!receivedStock[i].inv)) ix.forEach(i=>{ if(!info[i]) info[i]='maybe'; }); });
-  return {info, n:Object.keys(info).length, nDup:Object.values(info).filter(v=>v==='dup').length};
+  const vals=Object.values(info);
+  return {info, groups, n:vals.length, nDup:vals.filter(v=>v==='dup').length, nColl:vals.filter(v=>v==='coll').length};
+}
+/* ---- two BEVCO products on one Item Master name (v2.47.0) ----
+   BEVCO lists a product once per invoice, so the same name twice on one invoice at different landed rates means two
+   different products were mapped onto one name (JACK DANIEL'S OLD NO. 7 and GENTLEMAN JACK → JACK DANIELS WHISKY 750ML).
+   The invoice register still holds each line's BEVCO name; an entry is matched to its line by landed rate. The modal
+   shows both, suggests a house name for each (the matcher — the weaker line takes the alternative when both would land
+   on one name), and on save moves the entry to that name, remembers the mapping (bevmap) and creates the item when new. */
+var _rcColl=null;
+function _recvInvLines(inv){ const reg=invoices.find(v=>String(v.no||'').trim()===String(inv||'').trim()); if(!reg||!reg.items) return [];
+  const grand=(reg.fees&&reg.fees.total)||(reg.calc&&reg.calc.total)||0, base=(reg.calc&&reg.calc.base)||0; const factor=(base>0&&grand>0)?grand/base:1;
+  return reg.items.map(x=>({name:x.name, bots:x.bots, mrp:x.mrp, amount:x.amount, rate:Math.round(x.amount*factor/(x.bots||1)*100)/100})); }
+function recvCollFix(){
+  const D=recvDupInfo(); const groups=D.groups.filter(g=>g.kind==='coll'); if(!groups.length){ toast('Nothing to fix','No invoice carries two products on one name','ok'); return; }
+  const rows=[]; groups.forEach(g=>{ const lines=_recvInvLines(g.inv); const used=new Set();
+    g.ix.forEach(i=>{ const r=receivedStock[i]; const rate=Math.round(fnum(r.land)*100);
+      const ln=lines.find(l=>!used.has(l) && Math.round(l.rate*100)===rate) || null; if(ln) used.add(ln);
+      rows.push({i, inv:g.inv, item:r.item, qty:r.qty, land:r.land, line:ln?ln.name:'', mrp:ln?ln.mrp:'', sug:r.item, m:null}); }); });
+  rows.forEach(r=>{ if(!r.line) return; const m=bevcoMatch(r.line); r.m=m; r.sug=m.name||bevcoCleanName(r.line); });
+  groups.forEach(g=>{ const gr=rows.filter(r=>g.ix.indexOf(r.i)>=0); const byName={}; gr.forEach(r=>{ (byName[norm(r.sug)]=byName[norm(r.sug)]||[]).push(r); });
+    Object.values(byName).forEach(list=>{ if(list.length<2) return; list.sort((a,b)=>((b.m&&b.m.score)||0)-((a.m&&a.m.score)||0));
+      list.slice(1).forEach(r=>{ r.sug=(r.m&&r.m.alt&&norm(r.m.alt)!==norm(list[0].sug))?r.m.alt:(r.line?bevcoCleanName(r.line):r.item); }); }); });
+  _rcColl=rows;
+  const body=`<p class="muted" style="font-size:12px;margin:0 0 8px">BEVCO lists a product once per invoice — the same name twice at different landed rates means two <strong>different</strong> products were mapped onto one Item Master name. Give each its own name (type or pick; a name not in the Item Master is created there and in the Liquor Room). The mapping is remembered for every future invoice.</p>
+    <div class="table-wrap" style="max-height:380px;overflow:auto"><table class="tbl"><thead><tr><th>Invoice · BEVCO line</th><th>Now under</th><th>Item Master name</th><th class="right">Qty</th><th class="right">Landed ₹</th></tr></thead><tbody>
+    ${rows.map((r,k)=>`<tr><td style="font-size:11.5px"><span class="muted">${esc(String(r.inv).slice(-13))}</span><br>${r.line?esc(r.line):'<span style="color:var(--amber)">line not found in the invoice register</span>'}</td><td style="font-size:11.5px">${esc(r.item)}</td>
+      <td><input class="cell-input bmap ${norm(r.sug)!==norm(r.item)?'bmap-guess':''}" list="rawItems" id="rcCol${k}" style="text-align:left;width:260px" value="${esc(r.sug)}" oninput="recvCollEdit(${k})"><div id="rcColSt${k}" class="muted" style="font-size:10.5px;margin-top:2px">${findRawExact(r.sug)?'✔ in the Item Master':'＋ new item · '+esc(bevcoGuessGroup(r.line||r.sug))}</div></td>
+      <td class="num">${fmt(r.qty)}</td><td class="num gold">₹ ${fmt(Math.round(fnum(r.land)*100)/100)}</td></tr>`).join('')}</tbody></table></div>${rawNamesDatalist()}`;
+  modal('🔧 Two products on one name', body, `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="recvCollApply()">💾 Save names</button>`);
+  { const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide'); }
+}
+function recvCollEdit(k){ const inp=$('#rcCol'+k), st=$('#rcColSt'+k), r=(_rcColl||[])[k]; if(!inp||!st||!r) return; const v=inp.value.trim(); const ex=v&&findRawExact(v);
+  st.textContent=ex?'✔ in the Item Master':(v?'＋ new item · '+bevcoGuessGroup(r.line||v):'type a name'); inp.classList.toggle('bmap-guess', !!v && (!ex || norm(v)!==norm(r.item))); }
+function recvCollApply(){
+  const rows=_rcColl||[]; let moved=0, created=0; const newNames=[];
+  rows.forEach((r,k)=>{ const inp=$('#rcCol'+k); const v=inp?inp.value.trim():''; if(!v) return; const e=receivedStock[r.i]; if(!e) return;
+    let ex=findRawExact(v); const name=ex?ex.item:v.toUpperCase();
+    if(!ex){ const group=bevcoGuessGroup(r.line||name)||'BEVCO IMPORT'; rawData.push({item:name, group}); rebuildRawIdx(); ex=findRawExact(name); created++; newNames.push(name); }
+    if(norm(name)!==norm(e.item)){ e.item=name; e.group=ex?ex.group:''; moved++; }
+    if(r.line) bevMap[norm(r.line)]=name;                                                                    // remembered for every future invoice
+    if(r.mrp && (invGet(name).mrp==null||invGet(name).mrp==='')) invSet(name,'mrp',r.mrp);
+    if(invGet(name).land==null||invGet(name).land===''){ const l=fnum(e.land); if(l>0) invSet(name,'land',Math.round(l*100)/100); }   // the Item Master rate only where blank
+  });
+  _recvRateDrop(); bsv('recv',receivedStock); bsv('bevmap',bevMap); if(created) saveRaw(); _bevDupCache={ver:-1,list:null};
+  closeModal(); _rcColl=null; route();
+  toast('Names fixed', moved+' entr'+(moved===1?'y':'ies')+' moved'+(created?' · '+created+' new in Item Master + Liquor Room: '+newNames.join(', '):'')+' · mapping remembered', 'ok');
 }
 function clearCashRecv(){ const cash=receivedStock.filter(r=>recvSrc(r)==='cash'); if(!cash.length){ toast('No cash purchases','Nothing to clear','ok'); return; }
   const amt=cash.reduce((a,r)=>a+recvVal(r),0);
@@ -3347,12 +3406,17 @@ function bevcoParse(txt){
    honest about confidence: sure (auto) · guess (amber — please check) · none (→ a NEW item is created). */
 const BEV_KINDS={WHISKY:'WHISKY',SCOTCH:'WHISKY',BOURBON:'WHISKY',RUM:'RUM',VODKA:'VODKA',GIN:'GIN',BEER:'BEER',LAGER:'BEER',PILSNER:'BEER',ALE:'BEER',WITBIER:'BEER',
   WINE:'WINE',SPARKLING:'WINE',PROSECCO:'WINE',SHIRAZ:'WINE',CABERNET:'WINE',CHENIN:'WINE',CHARDONNAY:'WINE',MERLOT:'WINE',SAUVIGNON:'WINE',ZINFANDEL:'WINE',SOJU:'WINE',
+  BRUT:'WINE',CHAMPAGNE:'WINE',CAVA:'WINE',MOSCATO:'WINE',RIESLING:'WINE',MALBEC:'WINE',PINOT:'WINE',GRIGIO:'WINE',SYRAH:'WINE',STOUT:'BEER',WHEAT:'BEER',   // (v2.47.0) Chandon Brut → a WINE group, not BEVCO IMPORT
   BRANDY:'BRANDY',COGNAC:'BRANDY',TEQUILA:'LIQ',LIQUEUR:'LIQ',ABSENTA:'LIQ',ABSINTHE:'LIQ'};
 const BEV_FLUFF=new Set(['PREMIUM','LAGER','BLENDED','SCOTCH','ORIGINAL','TRIPLE','DISTILLED','FLAVOURED','FLAVOUR','FLAVOR','EXTRA','SUPER','FINEST','DELUXE','THE','SMOOTH','BALANCED','RECIPE','LIMITED','EDITION','GIFT','PACK','INTERNATIONAL','CONTEMPORARY','KENTUCKY','STRAIGHT','TENNESSEE','GRAIN','PREMIER','VATTED','VERY','ORDINARY','WORLD','CUP','FIFA','CLUB','SMALL','BATCH','AGED','OF','AND','IN','A','NEW','EXPERIMENTS','CITY','KING','BEERS','STRONG','SEMI','GERMAN','INDIAN','INDIA','IRISH','LONDON','DRY','SPARKLING','MALT','SINGLE','FIRE','TANGY','SELECT']);
 const BEV_PACK=new Set(['CAN','BOTTLE','BTL','PET','NIP','PINT','QUART','KEG','ML']);
+const BEV_GENERIC=new Set(['WHISKY','SCOTCH','BOURBON','RUM','VODKA','GIN','BEER','LAGER','PILSNER','ALE','WINE','BRANDY','COGNAC','TEQUILA','LIQUEUR']);   // the bare kind — agrees already, never discriminates; grape varieties (SHIRAZ, CHENIN) DO (v2.47.0)
+const BEV_FORM=new Set(['DRAUGHT','DRAFT','KEG','CASK','BEER','LAGER','PREMIUM','STRONG','MILD','LIGHT','BLENDED','SCOTCH','WHISKY','RUM','VODKA','GIN','WINE','BRANDY','TEQUILA','LIQUEUR']);   // form / kind words — a house name's extra one of these is not a different product (v2.47.0)
 function bevTokens(s){
   const u=String(s||'').toUpperCase()
     .replace(/JOHNNIE\s+WALKER/g,'J W').replace(/\bJ\.?\s*W\.?(?=[A-Z ])/g,'J W ')
+    .replace(/([A-Z])(\d{2,5})\s*ML\b/g,'$1 $2 ML')                                         // GIN750ML → GIN 750 ML (v2.47.0)
+    .replace(/JIM\s+BEAM\s+KENTUCKY\s+STRAIGHT\s+BOURBON/g,'JIM BEAM WHITE BOURBON')      // the white label's official name (v2.47.0)
     .replace(/WHISKEY/g,'WHISKY').replace(/\bBIER\b/g,'BEER').replace(/LIQUER\b/g,'LIQUEUR')
     .replace(/(\d)\s*(ML)\b/g,'$1 $2').replace(/\b(\d+)\s*(YO|YRS?|YEARS?|Y)\b/g,'$1 YO')
     .replace(/[’'\x60]/g,'').replace(/!/g,'I');
@@ -3390,13 +3454,14 @@ function bevcoMatch(name, opt){
   ix.items.forEach(it=>{
     if(szB && it.sz && it.sz!==szB) return;                                                // bottle size is law
     if(kindB && it.kind && it.kind!==kindB && !(kindB==='LIQ'||it.kind==='LIQ')) return;   // whisky is not gin
-    let cw=0,cm=0, distinct=false, missDistinct=false;
-    it.toks.forEach(t=>{ const wt=ix.w(t); cw+=wt; const hit=B.some(b=>_bevTokEq(t,b)); const rare=(ix.df[t]||0)<=ix.N/10 && !BEV_KINDS[t];
-      if(hit){ cm+=wt; if(rare) distinct=true; } else if(rare) missDistinct=true; });
+    let cw=0,cm=0, distinct=false, missDistinct=false, uniqHit=false;
+    it.toks.forEach(t=>{ const wt=ix.w(t); cw+=wt; const hit=B.some(b=>_bevTokEq(t,b)); const rare=(ix.df[t]||0)<=ix.N/10 && !BEV_GENERIC.has(t) && !BEV_FORM.has(t);
+      if(hit){ cm+=wt; if(rare) distinct=true; if(rare && (ix.df[t]||0)<=2 && !/^\d/.test(t)) uniqHit=true; } else if(rare) missDistinct=true; });
     if(!cw||!distinct) return;
     const recall=cm/cw;                                                                     // how much of the house name the BEVCO name explains
-    let bw=0,bm=0; B.forEach(b=>{ if(BEV_FLUFF.has(b)) return; const wt=ix.w(b); if(!wt) return; bw+=wt; if(it.toks.some(t=>_bevTokEq(t,b))) bm+=wt; });
-    const cover=bw?bm/bw:recall;                                                            // how much of the BEVCO name the house name explains
+    let bw=0,bm=0,bMiss=false; B.forEach(b=>{ if(BEV_FLUFF.has(b)||BEV_GENERIC.has(b)) return; const wt=ix.w(b); if(!wt) return; bw+=wt; if(it.toks.some(t=>_bevTokEq(t,b))) bm+=wt; else if((ix.df[b]||0)<=ix.N/10) bMiss=true; });
+    if(missDistinct && uniqHit && recall>=0.6 && !bMiss) missDistinct=false;                 // GENTLEMAN (JACK): a word only this house item has, and nothing in the BEVCO name is left unexplained — the house's extra word is a brand prefix, not another variant (v2.47.0)
+    const cover=bw?bm/bw:recall;                                                            // how much of the BEVCO name the house name explains (kind words agree already — not counted, v2.47.0)
     let s=0.65*recall+0.35*cover; if(szB && !it.sz) s*=0.95; if(missDistinct) s*=0.8;      // a sibling variant (WHITE vs LEMON) is not a match
     if(recall>=0.5) scored.push({it,s,cover,missDistinct});
   });
@@ -3404,8 +3469,9 @@ function bevcoMatch(name, opt){
   if(!scored.length) return none;
   const best=scored[0]; const second=scored.find(x=>x.it.r.item!==best.it.r.item); const gap=second?best.s-second.s:1;
   // a sibling variant (the house has WHITE RUM, the invoice says SELECT RUM) may lend its GROUP to a new item but is never offered as the item itself
+  const lone=scored.filter(x=>x.it.r.item!==best.it.r.item).length===0;
   const sure=!best.missDistinct && ((best.s>=0.8 && gap>=0.12) || (best.s>=0.9 && gap>=0.06));
-  const guess=!best.missDistinct && best.s>=0.62;
+  const guess=!best.missDistinct && (best.s>=0.62 || (szB>=5000 && lone && best.s>=0.5));   // a lone keg of the brand at that size is offered (amber — the person confirms once, bevmap remembers) (v2.47.0)
   return { name:guess?best.it.r.item:'', group:best.it.r.group||'', score:Math.round(best.s*100)/100, sure, alt:(second&&second.s>=0.55)?second.it.r.item:'', top:{name:best.it.r.item, group:best.it.r.group||'', score:best.s} };
 }
 function bevcoMapName(name){ return bevcoMatch(name).name; }   // kept for callers of the old strip-fuzzy
@@ -3505,27 +3571,33 @@ function bevcoPreview(inv){
     if(sel && gs.indexOf(sel)<0) gs.unshift(sel); return gs.map(g=>`<option ${g===sel?'selected':''}>${esc(g)}</option>`).join(''); };
   let nSure=0,nGuess=0,nNew=0,nBlank=0;
   const grandP=inv.fees.total||inv.calc.total||0, factorP=(inv.calc.base>0&&grandP>0)?grandP/inv.calc.base:1;
+  // pre-pass (v2.47.0): resolve every line first so two lines landing on ONE Item Master name can be flagged — BEVCO never
+  // lists a product twice on an invoice; two lines on one name are two products (OLD NO. 7 + GENTLEMAN JACK) on one name
+  const pre=inv.items.map(x=>{ let learned=bevMap[norm(x.name)]||''; if(learned && !findRawExact(learned)) learned='';   // a remembered name that was since deleted
+    const m=learned?null:bevcoMatch(x.name); const mapped=learned||(m&&m.name)||'';
+    return {learned, m, mapped, state:learned?'learned':(m&&m.sure?'sure':(mapped?'guess':'new'))}; });
+  const shared={}; pre.forEach(p=>{ if(p.mapped) shared[norm(p.mapped)]=(shared[norm(p.mapped)]||0)+1; });
+  let nColl=0;
   const rows=inv.items.map((x,i)=>{
-    let learned=bevMap[norm(x.name)]||''; if(learned && !findRawExact(learned)) learned='';   // a remembered name that was since deleted
-    const m=learned?null:bevcoMatch(x.name);
-    const mapped=learned||(m&&m.name)||'';
-    const state=learned?'learned':(m&&m.sure?'sure':(mapped?'guess':'new'));
-    if(state==='new') nNew++; else if(state==='guess') nGuess++; else nSure++;
+    const learned=pre[i].learned, m=pre[i].m, mapped=pre[i].mapped; let state=pre[i].state;
+    const coll=!!(mapped && shared[norm(mapped)]>1); if(coll && state!=='new'){ state='coll'; nColl++; }
+    const others=coll?inv.items.filter((y,j)=>j!==i && norm(pre[j].mapped)===norm(mapped)).map(y=>y.name):[];
+    if(state==='new') nNew++; else if(state==='guess'||state==='coll') nGuess++; else nSure++;
     const clean=bevcoCleanName(x.name), ggrp=bevcoGuessGroup(x.name);
     const landE=Math.round(x.amount*factorP/(x.bots||1)*100)/100;                       // this line's landed rate — offered, never imposed
     const blankPrice=state!=='new' && !(invGet(mapped).land!=null && invGet(mapped).land!=='');
     if(blankPrice) nBlank++;
     const priceBox=`<div id="bevPr${i}" style="margin-top:3px;${(state==='new'||blankPrice)?'':'display:none'}"><span class="muted" style="font-size:10.5px">${state==='new'?'Landing ₹/bot for this new item':'<span style=\"color:var(--amber)\">No landing ₹ in Item Master yet</span> — set it'}</span>
           <input class="cell-input" id="bevLand${i}" style="width:84px;margin-left:4px" value="${landE}" title="Landing ₹ per bottle — the invoice's own landed rate is suggested; what you save here becomes the Item Master rate"></div>`;
-    const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item — rename / pick category</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
+    const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item — rename / pick category</span>`:state==='coll'?`<span class="pill amber" id="bevSt${i}" title="Two products on one name — this line and: ${esc(others.join(' · '))}. Give one of them its own Item Master name${m&&m.alt?' · maybe: '+esc(m.alt):''}">? 2 lines → one name</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
     return `<tr><td style="font-size:11px">${esc(x.name)} ${pill}
-        <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${state==='guess'?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(state==='new'?clean:mapped)}" placeholder="↳ Item Master name (blank = new item: ${esc(clean)})" oninput="bevMapEdit(${i})"></div>
+        <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${(state==='guess'||state==='coll')?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(state==='new'?clean:mapped)}" placeholder="↳ Item Master name (blank = new item: ${esc(clean)})" oninput="bevMapEdit(${i})"></div>
         <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">New in Item Master + Liquor Room under the name above · category</span>
           <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px" onchange="bevGrpPick(${i})">${groupOpts(ggrp)}<option value="__new__">＋ New category…</option></select>
           <input class="cell-input" id="bevGrpNew${i}" style="display:none;width:170px;text-align:left;margin-left:4px" placeholder="e.g. IMFL WHISKY 750 ML"></div>${priceBox}</td>
       <td class="num">₹${fmt(x.mrp)}</td><td class="num"><input class="cell-input" style="width:44px" id="bevQty${i}" value="${x.bots}"></td>
       <td class="num muted" style="font-size:10.5px">${esc(x.caseBot)}</td><td class="num gold">₹${fmt(x.amount)}</td></tr>`; }).join('');
-  const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
+  const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check${nColl?' ('+nColl+' share one name)':''}</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
   modal('🧾 BEVCO Invoice — '+esc(inv.no||''),
     `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the Item Master and the Liquor Room.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · new names → Item Master automatically · <strong>prices already set in Item Master are never changed by an invoice</strong>${nBlank?' · <span style="color:var(--amber)">'+nBlank+' item'+(nBlank>1?'s have':' has')+' no landing ₹ yet — set below</span>':''}</div>
      <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
