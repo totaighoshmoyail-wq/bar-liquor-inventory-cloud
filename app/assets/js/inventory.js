@@ -1490,6 +1490,7 @@ function mrSlipItemKey(e){
 }
 function mrSlipQtyKey(e){
   if(e.key==='Enter'){ e.preventDefault(); mrSlipAdd(); }
+  else if(e.key==='Tab' && !e.shiftKey){ e.preventDefault(); if(fnum(e.target.value)>0) mrSlipAdd(); else { const b=$('#msItem'); if(b) b.focus(); } }   // Tab after the qty = save the line and jump to the next item (v2.48.2); an empty qty just goes back to the item box
   else if(e.key==='ArrowUp'){ e.preventDefault(); const b=$('#msItem'); if(b){ b.focus(); try{ b.select(); }catch(err){} } }
   else if(e.key==='Escape'){ e.target.value=''; mrSlipLive(); }
 }
