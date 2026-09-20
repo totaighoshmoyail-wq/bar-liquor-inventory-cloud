@@ -1499,6 +1499,7 @@ function mrSlipQtyKey(e){
   if(e.key==='Enter'){ e.preventDefault(); mrSlipAdd(); }
   else if(e.key==='Tab' && !e.shiftKey){ e.preventDefault(); if(fnum(e.target.value)>0) mrSlipAdd(); else { const b=$('#msItem'); if(b) b.focus(); } }   // Tab after the qty = save the line and jump to the next item (v2.48.2); an empty qty just goes back to the item box
   else if(e.key==='ArrowUp'){ e.preventDefault(); const b=$('#msItem'); if(b){ b.focus(); try{ b.select(); }catch(err){} } }
+  else if(e.key==='ArrowDown'){ const q=document.querySelector('#view .mrtbl .cell-input.rvqty'); if(q){ e.preventDefault(); q.focus({preventScroll:true}); if(q.select) q.select(); q.scrollIntoView({block:'nearest',behavior:'smooth'}); } }   // into the register (v2.49.0)
   else if(e.key==='Escape'){ e.target.value=''; mrSlipLive(); }
 }
 function mrSlipAdd(){
@@ -2572,7 +2573,7 @@ document.addEventListener('keydown', function(e){
       if(cin.length){ target=cin[Math.min(Math.max(inTd,0),cin.length-1)]; break; }
     }
   }
-  if(!target) return;
+  if(!target){ if(k==='ArrowUp' && el.closest('.mrtbl') && $('#msQty')){ e.preventDefault(); $('#msQty').focus(); } return; }   // slip ↔ register (v2.49.0)
   e.preventDefault();
   const tables=Array.from(document.querySelectorAll('#view table'));
   const ti=tables.indexOf(table), gIdx=all.indexOf(target);
@@ -2580,7 +2581,7 @@ document.addEventListener('keydown', function(e){
   setTimeout(function(){
     const tb=Array.from(document.querySelectorAll('#view table'))[ti]; if(!tb) return;
     const a2=Array.from(tb.querySelectorAll('input.cell-input'));
-    const nx=a2[gIdx]; if(nx){ nx.focus(); if(nx.select) nx.select(); nx.scrollIntoView({block:'nearest'}); }
+    const nx=a2[gIdx]; if(nx){ nx.focus({preventScroll:true}); if(nx.select) nx.select(); nx.scrollIntoView({block:'nearest',behavior:'smooth'}); }
   },0);
 });
 /* Laptop keys everywhere (2026-07-18): PageUp / PageDown / Home / End scroll the sheet
@@ -2595,24 +2596,29 @@ document.addEventListener('keydown', function(e){
     if(s && s.offsetParent){ s.focus(); try{ s.select(); }catch(err){} e.preventDefault(); }
     return;
   }
+  if(k==='Escape'){                                   // Esc = close the open modal (v2.49.0); inside a field it first leaves the field
+    const backs=document.querySelectorAll('.modal-back'); if(!backs.length) return;
+    if(inField && t.closest && t.closest('.modal-back')){ t.blur(); e.preventDefault(); return; }
+    if(typeof _confirmCb!=='undefined') _confirmCb=null;
+    closeModal(); e.preventDefault(); return;
+  }
   if(k!=='PageDown'&&k!=='PageUp'&&k!=='Home'&&k!=='End') return;
   if((k==='Home'||k==='End') && inField) return;
+  const scrolls=w=>!!(w && w.offsetParent && w.scrollHeight>w.clientHeight+20);
   let sc=null;
   const mb=document.querySelector('.modal-body');
-  if(mb && mb.offsetParent && mb.scrollHeight>mb.clientHeight+10) sc=mb;
-  if(!sc){
-    const wraps=Array.from(document.querySelectorAll('#view .table-wrap'))
-      .filter(w=>w.offsetParent && w.scrollHeight>w.clientHeight+20);
-    if(wraps.length) sc=wraps.reduce((a,b)=>(b.clientHeight>a.clientHeight?b:a));
-  }
+  if(mb && scrolls(mb)) sc=mb;
+  if(!sc){ const w=(t.closest?t.closest('#view .table-wrap'):null); if(scrolls(w)) sc=w; }                       // the sheet you are typing in
+  if(!sc && _hoverWrap && document.contains(_hoverWrap) && scrolls(_hoverWrap)) sc=_hoverWrap;                      // else the sheet under the mouse
   const el=sc||document.scrollingElement||document.documentElement;
   const page=(sc?sc.clientHeight:window.innerHeight)*0.9;
-  if(k==='PageDown') el.scrollTop+=page;
-  else if(k==='PageUp') el.scrollTop-=page;
-  else if(k==='Home') el.scrollTop=0;
-  else el.scrollTop=el.scrollHeight;
+  if(k==='PageDown') el.scrollBy({top:page,behavior:'smooth'});
+  else if(k==='PageUp') el.scrollBy({top:-page,behavior:'smooth'});
+  else if(k==='Home') el.scrollTo({top:0,behavior:'smooth'});
+  else el.scrollTo({top:el.scrollHeight,behavior:'smooth'});
   e.preventDefault();
 });
+var _hoverWrap=null; document.addEventListener('mouseover', function(e){ const w=(e.target && e.target.closest) ? e.target.closest('#view .table-wrap') : null; if(w) _hoverWrap=w; }, true);
 
 /* ============================================================
    DASHBOARD — royal rebuild (overrides bartie's old dashboard).

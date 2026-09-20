@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.48.3';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.49.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -961,13 +961,8 @@ function spiritDatalist(){ return `<datalist id="spiritList">${tallyNamesSorted(
 /* search that survives re-render — keeps the box focused & cursor at end */
 /* Quiet re-render for live search typing: same route(), but entry animations are
    suppressed for a beat so the page never flickers while you type. */
-var _quietT=null;
-function routeQuiet(){
-  document.body.classList.add('a-off');
-  route();
-  if(_quietT) clearTimeout(_quietT);
-  _quietT=setTimeout(()=>document.body.classList.remove('a-off'), 300);
-}
+var _quietT=null, _lastRouteId='';
+function routeQuiet(){ _quietNext=true; route(); }   // v2.49.0: a-off now stays on until the next real page change (see route)
 function searchType(kind,val){
   if(kind==='order')oQuery=val; else if(kind==='tally')tQuery=val; else if(kind==='cocktail')cQuery=val; else if(kind==='alias')aQuery=val; else if(kind==='link')lQuery=val; else if(kind==='ckalias')ckaQuery=val;
   routeQuiet();
@@ -1244,7 +1239,7 @@ document.addEventListener('change', function(e){
     if(a && a.classList && a.classList.contains('cell-input')) return;   // arrow/Enter nav already moved on
     const tb=$$('#view table')[ti]; if(!tb) return;
     const nx=tb.querySelectorAll('input.cell-input')[ii];
-    if(nx){ nx.focus(); if(nx.select) nx.select(); }
+    if(nx){ nx.focus({preventScroll:true}); if(nx.select) nx.select(); }
   },0);
 }, true);
 function route(){
@@ -1254,9 +1249,12 @@ function route(){
   const _pgEl=document.scrollingElement||document.documentElement;
   const _pgTop=_pgEl?_pgEl.scrollTop:0;
   const _wrapTops=$$('#view .table-wrap').map(w=>w.scrollTop);
-  if(_quietNext){ _quietNext=false; document.body.classList.add('a-off');
-    if(_quietT) clearTimeout(_quietT);
-    _quietT=setTimeout(()=>document.body.classList.remove('a-off'), 300); }
+  // v2.49.0: the entry animation plays on a real page change only. Any re-render of the SAME page (an edit, a filter, a
+  // search keystroke) is quiet, and body.a-off STAYS ON until the next page change — removing it 300 ms later restarted
+  // viewFade (animation none → viewFade is a new animation) and made the page fade + slide after every keystroke.
+  const _same=(id===_lastRouteId); _lastRouteId=id;
+  if(_quietNext || _same){ _quietNext=false; document.body.classList.add('a-off'); }
+  else { document.body.classList.remove('a-off'); }
   $$('[data-nav]').forEach(n=>n.classList.toggle('active', n.dataset.nav===id));
   const [t,c]=TITLES[id]||['',''];
   $('#pgTitle').textContent=t; $('#pgCrumb').textContent=c;
@@ -1264,8 +1262,10 @@ function route(){
   refreshBadges();
   if(AFTER[id]) AFTER[id]();
   const _w2=$$('#view .table-wrap');
-  _wrapTops.forEach((v,i)=>{ if(_w2[i] && v) _w2[i].scrollTop=v; });
-  if(_pgEl && _pgTop) _pgEl.scrollTop=_pgTop;
+  // scroll restore is INSTANT (html/table-wrap have scroll-behavior:smooth since v2.49.0 — a restore must not animate);
+  // a real page change opens at the top
+  _wrapTops.forEach((v,i)=>{ if(_w2[i] && v) _w2[i].scrollTo({top:v,behavior:'instant'}); });
+  if(_pgEl){ if(_same){ if(_pgTop) _pgEl.scrollTo({top:_pgTop,behavior:'instant'}); } else _pgEl.scrollTo({top:0,behavior:'instant'}); }
 }
 const VIEWS={}, AFTER={};
 
