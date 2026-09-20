@@ -1334,10 +1334,12 @@ VIEWS.mrdetail = () => {
   const _lrNow={}; const lrNow=name=>{ if(_lrNow[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _lrNow[name]=op+rv-is; } return _lrNow[name]; };
   const body=mrDetail.map((r,i)=>{ const ok=inRaw(r.item); const q=fnum(r.qty), amt=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty);
     const cl=ok?lrNow(r.item):null;
+    // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
     return `<tr class="${ok?'':'row-alert'}">
-      <td class="nowrap">${r.date||'—'}</td>
+      <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
       <td>${ok?`<span class="pill gray">${findRaw(r.item).group}</span>`:redBadge()}</td>
-      <td class="lrname"><strong>${r.item}</strong></td><td class="num"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}${qd}</span></td>
+      <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
+      <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
       <td class="num"><span class="lrval">${amt?('₹ '+fmt(Math.round(amt))):'<span class="muted">—</span>'}</span></td>
       <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
       <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('')
@@ -1381,7 +1383,7 @@ VIEWS.mrdetail = () => {
       <thead><tr><th style="width:96px">Date</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
       <tbody>${body}</tbody>
       <tfoot><tr class="lrsub" style="position:sticky;bottom:0"><td colspan="3" class="right"><strong>TOTAL</strong></td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(totalAmt))}</strong></td><td colspan="2"></td></tr></tfoot>
-      </table></div></div>`;
+      </table></div>${rawNamesDatalist()}</div>`;
       if(lay==='def') return defCard;
       if(lay==='dense') return `<div class="laydense">${defCard}</div>`;
       const byG={}; mrDetail.forEach((r,i)=>{ const k=r.group||'— no group'; (byG[k]=byG[k]||[]).push({r,i}); });
@@ -1391,6 +1393,11 @@ VIEWS.mrdetail = () => {
       return `<div class="card-head" style="padding:0 0 8px 0;border:none"><div><h3>Saved Issues</h3></div><div class="flex gap-8 items-center">${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>`+renderLay('mrdetail',lay,grp,{listTitle:'Groups'});
     })()}`;
 };
+function mrSetField(i,f,v){ const r=mrDetail[i]; if(!r) return;   // v2.48.3 — the register's date · item · qty edited in place
+  if(f==='qty'){ const n=evalNum(v); if(n===''||isNaN(+n)||!(+n>0)){ toast('Qty?','Bottles issued must be more than 0 — ✕ removes the line','err'); route(); return; } r.qty=+n; }
+  else if(f==='date'){ const d=String(v||'').trim(); if(!d){ route(); return; } r.date=d; }
+  else if(f==='item'){ const nm=String(v||'').replace(/s+/g,' ').trim().toUpperCase(); if(!nm){ route(); return; } const ex=findRawExact(nm)||findRaw(nm); r.item=ex?ex.item:nm; r.group=ex?(ex.group||''):(r.group||''); }
+  bsv('mr',mrDetail); route(); }
 function clearAllMr(){ if(!mrDetail.length){ toast('Empty','No MR issues to clear','err'); return; }
   confirmAsk(`Delete <strong>ALL ${mrDetail.length} MR issue(s)</strong>? This clears the entire Bar Stock Issue list and cannot be undone.`, ()=>{
     mrDetail.length=0; bsv('mr',mrDetail); route(); toast('Cleared','All MR issues removed','err'); }); }

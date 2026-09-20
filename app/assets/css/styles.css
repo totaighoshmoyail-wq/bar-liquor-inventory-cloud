@@ -1740,6 +1740,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .tbl tr.rvcoll td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
 .tbl .lrinv.dupc{border-color:var(--amber);color:var(--amber);font-weight:700}
 .recvtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)}
+.mrtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px} .mrtbl .cell-input.rvqty{width:60px;color:var(--red);font-weight:700} .mrtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)} .mrtbl td.num .lrsg{margin-right:2px}   /* Issue Register edits in place (v2.48.3) */
 
 /* ---- Liquor Room head looks (v2.46.0) — ① Royal Ledger · ② Crown Seal, the client's picks from the canvas; ③ Classic = the
    v2.31.0 .lrflow head. pref.lrHead. Theme tokens only, so every theme keeps its own colours. ---- */

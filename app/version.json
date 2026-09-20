@@ -1,1 +1,1 @@
-{"version":"2.48.2","date":"2026-09-20","notes":"Issue Slip: Tab moves along the line — item → qty, and Tab after the qty saves the line and jumps to the next item (Enter still does the same)."}
+{"version":"2.48.3","date":"2026-09-20","notes":"Issue Register: a wrong issue is fixed in place — click the date, the item or the bottles on any row and change it (12+12 works; the item snaps to your Item Master spelling)."}
