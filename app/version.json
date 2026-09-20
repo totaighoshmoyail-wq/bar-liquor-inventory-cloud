@@ -1,1 +1,1 @@
-{"version":"2.49.1","date":"2026-09-20","notes":"Issue Register: search & check — From → To date, Group, and a search box (item / group / date) in the register head; the list and its TOTAL follow as you type, without the page moving."}
+{"version":"2.49.2","date":"2026-09-20","notes":"Issue Register: same-date double entries are flagged — red ⚠ duplicate when date, item and bottles all repeat, amber ? same day when only the bottles differ — with a card that counts them and a Show them filter; the Issue Slip asks before issuing an item a second time on the same date."}

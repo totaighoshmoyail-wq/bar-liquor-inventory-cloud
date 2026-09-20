@@ -1365,6 +1365,7 @@ VIEWS.mrdetail = () => {
     ${(()=>{ const lay=pageLay('mrdetail');
       const defCard=`<div class="card barinv laydense mrtbl"><div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Issue Register</h3><p>All issues, Liquor Room → Bar · last column = that item's Liquor-Room stock <em>now</em> · search by date, group or item</p></div>
       <div class="flex gap-8 items-center" style="flex-wrap:wrap">${mrRegFilterHtml()}${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>
+      <div id="mrDupCard">${mrDupCardHtml()}</div>
       <div class="table-wrap" style="max-height:460px;overflow-y:auto"><table class="tbl">
       <thead><tr><th style="width:96px">Date</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
       <tbody id="mrRegBody">${body}</tbody>
@@ -1383,24 +1384,37 @@ VIEWS.mrdetail = () => {
    option". A filter bar in the register head: From → To date, Group, a text search (item / group / date). Filtering
    rewrites only the tbody / tfoot / count (no route), so typing never re-renders the page; the head cards keep the
    page totals, the tfoot shows the SHOWN total when a filter is on. Row markup is shared with the full render. */
-var _mrf={q:'', from:'', to:'', grp:''};
-function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp); const out=[];
-  mrDetail.forEach((r,i)=>{ if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
+/* same-date double entries (v2.49.2): the same item twice on one date — identical bottles = almost surely entered twice
+   (dup, red); different bottles = two issues or a slip (maybe, amber). Flagged in the register, counted in a card, and the
+   slip asks before issuing an item a second time on the same date. */
+function mrDupInfo(){ const by={}; mrDetail.forEach((r,i)=>{ const k=String(r.date||'')+'\x01'+norm(r.item); (by[k]=by[k]||[]).push(i); });
+  const info={}, groups=[];
+  Object.values(by).forEach(ix=>{ if(ix.length<2) return; const qs=new Set(ix.map(i=>String(fnum(mrDetail[i].qty)))); const kind=qs.size===1?'dup':'maybe';
+    ix.forEach(i=>{ info[i]=kind; }); groups.push({ix, kind, date:mrDetail[ix[0]].date, item:mrDetail[ix[0]].item}); });
+  const vals=Object.values(info); return {info, groups, n:vals.length, nDup:vals.filter(v=>v==='dup').length, nMaybe:vals.filter(v=>v==='maybe').length}; }
+function mrDupOn(date,item){ const d=String(date||''), k=norm(item); return mrDetail.map((r,i)=>({r,i})).filter(x=>String(x.r.date||'')===d && norm(x.r.item)===k); }
+function mrDupCardHtml(){ const D=mrDupInfo(); if(!D.n) return '';
+  const col=D.nDup?'red':'amber';
+  return `<div class="mrdup noprint" style="--c:var(--${col})"><span class="t">⚠ ${D.n} entr${D.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${D.nDup?D.nDup+' with the same date · item · bottles — entered twice? ✕ the extra one':''}${D.nDup&&D.nMaybe?' · ':''}${D.nMaybe?D.nMaybe+' with the same date · item but different bottles — check they are two real issues':''}.</span><button class="btn btn-sm" onclick="mrRegSet('dup', _mrf.dup?'':'1')">${_mrf.dup?'Show all':'Show them'}</button></div>`; }
+var _mrf={q:'', from:'', to:'', grp:'', dup:''};
+function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp); const out=[]; const D=_mrf.dup?mrDupInfo():null;
+  mrDetail.forEach((r,i)=>{ if(D && !D.info[i]) return; if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
     const ex=findRaw(r.item); const grp=ex?(ex.group||''):(r.group||'');
     if(g && norm(grp)!==g) return;
     if(q && !(norm(r.item).includes(q) || norm(grp).includes(q) || String(r.date||'').includes(_mrf.q.trim()))) return;
     out.push(i); });
   return out; }
-function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp); }
+function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp||_mrf.dup); }
 function mrRegHtml(){
   const _c={}; const lrNow=name=>{ if(_c[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _c[name]=op+rv-is; } return _c[name]; };
-  const idx=mrRegIdx(); let total=0, amt=0;
-  const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
+  const idx=mrRegIdx(); let total=0, amt=0; const DUP=mrDupInfo();
+  const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const dk=DUP.info[i];
+    const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same date + same item + same bottles appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date + same item, different bottles — two real issues, or a slip">? same day</span>':''; const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
     const cl=ok?lrNow(r.item):null;
     // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
-    return `<tr class="${ok?'':'row-alert'}">
+    return `<tr class="${ok?'':'row-alert'}${dk==='dup'?' rvdup':''}">
       <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
-      <td>${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:redBadge()}</td>
+      <td class="nowrap">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:redBadge()}${dupPill}</td>
       <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
       <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
       <td class="num"><span class="lrval">${a?('₹ '+fmt(Math.round(a))):'<span class="muted">—</span>'}</span></td>
@@ -1424,11 +1438,11 @@ function mrRegFilterHtml(){
     <span class="muted n" id="mrfN">${mrRegHtml().count}</span>
   </div>`;
 }
-function mrRegPaint(){ const R=mrRegHtml(); const b=$('#mrRegBody'), f=$('#mrRegFoot'), n=$('#mrfN'), c=$('#mrfClear');
-  if(b) b.innerHTML=R.body; if(f) f.innerHTML=R.foot; if(n) n.innerHTML=R.count; if(c) c.style.display=mrRegOn()?'':'none'; }
+function mrRegPaint(){ const R=mrRegHtml(); const b=$('#mrRegBody'), f=$('#mrRegFoot'), n=$('#mrfN'), c=$('#mrfClear'), d=$('#mrDupCard');
+  if(b) b.innerHTML=R.body; if(f) f.innerHTML=R.foot; if(n) n.innerHTML=R.count; if(c) c.style.display=mrRegOn()?'':'none'; if(d) d.innerHTML=mrDupCardHtml(); }
 function mrRegType(v){ _mrf.q=v; mrRegPaint(); }
 function mrRegSet(k,v){ _mrf[k]=v||''; mrRegPaint(); }
-function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:''}; ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
+function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:'', dup:''}; ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
 function mrSetField(i,f,v){ const r=mrDetail[i]; if(!r) return;   // v2.48.3 — the register's date · item · qty edited in place
   if(f==='qty'){ const n=evalNum(v); if(n===''||isNaN(+n)||!(+n>0)){ toast('Qty?','Bottles issued must be more than 0 — ✕ removes the line','err'); route(); return; } r.qty=+n; }
   else if(f==='date'){ const d=String(v||'').trim(); if(!d){ route(); return; } r.date=d; }
@@ -1470,7 +1484,7 @@ function mrHitsHtml(){
    → pick → qty → Enter = saved), the lines of that date beneath it (newest first). Same figures as before: stock =
    Opening + Received − Issued (`_msStock`), amount = qty × landOf. Saving pushes the same {date,group,item,qty} entry
    (plus an id, like manual purchases) and re-renders quietly, so the empty entry row is simply there again. */
-var _ms={i:-1, q:'', sel:0, hits:[]};   // the live row: picked rawData index · typed text · dropdown highlight · matches
+var _ms={i:-1, q:'', sel:0, hits:[], qty:''};   // the live row: picked rawData index · typed text · dropdown highlight · matches · typed qty (kept across a quiet re-render)
 var _msLast=-1;                            // index of the line just saved — flashed green once
 function _msStock(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op, rv, is, cl:op+rv-is}; }
 function _msHits(q){ q=norm(q); if(!q) return []; const starts=[], incl=[];
@@ -1500,7 +1514,7 @@ function mrFindPanel(){
       <div class="c lv it"><input id="msItem" class="cell-input msin" placeholder="Search item…" autocomplete="off" value="${esc(_ms.q)}" oninput="mrSlipType(this.value)" onfocus="mrSlipType(this.value)" onblur="mrSlipBlur()" onkeydown="mrSlipItemKey(event)"><div id="msDD" class="msdd"></div></div>
       <div class="c lv g" id="msGrp"><span class="mu">—</span></div>
       <div class="c lv r stk" id="msStk"><span class="mu">—</span></div>
-      <div class="c lv r"><input id="msQty" class="cell-input msin q" type="number" min="0" step="any" placeholder="qty" oninput="mrSlipLive()" onkeydown="mrSlipQtyKey(event)"></div>
+      <div class="c lv r"><input id="msQty" class="cell-input msin q" type="number" min="0" step="any" placeholder="qty" value="${esc(_ms.qty||'')}" oninput="_ms.qty=this.value;mrSlipLive()" onkeydown="mrSlipQtyKey(event)"></div>
       <div class="c lv r amt" id="msAmt"><span class="mu">—</span></div>
       <div class="c lv x"><button class="btn btn-gold btn-sm" onclick="mrSlipAdd()" title="Save this line (Enter does the same)">＋</button></div>
       <div id="msLines" style="display:contents">${mrSlipLinesHtml()}</div>
@@ -1538,19 +1552,25 @@ function mrSlipQtyKey(e){
   else if(e.key==='ArrowDown'){ const q=document.querySelector('#view .mrtbl .cell-input.rvqty'); if(q){ e.preventDefault(); q.focus({preventScroll:true}); if(q.select) q.select(); q.scrollIntoView({block:'nearest',behavior:'smooth'}); } }   // into the register (v2.49.0)
   else if(e.key==='Escape'){ e.target.value=''; mrSlipLive(); }
 }
-function mrSlipAdd(){
+function mrSlipAdd(force){
   let r=_ms.i>=0?rawData[_ms.i]:null;
   if(!r){ const v=(($('#msItem')||{}).value||'').trim(); const ex=v&&findRawExact(v); if(ex) r=ex; else if(_ms.hits.length===1) r=rawData[_ms.hits[0]]; }
   if(!r){ toast('Which item?','Type a name and pick it from the list','err'); const b=$('#msItem'); if(b) b.focus(); return; }
   const q=fnum(($('#msQty')||{}).value); if(!(q>0)){ toast('Qty?','Enter the bottles to issue','err'); const qb=$('#msQty'); if(qb) qb.focus(); return; }
   const d=(($('#mqDate')||{}).value)||_mqDate||period.from; _mqDate=d;
+  if(!force){ const prev=mrDupOn(d, r.item); if(prev.length){   // already issued on this date → ask (v2.49.2); Enter = Cancel, the safe answer
+    const list=prev.map(x=>fmt(fnum(x.r.qty))+' btl').join(' + ');
+    modal('⚠ Already issued on '+esc(d), `<p style="font-size:13.5px;line-height:1.6"><strong>${esc(r.item)}</strong> is already in the register on <strong>${esc(d)}</strong> — ${list}.<br>Is this <strong>${fmt(q)} btl</strong> a second issue, or the same entry typed twice?</p>`,
+      `<button class="btn" id="mrDupNo" onclick="closeModal();mrSlipFocusQty()">Cancel — same entry</button><button class="btn btn-gold" onclick="closeModal();mrSlipAdd(true)">Yes, issue again</button>`);
+    setTimeout(()=>{ const b=$('#mrDupNo'); if(b) b.focus(); },0); return; } }
   const left=_msStock(r.item).cl-q;
   mrDetail.push({id:_msNewId(), date:d, group:r.group||'', item:String(r.item).toUpperCase(), qty:q});
-  bsv('mr',mrDetail); _msLast=mrDetail.length-1; _ms={i:-1, q:'', sel:0, hits:[]};
+  bsv('mr',mrDetail); _msLast=mrDetail.length-1; _ms={i:-1, q:'', sel:0, hits:[], qty:''};
   routeQuiet();   // the register, the head figures and the slip lines follow; the entry row comes back empty
   toast('Issued', r.item+' — '+fmt(q)+' → Bar · '+fmt(left)+' left in Liquor Room', left<0?'err':'ok');
   const b=$('#msItem'); if(b) b.focus();
 }
+function mrSlipFocusQty(){ const b=$('#msQty'); if(b){ b.focus(); if(b.select) b.select(); } }
 AFTER.mrdetail=function(){ if(document.activeElement===document.body && ((document.scrollingElement||document.documentElement).scrollTop||0)<40){ const b=$('#msItem'); if(b) b.focus(); } };
 /* keyboard flow in the panel: search ↓ → first qty · qty ↓/↑ → next/prev qty (↑ from the
    first goes back to search) · Enter = issue · Esc clears the search */
