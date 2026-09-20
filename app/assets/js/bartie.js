@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.49.2';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.50.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -266,22 +266,38 @@ function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cl
    cloud's updated_at, so two devices saving at the same moment cannot bury each other: the loser
    simply merges again. Afterwards the other side's sheets are laid into THIS device and the page
    reloads as soon as the person is idle. */
-const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1};
+/* v2.50.0: every list and the per-item objects merge THREE-WAY per entry — server ∪ mine, where an entry I changed since the
+   base wins, one I removed stays removed, one they changed comes down. Before this an edited entry that kept its id
+   (a register qty fixed in place) looked "unchanged" and the cloud copy overwrote the edit; and inv / bevmap were whole-key
+   (the later push buried the other device's item edits — the "items go missing" of 2026-09-20). */
+const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1, rawdata2:1, tally:1};
+const CLOUD_OBJKEYS={inv:1, bevmap:1};
+function _cloudKeyOf(k,e){ if(k==='rawdata2') return 'it:'+norm((e&&e.item)||''); if(k==='tally') return 'br:'+norm((e&&e.name)||''); return _cloudEntryKey(e); }
 function _cloudBaseGet(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudbase')||'{}')||{}; }catch(e){ return {}; } }
-function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).forEach(k=>{ if(data&&data[k]!=null) b[k]=data[k]; });
+function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).concat(Object.keys(CLOUD_OBJKEYS)).forEach(k=>{ if(data&&data[k]!=null) b[k]=data[k]; });
   try{ localStorage.setItem(CO_PREFIX+'cloudbase', JSON.stringify(b)); }catch(e){} }
 function _cloudParseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
 /* identity of one entry — content based, since rows carry no id (an invoice-register row has its number) */
 function _cloudEntryKey(e){ if(!e||typeof e!=='object') return String(e); if(e.no!=null) return 'no:'+String(e.no); if(e.id) return 'id:'+String(e.id);   // manual purchases carry an id (v2.39.0) — two identical cash buys are two entries
   return [e.date,e.item,e.group,e.qty,e.inv,(e.land!=null&&e.land!=='')?Math.round(+e.land*100)/100:'',e.src||''].map(x=>x==null?'':String(x)).join(''); }   // + landed rate, so a corrected rate travels as replace-not-ignore (v2.35.2)
-function cloudMergeList(serverStr, baseStr, mineStr){
+function cloudMergeList(serverStr, baseStr, mineStr, listKey){
+  const kf=e=>_cloudKeyOf(listKey||'', e);
   const server=_cloudParseArr(serverStr), base=_cloudParseArr(baseStr), mine=_cloudParseArr(mineStr);
-  const baseSet={}; base.forEach(e=>{ baseSet[_cloudEntryKey(e)]=1; });
-  const mineSet={}; mine.forEach(e=>{ mineSet[_cloudEntryKey(e)]=1; });
-  const iRemoved={}; base.forEach(e=>{ const k=_cloudEntryKey(e); if(!mineSet[k]) iRemoved[k]=1; });
+  const B={}, M={}; base.forEach(e=>{ B[kf(e)]=JSON.stringify(e); }); mine.forEach(e=>{ M[kf(e)]={e, j:JSON.stringify(e)}; });
   const out=[], seen={};
-  server.forEach(e=>{ const k=_cloudEntryKey(e); if(iRemoved[k]||seen[k]) return; seen[k]=1; out.push(e); });
-  mine.forEach(e=>{ const k=_cloudEntryKey(e); if(baseSet[k]||seen[k]) return; seen[k]=1; out.push(e); });
+  server.forEach(e=>{ const k=kf(e); if(seen[k]) return; seen[k]=1;
+    if(k in B && !(k in M)) return;                       // I removed it since the base → stays removed
+    if(k in M && M[k].j!==B[k]){ out.push(M[k].e); return; }   // I changed it (or added it and they have one too) → mine
+    out.push(e); });                                       // untouched by me → theirs (with any change they made)
+  mine.forEach(e=>{ const k=kf(e); if(seen[k]) return; seen[k]=1; if(k in B) return; out.push(e); });   // my additions
+  return JSON.stringify(out);
+}
+function cloudMergeObj(serverStr, baseStr, mineStr){   // {key: value} objects (inv per item, bevmap per BEVCO name): three-way per key
+  const P=s=>{ try{ const v=JSON.parse(s||'{}'); return (v&&typeof v==='object'&&!Array.isArray(v))?v:{}; }catch(e){ return {}; } };
+  const server=P(serverStr), base=P(baseStr), mine=P(mineStr); const out=Object.assign({}, server);
+  const J=v=>JSON.stringify(v);
+  Object.keys(mine).forEach(k=>{ if(!(k in base) || J(mine[k])!==J(base[k])) out[k]=mine[k]; });   // I added / changed → mine
+  Object.keys(base).forEach(k=>{ if(!(k in mine) && k in out && J(out[k])===J(base[k])) delete out[k]; });   // I removed and they did not change → gone
   return JSON.stringify(out);
 }
 /* lay a merged copy into this device: only keys that differ; returns true when memory is now stale */
@@ -305,7 +321,14 @@ function _cloudReloadWhenIdle(changedKeys){
 }
 // force=true (Settings → "Replace the cloud copy") skips the merge: this device's copy becomes the cloud's,
 // whatever the cloud holds — the way out when the cloud copy is an old or empty one
-async function cloudPush(silent, force){
+var _cloudPushing=false, _cloudPushAgain=false;
+async function cloudPush(silent, force){   // v2.50.0: never two pushes at once — the second waits and runs once after the first
+  if(_cloudPushing){ _cloudPushAgain=true; return false; }
+  _cloudPushing=true;
+  try{ return await _cloudPushCore(silent, force); }
+  finally{ _cloudPushing=false; if(_cloudPushAgain){ _cloudPushAgain=false; setTimeout(()=>{ cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 250); } }
+}
+async function _cloudPushCore(silent, force){
   if(!cloudOn()){ if(!silent) toast('Not set up','Enter the cloud URL and key first','err'); return false; }
   const _kp=cloudKeyProblem(cloudCfg().key);
   if(_kp){ if(!silent){ _cldSay('❌ The saved key is not usable — '+_kp+'.'); toast('Bad key',_kp,'err'); } return false; }
@@ -348,7 +371,7 @@ async function cloudPush(silent, force){
           const baseSnap=_cloudBaseGet(), dset={}; dk.forEach(k=>{ dset[k]=1; });
           const merged=Object.assign({},cloud);
           Object.keys(keys).forEach(k=>{
-            if(dset[k]) merged[k]=CLOUD_LISTKEYS[k]?cloudMergeList(cloud[k],baseSnap[k],keys[k]):keys[k];   // my sheet · my entries + theirs
+            if(dset[k]) merged[k]=CLOUD_LISTKEYS[k]?cloudMergeList(cloud[k],baseSnap[k],keys[k],k):CLOUD_OBJKEYS[k]?cloudMergeObj(cloud[k],baseSnap[k],keys[k]):keys[k];   // my sheet · three-way where the key allows it
             else if(merged[k]==null) merged[k]=keys[k];                                                    // the cloud never had it
           });
           payload=merged;
@@ -448,7 +471,7 @@ async function cloudTest(){
    What the client asked for: work on the computer or on the website and see the same figures
    in both, without pressing anything. Two halves make that true.
 
-   PUSHING is always safe, so it is automatic: every tracked save schedules a push 20 s later,
+   PUSHING is always safe, so it is automatic: every tracked save schedules a push 2 s later (v2.50.0; was 20 s),
    and switching away from the window pushes straight away.
 
    PULLING replaces everything on this device, so it happens on its own ONLY when nothing here
@@ -482,7 +505,7 @@ function cloudMark(k){
   try{ sbFill(); }catch(e){}
   if(!cloudLive()) return;
   if(_cloudTimer) clearTimeout(_cloudTimer);
-  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 20000);
+  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 2000);   // v2.50.0: 2 s (was 20 s)
 }
 /* leaving the window is the moment work most often moves to the other device */
 document.addEventListener('visibilitychange', ()=>{
@@ -497,7 +520,15 @@ document.addEventListener('visibilitychange', ()=>{
 /* ---------------- Cloud watch ---------------- */
 var _cloudSeenAt=null, _cloudWatchT=null, _lastAct=0;   // 0 = nothing touched since load
 ['keydown','pointerdown','wheel'].forEach(ev=>document.addEventListener(ev, ()=>{ _lastAct=Date.now(); }, true));
-function _cloudIdle(){ return (Date.now()-_lastAct) > 15000 && !document.getElementById('modalBack'); }
+/* v2.50.0: "busy" = a dialog is open, a key/click in the last 2.5 s, or the cursor sits in a field that holds text (a resting
+   EMPTY search box is not busy). Data comes down the moment the person is not mid-edit; the render then waits the same way. */
+function _cloudBusy(){
+  if(document.getElementById('modalBack')) return true;
+  if(Date.now()-_lastAct<2500) return true;
+  const a=document.activeElement;
+  if(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && !/^(button|checkbox|file|date|radio|submit)$/.test(a.type||'') && String(a.value||'').trim()!=='') return true;
+  return false; }
+function _cloudIdle(){ return !_cloudBusy(); }
 function _agoTxt(iso){
   const s=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/1000));
   if(s<90) return 'just now';
@@ -555,7 +586,7 @@ async function cloudPullAuto(){
   }catch(e){ return false; }
 }
 async function cloudCheck(){
-  if(!cloudOn()) return;
+  if(!cloudOn() || _cloudPushing) return;
   try{ if(sessionStorage.getItem('tg2_needReload') && _cloudIdle()){ sessionStorage.removeItem('tg2_needReload'); location.reload(); return; } }catch(e){}
   try{
     const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
@@ -563,18 +594,24 @@ async function cloudCheck(){
     const j=await r.json(); if(!Array.isArray(j)||!j.length) return;
     const stamp=j[0].updated_at, cloudT=new Date(stamp).getTime();
     const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
-    // 2 minutes of slack so this device's own push never trips its own alarm
-    if(!(cloudT>localT+120000)) return;
+    // v2.50.0: the cloud "moved on" when its stamp is not the one this device last wrote or pulled (cloudAt) — exact, so
+    // the other side's save is seen at the next check (the old rule needed the cloud to be 2 MINUTES newer than this
+    // device's own push, so two devices working at the same time never pulled each other's work until one went idle)
+    const seenT=m.cloudAt?new Date(m.cloudAt).getTime():NaN;
+    if(!isNaN(seenT)){ if(Math.abs(cloudT-seenT)<1500) return; }
+    else if(!(cloudT>localT+120000)) return;                 // legacy meta without cloudAt: the old slack
     if(cloudDirty()){                                   // both sides changed → a push now MERGES (v2.34.0)
       if(cloudLive() && cloudSignedIn()){ if(_cloudTimer){ clearTimeout(_cloudTimer); _cloudTimer=null; } const ok=await cloudPush(true); if(ok){ try{ sbFill(); }catch(e){} return; } }
       if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,true); }   // could not go up (signed out / no connection) — ask
       return;
     }
-    if(cloudLive() && _cloudIdle()){ await cloudPullAuto(); return; }
+    if(cloudLive()){ if(_cloudIdle()) await cloudPullAuto(); return; }   // live: come down now, or at the next check when the person is mid-edit — no banner (v2.50.0)
     if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,false); }
   }catch(e){}
 }
-function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT); _cloudWatchT=setInterval(cloudCheck,45000); }
+var _cloudLastCheck=0;
+function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT);
+  _cloudWatchT=setInterval(()=>{ if(document.hidden && Date.now()-_cloudLastCheck<30000) return; _cloudLastCheck=Date.now(); cloudCheck(); }, 6000); }   // v2.50.0: 6 s (was 45 s), 30 s when the tab is hidden
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{
   try{ if(sessionStorage.getItem('tg2_autopulled')){ sessionStorage.removeItem('tg2_autopulled');
     toast('Up to date','Brought in the newest data from the cloud','ok'); } }catch(e){}
@@ -2678,9 +2715,9 @@ VIEWS.settings = () => {
         <input type="checkbox" style="margin-top:2px;accent-color:var(--gold)" ${cloudLive()?'checked':''}
           onchange="var c=cloudCfg();c.auto=this.checked;cloudSave(c);toast(this.checked?'Live sync on':'Live sync off',this.checked?'This computer and the website will keep each other up to date':'You will push and pull by hand now','ok');route()">
         <span><strong class="gold">Keep this computer and the website in step automatically</strong><br>
-          Your changes go up on their own about 20 seconds after you make them, and again the moment you switch away.
-          New data from the other side comes down by itself <em>only</em> when nothing here is still waiting to go up and
-          you are not typing — otherwise the app stops and asks, so nobody's work is ever replaced without a click.</span></label>
+          Your changes go up on their own about 2 seconds after you make them, and again the moment you switch away.
+          The other side is checked every 6 seconds; its changes come down by themselves as soon as you are not mid-edit,
+          merged entry by entry with yours — an entry you changed stays yours, one they changed comes in.</span></label>
       <div class="muted" id="cldStat" style="font-size:12px;min-height:16px">${(function(){
         const kp=cloudOn()?cloudKeyProblem(cloudCfg().key):'';
         if(kp) return '❌ The saved key is not usable — '+esc(kp)+'. Clear the API-key box below and paste the whole key again.';

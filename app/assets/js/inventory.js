@@ -3903,19 +3903,19 @@ function cloudRefreshState(keys){
   if(has('cfg')||has('pref')){ try{ applyAppearance(); renderShell(); }catch(e){} }
   _cloudNeedRender=true; cloudRenderIfQuiet(true);
 }
+var _cloudToastAt=0;
 function cloudRenderIfQuiet(justArrived){
   if(!_cloudNeedRender) return;
-  const a=document.activeElement;
-  const typing=!!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type!=='button' && a.type!=='checkbox' && a.type!=='file');
-  if(typing || document.getElementById('modalBack')) return;      // never under someone's fingers — the next quiet moment
+  let busy; if(typeof _cloudBusy==='function') busy=_cloudBusy(); else { const a=document.activeElement; busy=!!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type!=='button' && a.type!=='checkbox' && a.type!=='file') || !!document.getElementById('modalBack'); }
+  if(busy) return;                                                // never under someone's fingers — the next quiet moment (v2.50.0: a resting empty box is not busy)
   _cloudNeedRender=false;
   try{ _quietNext=true; route(); }catch(e){}
   try{ sbFill(); }catch(e){}
-  if(justArrived!==false) toast('Up to date','Changes from the other side came in','ok');
+  if(justArrived!==false && Date.now()-_cloudToastAt>60000){ _cloudToastAt=Date.now(); toast('Up to date','Changes from the other side came in','ok'); }
 }
 document.addEventListener('focusout', ()=>{ setTimeout(()=>cloudRenderIfQuiet(false), 400); }, true);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setTimeout(()=>cloudRenderIfQuiet(false), 300); });
-setInterval(()=>cloudRenderIfQuiet(false), 20000);
+setInterval(()=>cloudRenderIfQuiet(false), 3000);   // v2.50.0: 3 s (returns at once unless something is waiting)
 
 /* ---- Item Master catch-up to the shipped workbook list (v2.37.0 Canteen · v2.42.0 Traffic) ----
    canteenseed.js carries the Canteen RAW DATA list (CANTEEN_RAW / CANTEEN_RAW_V); realdata.js carries the Traffic

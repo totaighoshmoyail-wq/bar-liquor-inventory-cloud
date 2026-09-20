@@ -393,7 +393,7 @@ $('open').addEventListener('click', async ()=>{
     Object.keys(d.data).forEach(sub=>localStorage.setItem(pfx+sub, d.data[sub]));
     localStorage.setItem(pfx+'cloudmeta', JSON.stringify({push:d.updated_at, cloudAt:d.updated_at, dirty:false, dirtyKeys:[]}));
     /* base snapshot of the append-style sheets — what a later merge-push counts as 'already in the cloud' (v2.34.0) */
-    try{ const bs={}; ['recv','mr','invoices'].forEach(k=>{ if(d.data[k]!=null) bs[k]=d.data[k]; }); localStorage.setItem(pfx+'cloudbase', JSON.stringify(bs)); }catch(e){}
+    try{ const bs={}; ['recv','mr','invoices','rawdata2','tally','inv','bevmap'].forEach(k=>{ if(d.data[k]!=null) bs[k]=d.data[k]; });   /* v2.50.0: the app's three-way merge base covers these */ localStorage.setItem(pfx+'cloudbase', JSON.stringify(bs)); }catch(e){}
     localStorage.setItem('tg2_activeCo', id);   // raw string — the app reads it raw; JSON quotes made Canteen open as Traffic
     say('Opening…','ok');
     location.href='app.html';
