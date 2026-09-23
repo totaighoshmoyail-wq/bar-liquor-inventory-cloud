@@ -4022,6 +4022,6 @@ function _rawCatchRun(){
   if(!cloudOn() || cloudDirty()){ _rawCatchRun(); return; }
   const orig=cloudCheck;                                     // function declaration → rebinding the name is what the 2.5 s call and cloudWatch() pick up
   cloudCheck=async function(){ try{ return await orig.apply(this, arguments); }
-    finally{ if(_rawCatchPending && !document.querySelector('.cloudnew')) setTimeout(_rawCatchRun, 300); } };   // a banner = newer data not yet brought in → wait for the next check
+    finally{ if(_rawCatchPending && !document.querySelector('.cloudnew[data-kind="new"]')) setTimeout(_rawCatchRun, 300); } };   // a NEWER-DATA banner = not yet brought in → wait for the next check (a sign-in banner must not hold it back — v2.51.0)
   setTimeout(_rawCatchRun, 90000);
 }catch(e){} })();

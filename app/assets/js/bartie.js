@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.50.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -247,13 +247,14 @@ async function cloudLogin(){
     cloudSessSave({token:j.access_token, refresh:j.refresh_token||'', email:(j.user&&j.user.email)||email,
                    exp:Date.now()+((j.expires_in||3600)-60)*1000});
     if(p) p.value='';
-    toast('Signed in', email, 'ok'); route();
+    cloudStateSet('ok',''); try{ cloudRtStart(); }catch(e){}
+    toast('Signed in', email, 'ok'); route(); cloudCheck();
   }catch(err){
     _cldSay('❌ Sign-in failed — '+(/Invalid login/i.test(err.message)?'wrong email or password.'
       :(/confirm/i.test(err.message)?'that user is not confirmed — tick “Auto Confirm User” in Supabase.':err.message)));
   }
 }
-function cloudSignOut(){ try{ localStorage.removeItem('tg2_cloudsess'); }catch(e){} toast('Signed out','Cloud writing is now locked','ok'); route(); }
+function cloudSignOut(){ try{ localStorage.removeItem('tg2_cloudsess'); }catch(e){} try{ cloudRtStop(); }catch(e){} cloudStateSet('signin','Signed out on this device.'); toast('Signed out','Cloud writing is now locked','ok'); route(); }
 function _cloudBase(){ return cloudCfg().url.replace(/\/+$/,'')+'/rest/v1/blis_sync'; }
 function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudmeta')||'{}'); }catch(e){ return {}; } }
 /* ---- Merge sync (v2.34.0) ----
@@ -505,7 +506,7 @@ function cloudMark(k){
   try{ sbFill(); }catch(e){}
   if(!cloudLive()) return;
   if(_cloudTimer) clearTimeout(_cloudTimer);
-  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 2000);   // v2.50.0: 2 s (was 20 s)
+  _cloudTimer=setTimeout(()=>{ _cloudTimer=null; cloudPush(true).then(()=>{ try{ sbFill(); }catch(e){} }); }, 600);   // v2.51.0: 0.6 s (2 s in v2.50.0, 20 s before that)
 }
 /* leaving the window is the moment work most often moves to the other device */
 document.addEventListener('visibilitychange', ()=>{
@@ -514,10 +515,22 @@ document.addEventListener('visibilitychange', ()=>{
       if(_cloudTimer){ clearTimeout(_cloudTimer); _cloudTimer=null; }
       cloudPush(true);
     }
-  } else cloudCheck();
+  } else { cloudCheck(); cloudRtStart(); }
 });
 
 /* ---------------- Cloud watch ---------------- */
+/* v2.51.0 — the state of syncing, in one place. Until now every failure was SILENT: cloudCheck did
+   `if(!r.ok) return` and `if(!j.length) return`, so a device whose session had expired (or whose
+   read the RLS policy refuses — an anon read returns 200 [] ) simply stopped syncing for ever while
+   the topbar kept saying "Live sync · 4 days ago". That is exactly what the PC was showing.
+   k: ok | signin (not signed in / refresh rejected) | norow (the cloud has no copy of this company)
+      | error (HTTP / network) | offline */
+var _cloudState={k:'ok', msg:''};
+function cloudState(){ return _cloudState; }
+function cloudStateSet(k,msg){ msg=msg||'';
+  if(_cloudState.k===k && _cloudState.msg===msg) return;
+  _cloudState={k:k, msg:msg}; try{ sbFill(); }catch(e){}
+  if(k!=='ok' && k!=='offline' && location.hash==='#settings'){ try{ route(); }catch(e){} } }
 var _cloudSeenAt=null, _cloudWatchT=null, _lastAct=0;   // 0 = nothing touched since load
 ['keydown','pointerdown','wheel'].forEach(ev=>document.addEventListener(ev, ()=>{ _lastAct=Date.now(); }, true));
 /* v2.50.0: "busy" = a dialog is open, a key/click in the last 2.5 s, or the cursor sits in a field that holds text (a resting
@@ -539,6 +552,7 @@ function _agoTxt(iso){
 function cloudBanner(stamp, clash){
   let b=document.getElementById('cloudNew');
   if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
+  b.setAttribute('data-kind','new');   // v2.51.0: newer data waiting — the seed catch-up waits for this one
   b.innerHTML='<span class="cn-i">'+(clash?'&#9888;&#65039;':'&#9729;&#65039;')+'</span>'
     +'<div class="cn-t"><b>'+(clash?'This device could not send its work up':'Newer data is in the cloud')+'</b>'
     +'<span>'+(clash
@@ -551,10 +565,39 @@ function cloudBanner(stamp, clash){
 }
 /* a silent (automatic) push that cannot go up because nobody is signed in — say so once, loudly enough */
 var _cloudSignSaid=false;
+/* v2.51.0 — one line that says what syncing is doing RIGHT NOW, in the Cloud Sync card. The old card
+   could show "Connected" while the device had been silently unable to read for days. */
+function cloudSyncStateHtml(){
+  if(!cloudOn()) return '';
+  const st=cloudState(), m=_cloudMeta();
+  const rt=cloudRtOn();
+  let ico='✅', col='var(--green)', head='Syncing', txt='';
+  if(!cloudSignedIn() || st.k==='signin'){ ico='🔑'; col='var(--red)'; head='Not signed in — this device is NOT syncing';
+    txt='Nothing goes up to the website and nothing comes down until you sign in with the email + password below.'; }
+  else if(st.k==='norow'){ ico='⚠️'; col='var(--red)'; head='The cloud has no copy of this company'; txt=esc(st.msg||''); }
+  else if(st.k==='offline'){ ico='📡'; col='var(--amber)'; head='No connection to the cloud'; txt='It will catch up by itself when the internet is back.'; }
+  else if(st.k==='error'){ ico='⚠️'; col='var(--red)'; head='Sync problem'; txt=esc(st.msg||''); }
+  else { head=rt?'Instant sync is on':'Syncing every second';
+    txt=(rt?'The cloud tells this device the moment the other side saves — changes appear in about a second. '
+           :'This device asks the cloud every second (instant sync is not switched on for the table — the SQL is below). ')
+       +(m.push?'Last sync '+esc(_agoTxt(m.push))+'.':'Nothing has gone up from this device yet.');
+    if(!rt) col='var(--gold)'; ico=rt?'⚡':'☁️'; }
+  return `<div class="flex" style="gap:9px;align-items:flex-start;padding:8px 11px;margin-bottom:10px;border-radius:9px;border:1px solid ${col};background:color-mix(in srgb,${col} 9%,transparent)">
+    <span style="font-size:15px;line-height:1.2">${ico}</span>
+    <div style="font-size:12px;line-height:1.55"><strong style="color:${col}">${head}</strong><br><span class="muted">${txt}</span>
+    ${rt?'':`<br><span class="muted" style="font-size:11px">To make it instant, run this once in Supabase → SQL Editor:</span>
+      <code id="rtSql" style="display:inline-block;margin-top:3px;font-size:11px;background:var(--bg-2);border:1px solid var(--border-soft);border-radius:6px;padding:2px 7px">alter publication supabase_realtime add table blis_sync;</code>
+      <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px" onclick="cloudRtSqlCopy()">📋 Copy</button>`}
+    </div></div>`;
+}
+function cloudRtSqlCopy(){ const t='alter publication supabase_realtime add table blis_sync;';
+  try{ navigator.clipboard.writeText(t).then(()=>toast('Copied','Paste it in Supabase → SQL Editor → Run','ok'),()=>toast('Copy it by hand',t,'err')); }
+  catch(e){ toast('Copy it by hand', t, 'err'); } }
 function cloudSignBanner(){
   if(_cloudSignSaid) return; _cloudSignSaid=true;
   let b=document.getElementById('cloudNew');
   if(!b){ b=document.createElement('div'); b.id='cloudNew'; b.className='cloudnew noprint'; document.body.appendChild(b); }
+  b.setAttribute('data-kind','sign');   // v2.51.0: not a data clash — it must not hold the seed catch-up back
   b.innerHTML='<span class="cn-i">&#128273;</span><div class="cn-t"><b>Cloud sign-in needed</b>'
     +'<span>Your work is being kept on this device only — it will not reach the website until you sign in to the cloud.</span></div>'
     +'<button class="btn btn-gold btn-sm" onclick="cloudBannerHide();location.hash=\'#settings\';setTimeout(function(){ try{ setSetTab(\'cloud\'); }catch(e){} },50)">&#128273; Sign in</button>'
@@ -588,10 +631,26 @@ async function cloudPullAuto(){
 async function cloudCheck(){
   if(!cloudOn() || _cloudPushing) return;
   try{ if(sessionStorage.getItem('tg2_needReload') && _cloudIdle()){ sessionStorage.removeItem('tg2_needReload'); location.reload(); return; } }catch(e){}
+  /* reading this project needs a signed-in token (the v2.20.0 tightening) — without one the request
+     comes back 200 [] and everything below would quietly do nothing (v2.51.0) */
+  if(!cloudSignedIn() || !(await cloudEnsureSession())){
+    cloudStateSet('signin','This device is not signed in to the cloud, so nothing goes up or comes down.');
+    if(cloudLive()) cloudSignBanner();
+    return; }
   try{
     const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=updated_at',{headers:_cloudHead()});
-    if(!r.ok) return;
-    const j=await r.json(); if(!Array.isArray(j)||!j.length) return;
+    if(!r.ok){ const t=await r.text().catch(()=>'');
+      cloudStateSet(r.status===401||r.status===403?'signin':'error','HTTP '+r.status+(t?' · '+t.slice(0,90):''));
+      if((r.status===401||r.status===403) && cloudLive()) cloudSignBanner();
+      return; }
+    const j=await r.json().catch(()=>null);
+    if(!Array.isArray(j)){ cloudStateSet('error','the cloud answered something unexpected'); return; }
+    if(!j.length){
+      cloudStateSet(_cloudMeta().push?'norow':'ok','The cloud has no copy of this company any more — open Cloud Sync and press ⬆ Replace the cloud copy to put this device\'s data back.');
+      if(!_cloudMeta().push && cloudDirty() && cloudLive()) cloudPush(true);   // brand-new company: create the row
+      return; }
+    cloudStateSet('ok','');
+    cloudRtStart();                                     // a working read means the token is good — (re)open the instant channel
     const stamp=j[0].updated_at, cloudT=new Date(stamp).getTime();
     const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
     // v2.50.0: the cloud "moved on" when its stamp is not the one this device last wrote or pulled (cloudAt) — exact, so
@@ -607,11 +666,69 @@ async function cloudCheck(){
     }
     if(cloudLive()){ if(_cloudIdle()) await cloudPullAuto(); return; }   // live: come down now, or at the next check when the person is mid-edit — no banner (v2.50.0)
     if(stamp!==_cloudSeenAt){ _cloudSeenAt=stamp; cloudBanner(stamp,false); }
-  }catch(e){}
+  }catch(e){ cloudStateSet(navigator.onLine===false?'offline':'error', (e&&e.message)||'could not reach the cloud'); }
 }
 var _cloudLastCheck=0;
+/* ---- Instant channel (v2.51.0) ------------------------------------------------------------------
+   Supabase Realtime: one WebSocket that pushes a message the moment the row changes, so the other
+   device reacts in well under a second instead of waiting for the next poll. Plain WebSocket, no
+   library (this project has no build step). It needs the table to be in the realtime publication —
+   `alter publication supabase_realtime add table blis_sync;` — so it is NOT assumed to work: the
+   poll below stays as the fallback and simply runs slower while the channel is connected. */
+var _rtWs=null, _rtOk=false, _rtT=null, _rtHb=null, _rtTries=0;
+function cloudRtOn(){ return !!_rtOk; }
+function cloudRtStop(){ _rtOk=false; if(_rtHb){ clearInterval(_rtHb); _rtHb=null; } if(_rtT){ clearTimeout(_rtT); _rtT=null; }
+  if(_rtWs){ try{ _rtWs.onclose=null; _rtWs.close(); }catch(e){} _rtWs=null; } }
+function cloudRtStart(){
+  if(!cloudOn() || !cloudLive() || !cloudSignedIn()) return;
+  if(typeof WebSocket==='undefined') return;
+  if(_rtWs && (_rtWs.readyState===0 || _rtWs.readyState===1)) return;
+  if(_rtT){ clearTimeout(_rtT); _rtT=null; }
+  let ws; try{
+    const c=cloudCfg();
+    ws=new WebSocket(c.url.replace(/^http/,'ws').replace(/\/+$/,'')+'/realtime/v1/websocket?apikey='+encodeURIComponent(c.key)+'&vsn=1.0.0');
+  }catch(e){ return; }
+  _rtWs=ws;
+  ws.onopen=function(){
+    try{ ws.send(JSON.stringify({topic:'realtime:blis_sync:'+ACTIVE_CO, event:'phx_join', ref:'1', payload:{
+      config:{ broadcast:{self:false}, presence:{key:''},
+        postgres_changes:[{event:'*', schema:'public', table:'blis_sync', filter:'id=eq.'+ACTIVE_CO}] },
+      access_token:cloudSess().token }})); }catch(e){}
+    if(_rtHb) clearInterval(_rtHb);
+    _rtHb=setInterval(function(){ try{ ws.send(JSON.stringify({topic:'phoenix', event:'heartbeat', payload:{}, ref:String(Date.now())})); }catch(e){} }, 25000);
+  };
+  ws.onmessage=function(m){
+    let d=null; try{ d=JSON.parse(m.data); }catch(e){ return; }
+    if(!d) return;
+    if(d.event==='phx_reply' && String(d.topic||'').indexOf('realtime:')===0){
+      const okk=d.payload && d.payload.status==='ok';
+      if(okk){ if(!_rtOk){ _rtOk=true; _rtTries=0; try{ sbFill(); }catch(e){} } }
+      else { _rtOk=false; try{ sbFill(); }catch(e){} }                      // table not in the publication → the poll carries on
+      return; }
+    if(d.event==='postgres_changes' || d.event==='INSERT' || d.event==='UPDATE'){
+      if(!_cloudPushing){ _cloudLastCheck=Date.now(); cloudCheck(); }        // the other side just saved — come and get it
+      return; }
+    if(d.event==='system' && d.payload && /error/i.test(String(d.payload.status||''))){ _rtOk=false; try{ sbFill(); }catch(e){} }
+  };
+  ws.onerror=function(){ _rtOk=false; };
+  ws.onclose=function(){
+    _rtOk=false; if(_rtHb){ clearInterval(_rtHb); _rtHb=null; } _rtWs=null; try{ sbFill(); }catch(e){}
+    const wait=Math.min(30000, 1500*Math.pow(2, Math.min(4,_rtTries++)));    // reconnect, backing off
+    if(_rtT) clearTimeout(_rtT);
+    _rtT=setTimeout(cloudRtStart, wait);
+  };
+}
+/* The poll: every second while you are here and the instant channel is NOT up, so a save on the other
+   device is in front of you in about a second either way. With the channel up it drops to a 15 s safety
+   net, and a hidden tab to 30 s. */
 function cloudWatch(){ if(_cloudWatchT) clearInterval(_cloudWatchT);
-  _cloudWatchT=setInterval(()=>{ if(document.hidden && Date.now()-_cloudLastCheck<30000) return; _cloudLastCheck=Date.now(); cloudCheck(); }, 6000); }   // v2.50.0: 6 s (was 45 s), 30 s when the tab is hidden
+  cloudRtStart();
+  _cloudWatchT=setInterval(()=>{
+    const k=_cloudState.k;
+    const gap=document.hidden?30000:(k==='error'||k==='offline')?10000:(k==='signin')?3000:cloudRtOn()?15000:1000;   // do not hammer a cloud that is refusing or unreachable
+    if(Date.now()-_cloudLastCheck<gap) return;
+    _cloudLastCheck=Date.now(); cloudCheck();
+  }, 500); }
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{
   try{ if(sessionStorage.getItem('tg2_autopulled')){ sessionStorage.removeItem('tg2_autopulled');
     toast('Up to date','Brought in the newest data from the cloud','ok'); } }catch(e){}
@@ -1141,15 +1258,23 @@ function sbFill(){
   if(on){ const o=navigator.onLine!==false; on.textContent=o?'● Online':'● Offline'; on.className=o?'sb-on':'sb-off'; }
   /* the live-sync line lives in the topbar now, next to Online/Offline */
   const sy=$('#tbSync');
-  if(sy){ let t='';
+  if(sy){ let t='', bad=false, tip='';
     try{
       if(typeof cloudOn==='function' && cloudOn()){
-        const m=_cloudMeta();
-        if(typeof cloudDirty==='function' && cloudDirty()) t='☁️ Saving…';
-        else t=((typeof cloudLive==='function'&&cloudLive())?'☁️ Live sync':'☁️ Cloud')+(m.push?' · '+_agoTxt(m.push):'');
+        const m=_cloudMeta(), st=(typeof cloudState==='function')?cloudState():{k:'ok'};
+        /* v2.51.0: a problem is SAID here — the old line claimed "Live sync · 4 days ago" while the
+           device had in fact stopped syncing days ago (signed out / read refused). */
+        if(st.k==='signin'){ t='⚠️ Sign in to sync'; bad=true; tip=st.msg||'Not signed in to the cloud'; }
+        else if(st.k==='norow'){ t='⚠️ Cloud copy missing'; bad=true; tip=st.msg||''; }
+        else if(st.k==='offline'){ t='⚠️ No connection'; bad=true; tip='The cloud cannot be reached from this device'; }
+        else if(st.k==='error'){ t='⚠️ Sync problem'; bad=true; tip=st.msg||''; }
+        else if(typeof cloudDirty==='function' && cloudDirty()) t='☁️ Saving…';
+        else t=(((typeof cloudLive==='function'&&cloudLive())?((typeof cloudRtOn==='function'&&cloudRtOn())?'⚡ Live sync':'☁️ Live sync'):'☁️ Cloud'))+(m.push?' · '+_agoTxt(m.push):'');
+        if(!bad && typeof cloudRtOn==='function' && cloudRtOn()) tip='Instant sync — the cloud tells this device the moment the other side saves';
       }
     }catch(e){ t='☁️ Cloud'; }
-    sy.textContent=t; }
+    sy.textContent=t; sy.title=tip; sy.classList.toggle('sb-off', !!bad); sy.style.cursor=bad?'pointer':'';
+    sy.onclick=bad?function(){ location.hash='#settings'; setTimeout(function(){ try{ setSetTab('cloud'); }catch(e){} },50); }:null; }
 }
 window.addEventListener('online', ()=>sbFill());
 window.addEventListener('offline', ()=>sbFill());
@@ -2711,6 +2836,7 @@ VIEWS.settings = () => {
                return m ? ('https://supabase.com/dashboard/project/'+m[1]+'/settings/api-keys')
                         : 'https://supabase.com/dashboard/projects'; })()}">🔑 Where is my cloud key</a>
           <button class="btn btn-sm" onclick="cloudTest()">🔍 Test</button></div></div>
+      ${cloudSyncStateHtml()}
       <label class="mt-8" style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:12px;color:var(--text-dim)">
         <input type="checkbox" style="margin-top:2px;accent-color:var(--gold)" ${cloudLive()?'checked':''}
           onchange="var c=cloudCfg();c.auto=this.checked;cloudSave(c);toast(this.checked?'Live sync on':'Live sync off',this.checked?'This computer and the website will keep each other up to date':'You will push and pull by hand now','ok');route()">
