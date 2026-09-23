@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.2';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.3';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -583,7 +583,8 @@ function cloudSyncStateHtml(){
   else { head=rt?'Instant sync is on':'Syncing every second';
     txt=(rt?'The cloud tells this device the moment the other side saves — changes appear in about a second. '
            :'This device asks the cloud every second (instant sync is not switched on for the table — the SQL is below). ')
-       +(m.push?'Last sync '+esc(_agoTxt(m.push))+'.':'Nothing has gone up from this device yet.');
+       +(cloudOkAt()?'In touch with the cloud '+esc(_agoTxt(cloudOkAt()))+'.':'Checking the cloud…')   /* v2.51.3: the same fix as the topbar — this is the CONNECTION, not the age of the newest entry */
+       +(m.push?' Newest change anywhere: '+esc(_agoTxt(m.push))+'.':' Nothing has gone up from this device yet.');
     if(!rt) col='var(--gold)'; ico=rt?'⚡':'☁️'; }
   return `<div class="flex" style="gap:9px;align-items:flex-start;padding:8px 11px;margin-bottom:10px;border-radius:9px;border:1px solid ${col};background:color-mix(in srgb,${col} 9%,transparent)">
     <span style="font-size:15px;line-height:1.2">${ico}</span>
