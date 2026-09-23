@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.2';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -398,6 +398,7 @@ async function _cloudPushCore(silent, force){
       done=true;
     }
     if(!done) throw new Error('the cloud kept changing while saving — try again');
+    _cloudOkAt=Date.now(); cloudStateSet('ok','');
     if(!silent){ toast('Cloud saved','Company data pushed to the cloud'+mergedNote,'ok'); if(location.hash==='#settings') route(); }
     if(stale && stale.length) _cloudReloadWhenIdle(stale);
     return true;
@@ -526,6 +527,8 @@ document.addEventListener('visibilitychange', ()=>{
    k: ok | signin (not signed in / refresh rejected) | norow (the cloud has no copy of this company)
       | error (HTTP / network) | offline */
 var _cloudState={k:'ok', msg:''};
+var _cloudOkAt=0;                     // v2.51.2: the last time a cloud round trip actually worked on THIS device
+function cloudOkAt(){ return _cloudOkAt; }
 function cloudState(){ return _cloudState; }
 function cloudStateSet(k,msg){ msg=msg||'';
   if(_cloudState.k===k && _cloudState.msg===msg) return;
@@ -649,7 +652,7 @@ async function cloudCheck(){
       cloudStateSet(_cloudMeta().push?'norow':'ok','The cloud has no copy of this company any more — open Cloud Sync and press ⬆ Replace the cloud copy to put this device\'s data back.');
       if(!_cloudMeta().push && cloudDirty() && cloudLive()) cloudPush(true);   // brand-new company: create the row
       return; }
-    cloudStateSet('ok','');
+    cloudStateSet('ok',''); _cloudOkAt=Date.now(); try{ sbFill(); }catch(e){}
     cloudRtStart();                                     // a working read means the token is good — (re)open the instant channel
     const stamp=j[0].updated_at, cloudT=new Date(stamp).getTime();
     const m=_cloudMeta(), localT=m.push?new Date(m.push).getTime():0;
@@ -1269,8 +1272,17 @@ function sbFill(){
         else if(st.k==='offline'){ t='⚠️ No connection'; bad=true; tip='The cloud cannot be reached from this device'; }
         else if(st.k==='error'){ t='⚠️ Sync problem'; bad=true; tip=st.msg||''; }
         else if(typeof cloudDirty==='function' && cloudDirty()) t='☁️ Saving…';
-        else t=(((typeof cloudLive==='function'&&cloudLive())?((typeof cloudRtOn==='function'&&cloudRtOn())?'⚡ Live sync':'☁️ Live sync'):'☁️ Cloud'))+(m.push?' · '+_agoTxt(m.push):'');
-        if(!bad && typeof cloudRtOn==='function' && cloudRtOn()) tip='Instant sync — the cloud tells this device the moment the other side saves';
+        else {
+          /* v2.51.2: the time here is when this device LAST REACHED the cloud — that is what "is it syncing?"
+             means. The age of the newest change (m.push) lives in the tooltip; showing it here read as a fault
+             whenever nobody had entered anything for a few days. */
+          const okAt=(typeof cloudOkAt==='function')?cloudOkAt():0;
+          t=(((typeof cloudLive==='function'&&cloudLive())?((typeof cloudRtOn==='function'&&cloudRtOn())?'⚡ Live sync':'☁️ Live sync'):'☁️ Cloud'))
+            +(okAt?' · '+_agoTxt(okAt):(m.push?' · '+_agoTxt(m.push):''));
+          tip=(okAt?'In touch with the cloud '+_agoTxt(okAt):'Not checked yet since this app opened')
+            +(m.push?' · newest change anywhere: '+_agoTxt(m.push):'')
+            +((typeof cloudRtOn==='function'&&cloudRtOn())?' · instant channel on — the cloud tells this device the moment the other side saves':'');
+        }
       }
     }catch(e){ t='☁️ Cloud'; }
     sy.textContent=t; sy.title=tip; sy.classList.toggle('sb-off', !!bad); sy.style.cursor=bad?'pointer':'';
