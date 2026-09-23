@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.4';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.5';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -589,7 +589,7 @@ function cloudSyncStateHtml(){
   return `<div class="flex" style="gap:9px;align-items:flex-start;padding:8px 11px;margin-bottom:10px;border-radius:9px;border:1px solid ${col};background:color-mix(in srgb,${col} 9%,transparent)">
     <span style="font-size:15px;line-height:1.2">${ico}</span>
     <div style="font-size:12px;line-height:1.55"><strong style="color:${col}">${head}</strong><br><span class="muted">${txt}</span>
-    ${rt?'':`<br><span class="muted" style="font-size:11px">To make it instant, run this once in Supabase → SQL Editor:</span>
+    ${rt?'':`${cloudRtWhy()?'<br><span class="muted" style="font-size:11px">Instant channel: '+esc(cloudRtWhy())+'. Syncing every second instead — nothing is lost.</span>':''}<br><span class="muted" style="font-size:11px">To make it instant, run this once in Supabase → SQL Editor (harmless if it says “already member”):</span>
       <code id="rtSql" style="display:inline-block;margin-top:3px;font-size:11px;background:var(--bg-2);border:1px solid var(--border-soft);border-radius:6px;padding:2px 7px">alter publication supabase_realtime add table blis_sync;</code>
       <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px" onclick="cloudRtSqlCopy()">📋 Copy</button>
       <a class="btn btn-gold btn-sm" style="margin-left:5px;padding:2px 8px;font-size:11px" target="_blank" rel="noopener" href="${cloudSqlUrl()}" onclick="cloudRtSqlCopy()" title="Opens your own project's SQL editor on a new query — the line above is copied for you; paste it and press Run">⚡ Open SQL editor</a>
@@ -684,7 +684,9 @@ var _cloudLastCheck=0;
    `alter publication supabase_realtime add table blis_sync;` — so it is NOT assumed to work: the
    poll below stays as the fallback and simply runs slower while the channel is connected. */
 var _rtWs=null, _rtOk=false, _rtT=null, _rtHb=null, _rtTries=0;
+var _rtWhy='', _rtAlt=false, _rtJoined=false;   // why the channel is not up · alternate the apikey style between attempts (v2.51.5)
 function cloudRtOn(){ return !!_rtOk; }
+function cloudRtWhy(){ return _rtWhy; }
 function cloudRtStop(){ _rtOk=false; if(_rtHb){ clearInterval(_rtHb); _rtHb=null; } if(_rtT){ clearTimeout(_rtT); _rtT=null; }
   if(_rtWs){ try{ _rtWs.onclose=null; _rtWs.close(); }catch(e){} _rtWs=null; } }
 function cloudRtStart(){
@@ -694,9 +696,10 @@ function cloudRtStart(){
   if(_rtT){ clearTimeout(_rtT); _rtT=null; }
   let ws; try{
     const c=cloudCfg();
-    ws=new WebSocket(c.url.replace(/^http/,'ws').replace(/\/+$/,'')+'/realtime/v1/websocket?apikey='+encodeURIComponent(c.key)+'&vsn=1.0.0');
-  }catch(e){ return; }
-  _rtWs=ws;
+    const ak=(_rtAlt && cloudSess().token) ? cloudSess().token : c.key;   // v2.51.5: publishable key ⇄ access token
+    ws=new WebSocket(c.url.replace(/^http/,'ws').replace(/\/+$/,'')+'/realtime/v1/websocket?apikey='+encodeURIComponent(ak)+'&vsn=1.0.0');
+  }catch(e){ _rtWhy='this browser could not open the connection'; return; }
+  _rtWs=ws; _rtJoined=false;
   ws.onopen=function(){
     try{ ws.send(JSON.stringify({topic:'realtime:blis_sync:'+ACTIVE_CO, event:'phx_join', ref:'1', payload:{
       config:{ broadcast:{self:false}, presence:{key:''},
@@ -710,9 +713,12 @@ function cloudRtStart(){
     if(!d) return;
     if(d.event==='phx_reply' && String(d.topic||'').indexOf('realtime:')===0){
       const okk=d.payload && d.payload.status==='ok';
-      if(okk){ if(!_rtOk){ _rtOk=true; _rtTries=0; try{ sbFill(); }catch(e){} } }
-      else { _rtOk=false; try{ sbFill(); }catch(e){}                          // table not in the publication → the poll carries on
-        _rtTries=4; try{ ws.close(); }catch(e){}                               // …and try again in ~30 s, so running the SQL switches it on by itself (v2.51.4)
+      if(okk){ _rtJoined=true; _rtWhy=''; if(!_rtOk){ _rtOk=true; _rtTries=0; try{ sbFill(); }catch(e){} } }
+      else { _rtOk=false;                                                      // refused → name it, swap the key style, retry in ~30 s (v2.51.5)
+        const rsn=(d.payload&&(d.payload.response&&(d.payload.response.reason||d.payload.response.message)||d.payload.reason))||'';
+        _rtWhy=rsn?String(rsn).slice(0,120):'the cloud refused the instant channel';
+        try{ sbFill(); }catch(e){}
+        _rtAlt=!_rtAlt; _rtTries=4; try{ ws.close(); }catch(e){}
       }
       return; }
     if(d.event==='postgres_changes' || d.event==='INSERT' || d.event==='UPDATE'){
@@ -722,6 +728,7 @@ function cloudRtStart(){
   };
   ws.onerror=function(){ _rtOk=false; };
   ws.onclose=function(){
+    if(!_rtJoined && !_rtWhy){ _rtWhy='the connection to the cloud\'s instant channel closed before it could start'; _rtAlt=!_rtAlt; }
     _rtOk=false; if(_rtHb){ clearInterval(_rtHb); _rtHb=null; } _rtWs=null; try{ sbFill(); }catch(e){}
     const wait=Math.min(30000, 1500*Math.pow(2, Math.min(4,_rtTries++)));    // reconnect, backing off
     if(_rtT) clearTimeout(_rtT);
