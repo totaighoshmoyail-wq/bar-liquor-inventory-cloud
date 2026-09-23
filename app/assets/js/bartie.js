@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.1';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2826,7 +2826,8 @@ VIEWS.settings = () => {
         • Anyone who can open this computer's browser tools can read the key — do not use it on a shared machine.<br>
         • No internet, key refused, or provider down → the assistant quietly answers offline instead.</p>`},
 
-    {k:'cloud', ico:'☁️', t:'Cloud Sync', s:cloudOn()?'Connected':'Not connected', body:`
+    {k:'cloud', ico:'☁️', t:'Cloud Sync', s:(function(){ if(!cloudOn()) return 'Not connected'; const k=cloudState().k;   /* the rail line says the real state too (v2.51.0) */
+      return k==='signin'?'⚠️ Not signed in':k==='norow'?'⚠️ No cloud copy':k==='offline'?'⚠️ No connection':k==='error'?'⚠️ Sync problem':(cloudRtOn()?'⚡ Instant sync':'Connected'); })(), body:`
       <div class="flex between items-center" style="margin-bottom:10px"><p class="muted" style="font-size:11.5px;margin:0">${cloudOn()?'Cloud connected — this company syncs its own copy':'Optional — a free Supabase account keeps a live cloud copy'}</p>
         <div class="flex gap-8">
           <a class="btn btn-sm" href="cloud-setup.html" target="_blank" rel="noopener" title="Opens the one-click setup page — it fills in the URL and key for you">🩹 Fix / Set up</a>
@@ -2842,7 +2843,7 @@ VIEWS.settings = () => {
           onchange="var c=cloudCfg();c.auto=this.checked;cloudSave(c);toast(this.checked?'Live sync on':'Live sync off',this.checked?'This computer and the website will keep each other up to date':'You will push and pull by hand now','ok');route()">
         <span><strong class="gold">Keep this computer and the website in step automatically</strong><br>
           Your changes go up on their own about 2 seconds after you make them, and again the moment you switch away.
-          The other side is checked every 6 seconds; its changes come down by themselves as soon as you are not mid-edit,
+          The other side is checked every second — instantly when the cloud channel is on; its changes come down by themselves as soon as you are not mid-edit,
           merged entry by entry with yours — an entry you changed stays yours, one they changed comes in.</span></label>
       <div class="muted" id="cldStat" style="font-size:12px;min-height:16px">${(function(){
         const kp=cloudOn()?cloudKeyProblem(cloudCfg().key):'';
