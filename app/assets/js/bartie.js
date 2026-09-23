@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.3';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.51.4';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -591,9 +591,13 @@ function cloudSyncStateHtml(){
     <div style="font-size:12px;line-height:1.55"><strong style="color:${col}">${head}</strong><br><span class="muted">${txt}</span>
     ${rt?'':`<br><span class="muted" style="font-size:11px">To make it instant, run this once in Supabase → SQL Editor:</span>
       <code id="rtSql" style="display:inline-block;margin-top:3px;font-size:11px;background:var(--bg-2);border:1px solid var(--border-soft);border-radius:6px;padding:2px 7px">alter publication supabase_realtime add table blis_sync;</code>
-      <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px" onclick="cloudRtSqlCopy()">📋 Copy</button>`}
+      <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px" onclick="cloudRtSqlCopy()">📋 Copy</button>
+      <a class="btn btn-gold btn-sm" style="margin-left:5px;padding:2px 8px;font-size:11px" target="_blank" rel="noopener" href="${cloudSqlUrl()}" onclick="cloudRtSqlCopy()" title="Opens your own project's SQL editor on a new query — the line above is copied for you; paste it and press Run">⚡ Open SQL editor</a>
+      <br><span class="muted" style="font-size:10.5px">Press ⚡ Open SQL editor, paste (Ctrl+V) into the big box, press <strong>Run</strong>. The ⚡ shows up here within a minute — nothing else to do.</span>`}
     </div></div>`;
 }
+function cloudSqlUrl(){ const u=(cloudCfg().url||'').trim(); const m=u.match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  return m ? ('https://supabase.com/dashboard/project/'+m[1]+'/sql/new') : 'https://supabase.com/dashboard/projects'; }
 function cloudRtSqlCopy(){ const t='alter publication supabase_realtime add table blis_sync;';
   try{ navigator.clipboard.writeText(t).then(()=>toast('Copied','Paste it in Supabase → SQL Editor → Run','ok'),()=>toast('Copy it by hand',t,'err')); }
   catch(e){ toast('Copy it by hand', t, 'err'); } }
@@ -707,7 +711,9 @@ function cloudRtStart(){
     if(d.event==='phx_reply' && String(d.topic||'').indexOf('realtime:')===0){
       const okk=d.payload && d.payload.status==='ok';
       if(okk){ if(!_rtOk){ _rtOk=true; _rtTries=0; try{ sbFill(); }catch(e){} } }
-      else { _rtOk=false; try{ sbFill(); }catch(e){} }                      // table not in the publication → the poll carries on
+      else { _rtOk=false; try{ sbFill(); }catch(e){}                          // table not in the publication → the poll carries on
+        _rtTries=4; try{ ws.close(); }catch(e){}                               // …and try again in ~30 s, so running the SQL switches it on by itself (v2.51.4)
+      }
       return; }
     if(d.event==='postgres_changes' || d.event==='INSERT' || d.event==='UPDATE'){
       if(!_cloudPushing){ _cloudLastCheck=Date.now(); cloudCheck(); }        // the other side just saved — come and get it
