@@ -2429,17 +2429,26 @@ function exportBarInvExcel(){
    REPORTS — real-data reports with Excel / CSV / PDF export
    ============================================================ */
 /* ============================================================
-   LANDING COST FILE (v2.52.0) — the client's own landing-cost workbook as a page of its own.
-   It is a REFERENCE list: MRP · Rate · TCS · SP purpose fee · Round off · Landing cost · size,
-   exactly as their Excel has them. It changes NOTHING on its own — the rate rule stands
-   (Purchase = the entry's own rate; every stock page = landOf() = Item Master rate → latest
-   invoice rate → MRP). The page only SHOWS how the file's landing cost compares with the rate
-   each item is valued at today, so the difference is visible without opening Excel.
+   LANDING COST FILE (v2.52.0 · editable since v2.53.0) — the client's own landing-cost
+   workbook as a page of its own: Item · Category · Size · MRP · Rate · TCS · SP purpose fee ·
+   Round off · Landing cost, plus ₹/30 ml worked out here.
+   EVERY cell is editable, new items can be typed in, and the file's own formula fills itself in:
+       TCS      = Rate × its own TCS percentage   (2 % unless the row already implies another)
+       Landing  = Rate + TCS + SP fee + Round off
+   — recomputed whenever Rate / TCS / SP fee / Round off is edited; a landing cost typed
+   straight into its own box is kept as typed.
+   The CATEGORY comes from the Beverage Control sheet: a landing name → its Item Master entry →
+   the brand pointing at that entry (rawNameFor) → that brand's category; nothing matched → the
+   name's own words. It is filled once and is editable from then on.
+   It still changes NOTHING on its own — the rate rule stands (Purchase = the entry's own rate;
+   every stock page = landOf() = Item Master rate → latest invoice rate → MRP).
    Stored per company under `landing`, seeded from LANDING_SEED, replaceable by uploading a
    newer file (same sheet layout, or any sheet whose header names the columns).
    ============================================================ */
 let landingData = bls('landing', (typeof LANDING_SEED!=='undefined'?LANDING_SEED:[]).map(r=>({...r})));
 let lcTab='all';   // the search text lives in iq.lc (the shared isearch store, so the box keeps focus)
+let lcCatF='';     // category filter ('' = every category)
+var _lcN={};       // the "add item" strip
 function lcSave(){ bsv('landing', landingData); }
 function lcNum(v){ return (v==null||v==='')?null:(+v||0); }
 /* the file carries paise (1838.3426) and fmt() rounds to whole rupees — this keeps 2 decimals, and only
@@ -2447,22 +2456,172 @@ function lcNum(v){ return (v==null||v==='')?null:(+v||0); }
 function lcF(v){ const n=+v; if(!isFinite(n)) return '—';
   return Math.abs(n-Math.round(n))<0.005 ? Math.round(n).toLocaleString('en-IN')
     : n.toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function lcE(v){ if(v==null||v==='') return ''; const n=+v; return isFinite(n)?String(Math.round(n*100)/100):''; }  // what an edit box shows
 function lcMine(name){ const ex=findRawExact(name); if(ex) return {r:ex, exact:true}; const f=findRaw(name); return f?{r:f, exact:false}:null; }
+const LC_SIZES=[30,50,60,90,100,180,200,275,330,355,360,375,500,650,700,750,1000,2000,5000,10000,20000,30000,50000];
+function lcSizeOf(name){ const u=String(name||'').toUpperCase();
+  const m=u.match(/(\d{2,5})\s*ML\b/); if(m) return +m[1];
+  const l=u.match(/(\d+(?:\.\d+)?)\s*(?:LTR|LITRE|L)\b/); if(l) return Math.round(+l[1]*1000); return null; }
+
+/* ---- Category, taken from the Beverage Control sheet -------------------------------------- */
+function lcCatFromGroup(g){                              // the client's own group names carry the kind
+  const u=String(g||'').toUpperCase();
+  if(/DRAUGHT|DRAFT|\bKEG\b/.test(u)) return 'DRAUGHT BEER';
+  if(/BREEZER|ALCOPOP/.test(u)) return 'ALCOPOPS';
+  if(/BEER/.test(u)) return 'BEER';
+  if(/WINE|SPARKL|CHAMPAGNE/.test(u)) return 'WINE';
+  if(/WHISKY|WHISKEY|SCOTCH|BOURBON|MALT/.test(u)) return 'WHISKY';
+  if(/RUM/.test(u)) return 'RUM';
+  if(/VODKA/.test(u)) return 'VODKA';
+  if(/\bGIN\b|GIN /.test(u)) return 'GIN';
+  if(/BRANDY|COGNAC/.test(u)) return 'BRANDY';
+  if(/TEQUILA/.test(u)) return 'TEQUILA';
+  if(/LIQ/.test(u)) return 'LIQUEUR';
+  if(/BEVERAGE|CIGAR|SOFT|WATER|JUICE/.test(u)) return 'BEVERAGE & CIGARETTE';
+  return '';
+}
+function _lcWords(name){                                 // the words that actually name a brand
+  return bevTokens(name).filter(w=>!/^\d/.test(w) && w.length>2 && !BEV_FLUFF.has(w) && !BEV_PACK.has(w) && !BEV_GENERIC.has(w));
+}
+var _lcCatIdx=null, _lcCatKey='';
+function lcCatIndex(){                                   // Item Master name → the category Beverage Control gives it, + a brand-word index
+  const key=tallyItems.length+':'+rawData.length+':'+_rawIdxVer;
+  if(_lcCatIdx && _lcCatKey===key) return _lcCatIdx;
+  const byName=new Map(), tok={};
+  const learn=(name,cat)=>{ if(!cat) return; const w=_lcWords(name); if(!w.length) return;
+    const keys=[w[0]]; if(w[1]) keys.push(w[0]+' '+w[1]);
+    keys.forEach(k=>{ const m=tok[k]||(tok[k]={}); m[cat]=(m[cat]||0)+1; }); };
+  tallyItems.forEach(t=>{ if(!t.category) return;                        // the Beverage Control sheet itself
+    const rn=rawNameFor(t.name); if(rn) byName.set(norm(rn), t.category);
+    if(!byName.has(norm(t.name))) byName.set(norm(t.name), t.category);
+    learn(t.name, t.category); });
+  rawData.forEach(r=>{ const c=lcCatFromGroup(r.group); if(!c) return;   // then the Item Master's own groups
+    if(!byName.has(norm(r.item))) byName.set(norm(r.item), c); learn(r.item, c); });
+  const best={}; Object.keys(tok).forEach(k=>{ let b='',n=0;
+    Object.keys(tok[k]).forEach(c=>{ if(tok[k][c]>n){ n=tok[k][c]; b=c; } }); best[k]=b; });
+  _lcCatIdx={byName, tok:best}; _lcCatKey=key; return _lcCatIdx;
+}
+function lcGuessCat(name,size){                          // nothing of theirs matched — read the name
+  const u=String(name||'').toUpperCase();
+  if(/DRAUGHT|DRAFT|\bKEG\b/.test(u) || (size&&size>=5000)) return 'DRAUGHT BEER';
+  if(/BREEZER|CRUISER|ALCOPOP/.test(u)) return 'ALCOPOPS';
+  if(/SODA|WATER|COKE|COLA|JUICE|TONIC|RED BULL|ENERGY|CIGAR/.test(u)) return 'BEVERAGE & CIGARETTE';
+  if(/TEQUILA|MEZCAL|REPOSADO|ANEJO/.test(u)) return 'TEQUILA';
+  if(/LIQUEUR|LIMONCELLO|FRANGELICO|CINZANO|VERMOUTH|APEROL|CAMPARI|JAGER|BAILEY|COINTREAU|SAMBUCA|TRIPLE SEC|CURACAO|ABSINTH|ABSENTA|MARTINI|KAHLUA|MALIBU|AMARETTO|SCHNAPPS|GRAPPA|CHARTREUSE|DRAMBUIE/.test(u)) return 'LIQUEUR';
+  if(/\bWINE\b|SPARKL|SPARKING|PROSECCO|CHAMPAGNE|RIOJA|TEMPRANILLO|MONTEPULCIANO|SANGIOVESE|CARMENERE|\bROSE\b|MOET|CHANDON|VERDEJO|TORRONTES|GRENACHE/.test(u)) return 'WINE';
+  if(/SINGLE MALT|\bMALT\b|SCOTCH|BOURBON/.test(u)) return 'WHISKY';
+  const k=bevKind(bevTokens(name));
+  if(k==='LIQ') return 'LIQUEUR';
+  return CATEGORIES.indexOf(k)>=0 ? k : '';
+}
+function lcCatOf(r){
+  if(r.c) return r.c;
+  const X=lcCatIndex(), mine=lcMine(r.f);
+  let c=(mine && X.byName.get(norm(mine.r.item))) || X.byName.get(norm(r.f))
+      || (mine && lcCatFromGroup(mine.r.group)) || lcGuessCat(r.f,r.z);
+  if(!c){ const w=_lcWords(r.f); if(w.length) c=(w[1]&&X.tok[w[0]+' '+w[1]]) || X.tok[w[0]] || ''; }
+  return c||'';
+}
+function lcCatFill(){                                    // one pass — from then on every row carries its own, editable
+  let n=0; landingData.forEach(r=>{ if(!r.c){ const c=lcCatOf(r); if(c){ r.c=c; n++; } } });
+  if(n) lcSave(); return n;
+}
+function lcCatList(){ const s=new Set(CATEGORIES); landingData.forEach(r=>{ if(r.c) s.add(r.c); }); return [...s]; }
+
+/* ---- the file's own formula ---------------------------------------------------------------- */
+function lcTcsPct(r){ return (r.r&&r.t!=null) ? Math.round(r.t/r.r*10000)/100 : null; }
+function lcPctTxt(r){ const p=lcTcsPct(r); return p==null?'':p+'%'; }
+function lcRecalc(r){
+  if(r.r==null && r.t==null && r.s==null && r.o==null){ delete r.l; return; }
+  r.l=Math.round(((r.r||0)+(r.t||0)+(r.s||0)+(r.o||0))*10000)/10000;
+  if(r.r!=null){ r.q=r.q||1; r.a=Math.round(r.r*r.q*10000)/10000; }
+}
+function lcSetField(i,f,v){
+  const r=landingData[i]; if(!r) return;
+  if(f==='f'){ const nm=String(v||'').replace(/\s+/g,' ').trim().toUpperCase();
+    if(!nm){ lcPaint(i); return; }                                        // blank is ignored — ✕ removes a row
+    r.f=nm; if(!r.z){ const z=lcSizeOf(nm); if(z) r.z=z; }
+    lcSave(); route(); return; }
+  if(f==='c'){ const c=String(v||'').trim().toUpperCase(); if(c) r.c=c; else delete r.c;
+    lcSave(); lcPaintHead(); return; }
+  const pct=lcTcsPct(r);                                                   // the row's own TCS %, read before the change
+  const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
+  const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
+  if(val==null) delete r[f]; else r[f]=val;
+  if(f==='r'){ if(r.r==null) delete r.t; else r.t=Math.round(r.r*(pct==null?2:pct)/100*10000)/10000; }
+  if(f==='r'||f==='t'||f==='s'||f==='o') lcRecalc(r);
+  lcSave(); lcPaint(i); lcPaintHead();
+}
+function lcPaint(i){                                                       // repaint one row in place — no re-render, so nothing jumps
+  const r=landingData[i]; if(!r) return;
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
+  set('lc_r_'+i, lcE(r.r)); set('lc_t_'+i, lcE(r.t)); set('lc_l_'+i, lcE(r.l));
+  const peg=(r.l!=null&&r.z)?r.l/r.z*30:null, p=document.getElementById('lc_peg_'+i);
+  if(p) p.innerHTML=(peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg));
+  const pc=document.getElementById('lc_p_'+i); if(pc) pc.textContent=lcPctTxt(r);
+}
+function lcStats(){ const all=landingData.length, withL=landingData.filter(r=>r.l!=null);
+  return {all, nL:withL.length, avg:withL.length?withL.reduce((a,r)=>a+r.l,0)/withL.length:0,
+          nC:new Set(landingData.map(r=>r.c).filter(Boolean)).size, noC:landingData.filter(r=>!r.c).length}; }
+function lcPaintHead(){ const S=lcStats(), set=(id,h)=>{ const e=document.getElementById(id); if(e) e.innerHTML=h; };
+  set('lcHN', fmt(S.all)+'<small>items</small>');
+  set('lcHL', fmt(S.nL)+'<small>of '+fmt(S.all)+'</small>');
+  set('lcHC', fmt(S.nC)+'<small>in use</small>');
+  set('lcHA', '₹ '+lcF(Math.round(S.avg))+'<small>per bottle</small>'); }
+function lcDel(i){ const r=landingData[i]; if(!r) return;
+  confirmAsk('Remove <strong>'+esc(r.f)+'</strong> from the Landing Cost File?<br><span class="muted">This price list only — no rate anywhere else in the app changes.</span>',
+    function(){ landingData.splice(i,1); lcSave(); route(); toast('Removed', r.f, 'ok'); }); }
+
+/* ---- ＋ Add item ---------------------------------------------------------------------------- */
+function lcNewSet(f,v){
+  const raw=String(v==null?'':v).trim();
+  if(f==='f'||f==='c'){ _lcN[f]=raw.toUpperCase(); return; }
+  const n=(raw===''?null:+evalNum(raw)), val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
+  if(f==='tp'){ _lcN.tp=(val==null?2:val); }
+  else { _lcN[f]=val; if(f==='t') _lcN.tT=(val!=null); if(f==='l') _lcN.lT=(val!=null); }
+  if((f==='r'||f==='tp') && !_lcN.tT) _lcN.t = (_lcN.r==null?null:Math.round(_lcN.r*(_lcN.tp==null?2:_lcN.tp)/100*10000)/10000);
+  if(f!=='l' && f!=='m' && f!=='z' && f!=='c' && !_lcN.lT){
+    const has=(_lcN.r!=null||_lcN.t!=null||_lcN.s!=null||_lcN.o!=null);
+    _lcN.l = has ? Math.round(((_lcN.r||0)+(_lcN.t||0)+(_lcN.s||0)+(_lcN.o||0))*10000)/10000 : null; }
+  lcNewPaint();
+}
+function lcNewPaint(){ const set=(id,v)=>{ const e=$(id); if(e && e.value!==v) e.value=v; };
+  set('#lcnT', lcE(_lcN.t)); set('#lcnL', lcE(_lcN.l));
+  const h=$('#lcnSum'); if(h) h.innerHTML = _lcN.l!=null ? 'Landing <b>₹ '+lcF(_lcN.l)+'</b>' : '<span class="muted">Rate + TCS + fee + round</span>'; }
+function lcNewClear(){ _lcN={tp:_lcN.tp}; ['#lcnF','#lcnC','#lcnZ','#lcnM','#lcnR','#lcnT','#lcnS','#lcnO','#lcnL'].forEach(s=>{ const e=$(s); if(e) e.value=''; });
+  lcNewPaint(); const e=$('#lcnF'); if(e) e.focus(); }
+function lcAdd(){
+  const nm=String(_lcN.f||'').replace(/\s+/g,' ').trim().toUpperCase();
+  if(!nm){ toast('Which item?','Type the item name first','err'); const e=$('#lcnF'); if(e) e.focus(); return; }
+  const go=()=>{ const r={f:nm};
+    ['m','r','t','s','o','z'].forEach(k=>{ if(_lcN[k]!=null) r[k]=_lcN[k]; });
+    if(!r.z){ const z=lcSizeOf(nm); if(z) r.z=z; }
+    r.q=1; if(r.r!=null) r.a=r.r;
+    if(_lcN.lT && _lcN.l!=null) r.l=_lcN.l; else lcRecalc(r);
+    const c=String(_lcN.c||'').trim().toUpperCase() || lcCatOf(r); if(c) r.c=c;
+    landingData.unshift(r); lcSave(); _lcN={tp:_lcN.tp}; lcTab='all'; lcCatF=''; iq.lc=''; route();
+    toast('Added to the price list', nm+(r.l!=null?' · landing ₹ '+lcF(r.l):' · no landing cost yet'),'ok');
+    const e=$('#lcnF'); if(e) e.focus(); };
+  const dup=landingData.find(r=>norm(r.f)===norm(nm));
+  if(dup) confirmAsk('<strong>'+esc(nm)+'</strong> is already in this price list'+(dup.l!=null?' — landing <strong>₹ '+lcF(dup.l)+'</strong>':'')+'.<br><br>Add it a second time?', go);
+  else go();
+}
+
 function lcRows(){
   const q=norm(iq.lc||'');
-  return landingData.map((r,i)=>{
-    const mine=lcMine(r.f);
-    const my=mine?landSetOf(mine.r.item):null;                 // the client's OWN typed rate, not the automatic one
-    return {i, r, mine, my, diff:(my!=null&&r.l!=null)?(my-r.l):null};
-  }).filter(x=>{
-    if(q && !(norm(x.r.f).includes(q) || (x.mine && norm(x.mine.r.group||'').includes(q)))) return false;
-    if(lcTab==='mine' && !x.mine) return false;
-    if(lcTab==='new'  && x.mine) return false;
-    if(lcTab==='nol'  && x.r.l!=null) return false;
+  return landingData.map((r,i)=>({i,r})).filter(x=>{
+    if(q && !(norm(x.r.f).includes(q) || norm(x.r.c||'').includes(q))) return false;
+    if(lcCatF && (x.r.c||'')!==lcCatF) return false;
+    if(lcTab==='nol' && x.r.l!=null) return false;
+    if(lcTab==='noc' && x.r.c) return false;
     return true;
   });
 }
 function lcSetTab(t){ lcTab=t; route(); }
+var _lcQT=null;
+function lcSearchType(v){ iq.lc=v; if(_lcQT) clearTimeout(_lcQT);            // the sheet is large — redraw once the typing pauses
+  _lcQT=setTimeout(function(){ _lcQT=null; isearch('lc', iq.lc); }, 200); }
+function lcSetCatF(v){ lcCatF=v||''; route(); }
 function lcUpload(inp){
   const f=inp.files&&inp.files[0]; if(!f) return;
   if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page (xlsx.full.min.js)','err'); inp.value=''; return; }
@@ -2484,9 +2643,6 @@ function lcUpload(inp){
     }
     if(!best){ toast('Could not read it','No LANDING column with an item column was found in that file','err'); inp.value=''; return; }
     const grid=best.grid, h=best.h, c=best.c, rows=[];
-    const SIZES=[30,50,60,90,100,180,200,275,330,355,360,375,500,650,700,750,1000,2000,5000,10000,20000,30000,50000];
-    const sizeName=n=>{ const m=String(n).toUpperCase().match(/(\d{2,5})\s*ML\b/); if(m) return +m[1];
-      const l2=String(n).toUpperCase().match(/(\d+(?:\.\d+)?)\s*(?:LTR|LITRE|L)\b/); if(l2) return Math.round(+l2[1]*1000); return null; };
     for(let i=h+1;i<grid.length;i++){
       const g=grid[i]||[]; const name=String(g[c.f]==null?'':g[c.f]).replace(/\s+/g,' ').trim();
       if(!name || /^(GRAND )?TOTAL/i.test(name)) continue;
@@ -2494,73 +2650,92 @@ function lcUpload(inp){
       [['m',c.m],['r',c.r],['q',c.q],['a',c.a],['t',c.t],['s',c.s],['o',c.o],['l',c.l]].forEach(p=>{
         const k=p[0], ix=p[1]; if(ix>=0){ const v=lcNum(g[ix]); if(v!=null) o[k]=Math.round(v*10000)/10000; } });
       let z=lcNum(g[c.l+1]);                                    // in their layout the size sits right after LANDING COST
-      if(z!=null && (SIZES.indexOf(z)<0 || (o.l!=null && Math.abs(z-o.l)<0.01))) z=null;   // beer rows repeat the landing value there
-      if(z==null) z=sizeName(name);
+      if(z!=null && (LC_SIZES.indexOf(z)<0 || (o.l!=null && Math.abs(z-o.l)<0.01))) z=null;   // beer rows repeat the landing value there
+      if(z==null) z=lcSizeOf(name);
       if(z!=null) o.z=z;
       rows.push(o);
     }
     if(!rows.length){ toast('Nothing in it','That sheet has the columns but no item rows','err'); inp.value=''; return; }
     const withL=rows.filter(r=>r.l!=null).length;
     confirmAsk('Replace the Landing Cost File with <strong>'+esc(f.name)+'</strong>?<br><br>It has <strong>'+fmt(rows.length)+' items</strong> ('+fmt(withL)+' with a landing cost). The list now on this page ('+fmt(landingData.length)+' items) is replaced. <span class="muted">No rate anywhere else in the app changes.</span>',
-      function(){ landingData=rows; lcSave(); route(); toast('Landing Cost File updated', fmt(rows.length)+' items from '+f.name,'ok'); });
+      function(){ landingData=rows; lcCatFill(); lcSave(); route(); toast('Landing Cost File updated', fmt(rows.length)+' items from '+f.name,'ok'); });
   }catch(err){ toast('Could not read it', err.message,'err'); } finally { inp.value=''; } };
   rd.readAsArrayBuffer(f);
 }
 VIEWS.landing = () => {
-  const rows=lcRows(), all=landingData.length;
-  const nMine=landingData.filter(r=>lcMine(r.f)).length;
-  const withL=landingData.filter(r=>r.l!=null);
-  const avg=withL.length?withL.reduce((a,r)=>a+r.l,0)/withL.length:0;
-  const tabs=[['all','All',all],['mine','✅ In my Item Master',nMine],['new','⚠ Not in my list',all-nMine],['nol','⚠ No landing ₹',all-withL.length]];
-  const cell=(v)=>'<td class="num nowrap">'+(v==null?'<span class="muted">—</span>':'₹ '+lcF(v))+'</td>';
+  lcCatFill();
+  const rows=lcRows(), S=lcStats(), cats=lcCatList();
+  const tabs=[['all','All',S.all],['nol','⚠ No landing ₹',S.all-S.nL],['noc','⚠ No category',S.noC]];
+  const inp=(i,f,cls,extra)=>`<input class="lcin ${cls||''}" id="lc_${f}_${i}" value="${esc(lcE(landingData[i][f]))}" onchange="lcSetField(${i},'${f}',this.value)"${extra||''}>`;
   const body=rows.map((x,n)=>{
-    const r=x.r, peg=(r.l!=null&&r.z)?r.l/r.z*30:null;
+    const r=x.r, i=x.i, peg=(r.l!=null&&r.z)?r.l/r.z*30:null;
     return `<tr>
-      <td class="num muted">${n+1}</td>
-      <td class="lrname"><strong>${esc(r.f)}</strong></td>
-      <td class="num nowrap">${r.z?fmt(r.z)+' <small class="muted">ml</small>':'<span class="muted">—</span>'}</td>
-      ${cell(r.m)}${cell(r.r)}${cell(r.t)}${cell(r.s)}${cell(r.o)}
-      <td class="num nowrap"><strong class="lrclose">${r.l==null?'—':'₹ '+lcF(r.l)}</strong></td>
-      <td class="num nowrap">${peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg)}</td>
-      <td>${x.mine?`<span class="pill gray" title="${esc(x.mine.r.item)} · ${esc(x.mine.r.group||'')}">${x.mine.exact?'✔':'≈'} ${esc(x.mine.r.item)}</span>`:'<span class="pill red">not in my Item Master</span>'}</td>
-      ${cell(x.my)}
-      <td class="num nowrap">${x.diff==null?'<span class="muted">—</span>':`<strong style="color:var(--${x.diff>0?'red':x.diff<0?'green':'text-dim'})">${x.diff>0?'+':''}${lcF(x.diff)}</strong>`}</td>
+      <td class="num muted lcn">${n+1}</td>
+      <td class="lcnm"><input class="lcin nm" id="lc_f_${i}" value="${esc(r.f)}" title="${esc(r.f)}" onchange="lcSetField(${i},'f',this.value)"></td>
+      <td><input class="lcin cat" id="lc_c_${i}" list="lcCatsDL" value="${esc(r.c||'')}" placeholder="—" onchange="lcSetField(${i},'c',this.value)"></td>
+      <td class="num">${inp(i,'z','lcr',' placeholder="ml"')}</td>
+      <td class="num">${inp(i,'m','lcr')}</td>
+      <td class="num">${inp(i,'r','lcr')}</td>
+      <td class="num lctcs"><i id="lc_p_${i}">${lcPctTxt(r)}</i>${inp(i,'t','lcr',' title="Rate × its own TCS percentage — type another figure to change it"')}</td>
+      <td class="num">${inp(i,'s','lcr')}</td>
+      <td class="num">${inp(i,'o','lcr')}</td>
+      <td class="num">${inp(i,'l','lcr land',' title="Rate + TCS + SP fee + Round off — type a figure to keep your own"')}</td>
+      <td class="num nowrap peg" id="lc_peg_${i}">${peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg)}</td>
+      <td class="center"><button class="btn rmx" onclick="lcDel(${i})" title="Remove this item">✕</button></td>
     </tr>`; }).join('')
-   || '<tr><td colspan="13" class="center muted" style="padding:20px">Nothing matches this search — <a href="#" onclick="iq.lc=\'\';lcTab=\'all\';route();return false" style="color:var(--gold)">show everything</a>.</td></tr>';
+   || `<tr><td colspan="12" class="center muted" style="padding:18px">Nothing matches — <a href="#" onclick="iq.lc='';lcTab='all';lcCatF='';route();return false" style="color:var(--gold)">show everything</a>.</td></tr>`;
+  const nb=(id,ph,w,f,cls)=>`<input class="lcin nb ${cls||''}" id="${id}" placeholder="${ph}" style="width:${w}px" oninput="lcNewSet('${f}',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();lcAdd();}if(event.key==='Escape')lcNewClear()">`;
   return `
-    <div class="page-head"><div><h1>Landing Cost File</h1><p>Your landing-cost workbook, as it is — MRP · rate · TCS · special purpose fee · round off · landing cost. A reference list: it changes no rate by itself.</p></div>
+    <div class="page-head"><div><h1>Landing Cost File</h1><p>Your landing-cost price list — every cell editable, the formula fills itself in. A reference list: it changes no rate by itself.</p></div>
       <div class="page-actions">
+        <button class="btn btn-sm btn-gold" onclick="(function(){var e=$('#lcnF');if(e){e.scrollIntoView({block:'center',behavior:'smooth'});e.focus();}})()">＋ Add item</button>
         <label class="btn btn-sm" style="cursor:pointer">📂 Upload new file<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="lcUpload(this)"></label>
         <button class="btn btn-sm" onclick="expReport('landing','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('landing')" title="Clean print — Save as PDF from the dialog">🖨 Print</button></div></div>
-    <div class="card bcledger">
+    <div class="card bcledger lchead">
       <div class="bh"><div class="t">Landing Cost File</div><div class="f">Landing cost <b>=</b> Rate <b>+</b> TCS <b>+</b> Special purpose fee <b>+</b> Round off</div>
-        <div class="p">${fmt(all)} items · per bottle</div></div>
+        <div class="p">${fmt(S.all)} items · per bottle</div></div>
       <div class="bclh lr5">
-        <div class="h c">Column</div><div class="h">Items in the file</div><div class="h">Landing ₹ given</div><div class="h">In my Item Master</div><div class="h">Average landing ₹</div>
+        <div class="h c">Column</div><div class="h">Items in the file</div><div class="h">Landing ₹ given</div><div class="h">Categories</div><div class="h">Average landing ₹</div>
         <div class="k">Count</div>
-        <div class="rs big">${fmt(all)}<small>items</small></div>
-        <div class="rs big${withL.length===all?'':' mu'}">${fmt(withL.length)}<small>of ${fmt(all)}</small></div>
-        <div class="rs big${nMine===all?'':' mu'}">${fmt(nMine)}<small>of ${fmt(all)}</small></div>
-        <div class="rs big hi">₹ ${lcF(Math.round(avg))}<small>per bottle</small></div>
+        <div class="rs big" id="lcHN">${fmt(S.all)}<small>items</small></div>
+        <div class="rs big${S.nL===S.all?'':' mu'}" id="lcHL">${fmt(S.nL)}<small>of ${fmt(S.all)}</small></div>
+        <div class="rs big" id="lcHC">${fmt(S.nC)}<small>in use</small></div>
+        <div class="rs big hi" id="lcHA">₹ ${lcF(Math.round(S.avg))}<small>per bottle</small></div>
       </div>
-      <div class="muted" style="font-size:11px;padding:7px 4px 0;line-height:1.5">A price list only. Liquor Room · Bar Stock Issue · Beverage Control still value everything at <strong>your Item Master rate</strong> (then the latest invoice rate, then MRP) — the last three columns just show what that rate is today and how far it sits from this file.</div>
+      <div class="muted lcnote">Type in any box and it saves at once. <strong>Rate · TCS · SP fee · Round off</strong> → the landing cost is worked out again; a landing cost you type yourself is kept. <strong>Category</strong> comes from your Beverage Control sheet. This is a price list only — Liquor Room · Bar Stock Issue · Beverage Control still value everything at <strong>your Item Master rate</strong> (then the latest invoice rate, then MRP).</div>
     </div>
     <div class="card barinv laydense lctbl">
-      <div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Price list</h3><p>${fmt(rows.length)} shown${iq.lc?' · matching “'+esc(iq.lc)+'”':''}</p></div>
+      <div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Price list</h3><p id="lcShown">${fmt(rows.length)} shown${iq.lc?' · matching “'+esc(iq.lc)+'”':''}</p></div>
         <div class="flex gap-8 items-center" style="flex-wrap:wrap">
           <div class="tabs" style="margin:0">${tabs.map(t=>`<div class="tab ${lcTab===t[0]?'active':''}" onclick="lcSetTab('${t[0]}')">${t[1]} (${fmt(t[2])})</div>`).join('')}</div>
-          <div class="search lrq"><span>🔎</span><input id="searchBox" placeholder="Search item / group…" value="${esc(iq.lc||'')}" oninput="isearch('lc',this.value)" onkeydown="if(event.key==='Escape'){this.value='';isearch('lc','');}"></div>
+          <select class="lcin sel" style="width:150px" onchange="lcSetCatF(this.value)"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c)}"${lcCatF===c?' selected':''}>${esc(c)}</option>`).join('')}</select>
+          <div class="search lrq"><span>🔎</span><input id="searchBox" placeholder="Search item / category…" value="${esc(iq.lc||'')}" oninput="lcSearchType(this.value)" onkeydown="if(event.key==='Escape'){this.value='';lcSearchType('');}"></div>
         </div></div>
-      <div class="table-wrap" style="max-height:560px;overflow:auto"><table class="tbl">
-      <thead><tr><th style="width:44px">#</th><th>Item</th><th class="right" style="width:78px">Size</th>
-        <th class="right" style="width:86px">MRP ₹</th><th class="right" style="width:92px">Rate ₹</th><th class="right" style="width:80px">TCS ₹</th>
-        <th class="right nowrap" style="width:92px">SP Fee ₹</th><th class="right" style="width:82px">Round ₹</th>
-        <th class="right nowrap" style="width:104px">Landing ₹</th><th class="right nowrap" style="width:92px" title="Landing cost ÷ bottle size × 30 ml — worked out here, not taken from the file">₹ / 30 ml</th>
-        <th style="width:220px">In my Item Master</th><th class="right nowrap" style="width:104px" title="The rate you typed in Item Master (blank when you have not set one)">My rate ₹</th>
-        <th class="right nowrap" style="width:92px" title="My rate − the file's landing cost">Difference</th></tr></thead>
+      <div class="lcadd noprint">
+        <span class="lb">＋ New item</span>
+        ${nb('lcnF','Item name',196,'f','nm')}
+        <input class="lcin nb cat" id="lcnC" list="lcCatsDL" placeholder="Category" style="width:112px" oninput="lcNewSet('c',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();lcAdd();}">
+        ${nb('lcnZ','Size',58,'z','lcr')}${nb('lcnM','MRP',64,'m','lcr')}${nb('lcnR','Rate',74,'r','lcr')}
+        <span class="tp">TCS <input class="lcin nb lcr" id="lcnTp" value="2" style="width:34px" oninput="lcNewSet('tp',this.value)">%</span>
+        ${nb('lcnT','TCS',60,'t','lcr')}${nb('lcnS','SP fee',62,'s','lcr')}${nb('lcnO','Round',58,'o','lcr')}${nb('lcnL','Landing',74,'l','lcr land')}
+        <span class="sum" id="lcnSum"><span class="muted">Rate + TCS + fee + round</span></span>
+        <button class="btn btn-sm btn-gold" id="lcnAdd" onclick="lcAdd()">＋ Add</button>
+        <button class="btn btn-sm" onclick="lcNewClear()" title="Clear this row">✕</button>
+      </div>
+      <div class="table-wrap" style="max-height:58vh;overflow:auto"><table class="tbl">
+      <thead><tr><th style="width:34px">#</th><th style="min-width:300px">Item</th><th style="width:118px">Category</th>
+        <th class="right" style="width:62px">Size</th>
+        <th class="right" style="width:76px">MRP ₹</th><th class="right" style="width:80px">Rate ₹</th>
+        <th class="right" style="width:78px" title="Rate × its own TCS percentage — the % it used is shown on the left of each box">TCS ₹</th>
+        <th class="right nowrap" style="width:76px">SP Fee ₹</th><th class="right" style="width:70px">Round ₹</th>
+        <th class="right nowrap" style="width:88px" title="Rate + TCS + SP fee + Round off">Landing ₹</th>
+        <th class="right nowrap" style="width:78px" title="Landing cost ÷ bottle size × 30 ml — worked out here, not taken from the file">₹ / 30 ml</th>
+        <th style="width:30px"></th></tr></thead>
       <tbody>${body}</tbody>
-      </table></div></div>`;
+      </table></div>
+      <datalist id="lcCatsDL">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+    </div>`;
 };
 
 const REPORTS=[
@@ -2649,12 +2824,12 @@ function _dlBlob(name,text,type){ const b=new Blob([text],{type:type}); const u=
   const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
 function _aoaCSV(aoa){ return aoa.map(r=>r.map(c=>{ const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\r\n'); }
 function _lcAoa(){
-  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Landing Cost File' ], [ 'Items', landingData.length ], [],
-    ['Item','Size ml','MRP','Rate','TCS','SP Fee','Round off','Landing cost','₹ / 30 ml','In my Item Master','My rate ₹']];
+  const S=lcStats();
+  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Landing Cost File' ], [ 'Items', S.all ], [ 'Landing ₹ given', S.nL ], [],
+    ['Item','Category','Size ml','MRP','Rate','TCS','TCS %','SP Fee','Round off','Landing cost','₹ / 30 ml']];
   const n=v=>(v==null?'':v);
-  landingData.forEach(r=>{ const mine=lcMine(r.f); const my=mine?landSetOf(mine.r.item):null;
-    a.push([r.f, n(r.z), n(r.m), n(r.r), n(r.t), n(r.s), n(r.o), n(r.l),
-      (r.l!=null&&r.z)?Math.round(r.l/r.z*30*100)/100:'', mine?mine.r.item:'', my==null?'':my]); });
+  landingData.forEach(r=>{ a.push([r.f, r.c||'', n(r.z), n(r.m), n(r.r), n(r.t), lcTcsPct(r)==null?'':lcTcsPct(r), n(r.s), n(r.o), n(r.l),
+    (r.l!=null&&r.z)?Math.round(r.l/r.z*30*100)/100:'']); });
   return a;
 }
 function expReport(id,kind){ const aoa=reportAoa(id); const base=id+'_'+period.from+'_'+period.to;

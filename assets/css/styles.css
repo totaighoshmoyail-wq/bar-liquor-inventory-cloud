@@ -1687,9 +1687,42 @@ body.r-staff .btn-danger { display:none !important; }
 .barinv.recvtbl .tbl, .barinv.mrtbl .tbl, .barinv.lctbl .tbl{table-layout:auto}
 .barinv.recvtbl .tbl th, .barinv.recvtbl .tbl td, .barinv.mrtbl .tbl th, .barinv.mrtbl .tbl td, .barinv.lctbl .tbl th, .barinv.lctbl .tbl td{width:auto;max-width:none}
 .barinv.recvtbl .tbl td:first-child strong, .barinv.mrtbl .tbl td:first-child strong, .barinv.lctbl .tbl td:first-child strong{display:inline;white-space:normal}
-.barinv.lctbl .tbl .lrname strong{white-space:nowrap}   /* the price list is read across, so names do not wrap (v2.52.0) */
-.barinv.lctbl .tbl .pill{display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
-.barinv.lctbl .tbl tbody td{padding:3px 8px}
+/* ---- Landing Cost File — compact, editable price sheet (v2.53.0) ------------------------- */
+.barinv.lctbl .tbl{font-size:11.5px}
+.barinv.lctbl .tbl thead th{padding:6px 7px;font-size:9px;letter-spacing:.5px;white-space:nowrap}
+.barinv.lctbl .tbl tbody td{padding:0 3px;height:27px;border-bottom:1px solid color-mix(in srgb,var(--border-soft) 70%,transparent)}
+.barinv.lctbl .tbl tbody td.lcn{padding-left:9px;font-size:10px}
+.barinv.lctbl .tbl tbody tr:hover{background:color-mix(in srgb,var(--gold) 4%,transparent)}
+.lcin{width:100%;min-width:0;text-overflow:ellipsis;background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 5px;
+  color:var(--text);font:inherit;font-size:11.5px;font-variant-numeric:tabular-nums;transition:border-color .12s,background .12s}
+.lcin::placeholder{color:var(--text-muted);opacity:.55}
+.lcin:hover{border-color:color-mix(in srgb,var(--gold) 30%,transparent);background:color-mix(in srgb,var(--gold) 5%,transparent)}
+.lcin:focus{outline:none;border-color:var(--gold);background:var(--panel);box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 16%,transparent)}
+.lcin.lcr{text-align:right}
+.lcin.nm{font-family:Georgia,'Times New Roman',serif;font-size:11.5px;font-weight:600;letter-spacing:.1px}
+.lcin.cat{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)}
+.lcin.land{font-weight:700;color:var(--gold)}
+.barinv.lctbl .tbl td.lctcs{position:relative}
+.barinv.lctbl .tbl td.lctcs i{position:absolute;left:5px;top:50%;transform:translateY(-50%);font-style:normal;
+  font-size:8.5px;color:var(--text-muted);opacity:.7;pointer-events:none}
+.barinv.lctbl .tbl td.peg{color:var(--text-dim);padding-right:10px}
+.barinv.lctbl .tbl .btn.rmx{opacity:.28}
+.barinv.lctbl .tbl tbody tr:hover .btn.rmx{opacity:1}
+.lcin.sel{border-color:var(--border);background:var(--panel-2);font-size:11px;padding:5px 6px;cursor:pointer}
+/* ＋ new item strip */
+.lcadd{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:7px 10px;margin:0 0 4px;
+  border:1px solid color-mix(in srgb,var(--gold) 34%,transparent);border-radius:9px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--gold) 9%,transparent),transparent 72%)}
+.lcadd .lb{font-family:Georgia,'Times New Roman',serif;font-size:11.5px;color:var(--gold);letter-spacing:.4px;white-space:nowrap;margin-right:2px}
+.lcadd .lcin.nb{flex:0 0 auto;border-color:color-mix(in srgb,var(--border) 90%,transparent);background:var(--panel)}
+.lcadd .tp{display:inline-flex;align-items:center;gap:2px;font-size:10px;color:var(--text-dim);white-space:nowrap}
+.lcadd .sum{font-size:11px;color:var(--text-dim);margin-left:auto;padding:0 4px;white-space:nowrap}
+.lcadd .sum b{color:var(--gold);font-size:12.5px}
+.lchead .lcnote{font-size:11px;padding:7px 4px 0;line-height:1.55}
+@media (max-width:1400px){ .lcin.nm{font-size:11px;letter-spacing:0} }
+@media (max-width:1240px){ .barinv.lctbl .tbl{font-size:11px} .lcadd .sum{margin-left:6px} }
+@media print{ .lcin{border:none!important;background:none!important;box-shadow:none!important;padding:0}
+  .lcadd{display:none!important} .barinv.lctbl .tbl td.lctcs i{display:none} }
 .barinv.recvtbl .tbl tbody tr.grp-row td, .barinv.mrtbl .tbl tbody tr.grp-row td{font-size:11.5px}
 .recvtbl .cell-input.lrland{width:72px;font-size:11.5px}
 .recvtbl .tbl tbody tr.lrgrp:nth-child(even), .recvtbl .tbl tbody tr.lrsub:nth-child(even){background:transparent}
