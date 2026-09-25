@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.51.5';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.52.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -500,7 +500,7 @@ var _cloudTimer=null;   // var (not let): bsv -> cloudMark can fire during file 
 function cloudMark(k){
   if(!(k==='tally'||k==='alias'||k==='cocktails'||k==='cocktailAlias'||k==='pos'||k==='namemap'
      ||k==='inv'||k==='mr'||k==='recv'||k==='rawdata2'||k==='period'||k==='cfg'||k==='users'
-     ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k.indexOf('inv2_')===0)) return;
+     ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k==='landing'||k.indexOf('inv2_')===0)) return;
   if(!cloudOn()) return;
   { const m=_cloudMeta(); const dk=Array.isArray(m.dirtyKeys)?m.dirtyKeys.slice():[]; if(dk.indexOf(k)<0) dk.push(k);
     _cloudSetMeta({dirty:true, dirtyKeys:dk}); }        // survives a reload; the key list is what lets a push MERGE (v2.34.0)
@@ -1185,6 +1185,7 @@ const NAV = [
   ]},
   { group:'Inventory Center', items:[
     {id:'rawdata',    label:'Item Master', ico:ICO.item},
+    {id:'landing',    label:'Landing Cost File', ico:ICO.reports},
     {id:'received',   label:'Purchase', ico:ICO.purchase},
     {id:'liquorroom', label:'Liquor Room', ico:ICO.room},
     {id:'mrdetail',   label:'Bar Stock Issue', ico:ICO.issue},
@@ -1209,6 +1210,7 @@ const TITLES = {
   alias:['Liquor Alias','POS button → brand mappings (VLOOKUP chain)'],
   ckalias:['Cocktail Alias','POS button → cocktail mappings (which name counts as which cocktail)'],
   rawdata:['Item Master','Item master — group, brand & bottle size'],
+  landing:['Landing Cost File','Your own price file — MRP · rate · TCS · fees · landing cost'],
   received:['Purchase','Purchases into the Liquor Room (Excel / BEVCO invoice)'],
   mrdetail:['Bar Stock Issue','Material requisition — Liquor Room → Bar'],
   liquorroom:['Liquor Room','Opening + Received − Issued = Closing'],

@@ -1684,9 +1684,12 @@ body.r-staff .btn-danger { display:none !important; }
 .tbl tfoot tr.lrsub td{background:color-mix(in srgb,var(--gold) 10%,var(--panel))}   /* sticky footer must be opaque */
 /* these two registers keep an ordinary auto layout — the Beverage Control fixed/proportional column widths
    (v2.13.4, keyed on .barinv) do not fit a Date-first sheet */
-.barinv.recvtbl .tbl, .barinv.mrtbl .tbl{table-layout:auto}
-.barinv.recvtbl .tbl th, .barinv.recvtbl .tbl td, .barinv.mrtbl .tbl th, .barinv.mrtbl .tbl td{width:auto;max-width:none}
-.barinv.recvtbl .tbl td:first-child strong, .barinv.mrtbl .tbl td:first-child strong{display:inline;white-space:normal}
+.barinv.recvtbl .tbl, .barinv.mrtbl .tbl, .barinv.lctbl .tbl{table-layout:auto}
+.barinv.recvtbl .tbl th, .barinv.recvtbl .tbl td, .barinv.mrtbl .tbl th, .barinv.mrtbl .tbl td, .barinv.lctbl .tbl th, .barinv.lctbl .tbl td{width:auto;max-width:none}
+.barinv.recvtbl .tbl td:first-child strong, .barinv.mrtbl .tbl td:first-child strong, .barinv.lctbl .tbl td:first-child strong{display:inline;white-space:normal}
+.barinv.lctbl .tbl .lrname strong{white-space:nowrap}   /* the price list is read across, so names do not wrap (v2.52.0) */
+.barinv.lctbl .tbl .pill{display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.barinv.lctbl .tbl tbody td{padding:3px 8px}
 .barinv.recvtbl .tbl tbody tr.grp-row td, .barinv.mrtbl .tbl tbody tr.grp-row td{font-size:11.5px}
 .recvtbl .cell-input.lrland{width:72px;font-size:11.5px}
 .recvtbl .tbl tbody tr.lrgrp:nth-child(even), .recvtbl .tbl tbody tr.lrsub:nth-child(even){background:transparent}

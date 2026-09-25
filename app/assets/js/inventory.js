@@ -2428,6 +2428,141 @@ function exportBarInvExcel(){
 /* ============================================================
    REPORTS — real-data reports with Excel / CSV / PDF export
    ============================================================ */
+/* ============================================================
+   LANDING COST FILE (v2.52.0) — the client's own landing-cost workbook as a page of its own.
+   It is a REFERENCE list: MRP · Rate · TCS · SP purpose fee · Round off · Landing cost · size,
+   exactly as their Excel has them. It changes NOTHING on its own — the rate rule stands
+   (Purchase = the entry's own rate; every stock page = landOf() = Item Master rate → latest
+   invoice rate → MRP). The page only SHOWS how the file's landing cost compares with the rate
+   each item is valued at today, so the difference is visible without opening Excel.
+   Stored per company under `landing`, seeded from LANDING_SEED, replaceable by uploading a
+   newer file (same sheet layout, or any sheet whose header names the columns).
+   ============================================================ */
+let landingData = bls('landing', (typeof LANDING_SEED!=='undefined'?LANDING_SEED:[]).map(r=>({...r})));
+let lcTab='all';   // the search text lives in iq.lc (the shared isearch store, so the box keeps focus)
+function lcSave(){ bsv('landing', landingData); }
+function lcNum(v){ return (v==null||v==='')?null:(+v||0); }
+/* the file carries paise (1838.3426) and fmt() rounds to whole rupees — this keeps 2 decimals, and only
+   when the number actually has them, so MRP stays 1,940 and the landing cost reads 1,838.34 (v2.52.0) */
+function lcF(v){ const n=+v; if(!isFinite(n)) return '—';
+  return Math.abs(n-Math.round(n))<0.005 ? Math.round(n).toLocaleString('en-IN')
+    : n.toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function lcMine(name){ const ex=findRawExact(name); if(ex) return {r:ex, exact:true}; const f=findRaw(name); return f?{r:f, exact:false}:null; }
+function lcRows(){
+  const q=norm(iq.lc||'');
+  return landingData.map((r,i)=>{
+    const mine=lcMine(r.f);
+    const my=mine?landSetOf(mine.r.item):null;                 // the client's OWN typed rate, not the automatic one
+    return {i, r, mine, my, diff:(my!=null&&r.l!=null)?(my-r.l):null};
+  }).filter(x=>{
+    if(q && !(norm(x.r.f).includes(q) || (x.mine && norm(x.mine.r.group||'').includes(q)))) return false;
+    if(lcTab==='mine' && !x.mine) return false;
+    if(lcTab==='new'  && x.mine) return false;
+    if(lcTab==='nol'  && x.r.l!=null) return false;
+    return true;
+  });
+}
+function lcSetTab(t){ lcTab=t; route(); }
+function lcUpload(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page (xlsx.full.min.js)','err'); inp.value=''; return; }
+  const rd=new FileReader();
+  rd.onload=e=>{ try{
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    let best=null;
+    for(let si=0; si<wb.SheetNames.length && !best; si++){
+      const grid=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[si]],{header:1,blankrows:false});
+      for(let h=0;h<Math.min(grid.length,15);h++){
+        const row=(grid[h]||[]).map(x=>norm(x));
+        const c={ f:row.findIndex(x=>/(ROW LABEL|^ITEM|PRODUCT|DESCRIPTION|BRAND|NAME)/.test(x)),
+                  m:row.findIndex(x=>/^MRP/.test(x)), r:row.findIndex(x=>/^RATE/.test(x)),
+                  q:row.findIndex(x=>/^QTY|QUANTITY/.test(x)), a:row.findIndex(x=>/^AMOUNT/.test(x)),
+                  t:row.findIndex(x=>/^TCS/.test(x)), s:row.findIndex(x=>/(SP|SPECIAL).*(PURPOSE|FEE)/.test(x)),
+                  o:row.findIndex(x=>/ROUND/.test(x)), l:row.findIndex(x=>/LANDING/.test(x)) };
+        if(c.f>=0 && c.l>=0){ best={grid, h, c}; break; }
+      }
+    }
+    if(!best){ toast('Could not read it','No LANDING column with an item column was found in that file','err'); inp.value=''; return; }
+    const grid=best.grid, h=best.h, c=best.c, rows=[];
+    const SIZES=[30,50,60,90,100,180,200,275,330,355,360,375,500,650,700,750,1000,2000,5000,10000,20000,30000,50000];
+    const sizeName=n=>{ const m=String(n).toUpperCase().match(/(\d{2,5})\s*ML\b/); if(m) return +m[1];
+      const l2=String(n).toUpperCase().match(/(\d+(?:\.\d+)?)\s*(?:LTR|LITRE|L)\b/); if(l2) return Math.round(+l2[1]*1000); return null; };
+    for(let i=h+1;i<grid.length;i++){
+      const g=grid[i]||[]; const name=String(g[c.f]==null?'':g[c.f]).replace(/\s+/g,' ').trim();
+      if(!name || /^(GRAND )?TOTAL/i.test(name)) continue;
+      const o={f:name.toUpperCase()};
+      [['m',c.m],['r',c.r],['q',c.q],['a',c.a],['t',c.t],['s',c.s],['o',c.o],['l',c.l]].forEach(p=>{
+        const k=p[0], ix=p[1]; if(ix>=0){ const v=lcNum(g[ix]); if(v!=null) o[k]=Math.round(v*10000)/10000; } });
+      let z=lcNum(g[c.l+1]);                                    // in their layout the size sits right after LANDING COST
+      if(z!=null && (SIZES.indexOf(z)<0 || (o.l!=null && Math.abs(z-o.l)<0.01))) z=null;   // beer rows repeat the landing value there
+      if(z==null) z=sizeName(name);
+      if(z!=null) o.z=z;
+      rows.push(o);
+    }
+    if(!rows.length){ toast('Nothing in it','That sheet has the columns but no item rows','err'); inp.value=''; return; }
+    const withL=rows.filter(r=>r.l!=null).length;
+    confirmAsk('Replace the Landing Cost File with <strong>'+esc(f.name)+'</strong>?<br><br>It has <strong>'+fmt(rows.length)+' items</strong> ('+fmt(withL)+' with a landing cost). The list now on this page ('+fmt(landingData.length)+' items) is replaced. <span class="muted">No rate anywhere else in the app changes.</span>',
+      function(){ landingData=rows; lcSave(); route(); toast('Landing Cost File updated', fmt(rows.length)+' items from '+f.name,'ok'); });
+  }catch(err){ toast('Could not read it', err.message,'err'); } finally { inp.value=''; } };
+  rd.readAsArrayBuffer(f);
+}
+VIEWS.landing = () => {
+  const rows=lcRows(), all=landingData.length;
+  const nMine=landingData.filter(r=>lcMine(r.f)).length;
+  const withL=landingData.filter(r=>r.l!=null);
+  const avg=withL.length?withL.reduce((a,r)=>a+r.l,0)/withL.length:0;
+  const tabs=[['all','All',all],['mine','✅ In my Item Master',nMine],['new','⚠ Not in my list',all-nMine],['nol','⚠ No landing ₹',all-withL.length]];
+  const cell=(v)=>'<td class="num nowrap">'+(v==null?'<span class="muted">—</span>':'₹ '+lcF(v))+'</td>';
+  const body=rows.map((x,n)=>{
+    const r=x.r, peg=(r.l!=null&&r.z)?r.l/r.z*30:null;
+    return `<tr>
+      <td class="num muted">${n+1}</td>
+      <td class="lrname"><strong>${esc(r.f)}</strong></td>
+      <td class="num nowrap">${r.z?fmt(r.z)+' <small class="muted">ml</small>':'<span class="muted">—</span>'}</td>
+      ${cell(r.m)}${cell(r.r)}${cell(r.t)}${cell(r.s)}${cell(r.o)}
+      <td class="num nowrap"><strong class="lrclose">${r.l==null?'—':'₹ '+lcF(r.l)}</strong></td>
+      <td class="num nowrap">${peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg)}</td>
+      <td>${x.mine?`<span class="pill gray" title="${esc(x.mine.r.item)} · ${esc(x.mine.r.group||'')}">${x.mine.exact?'✔':'≈'} ${esc(x.mine.r.item)}</span>`:'<span class="pill red">not in my Item Master</span>'}</td>
+      ${cell(x.my)}
+      <td class="num nowrap">${x.diff==null?'<span class="muted">—</span>':`<strong style="color:var(--${x.diff>0?'red':x.diff<0?'green':'text-dim'})">${x.diff>0?'+':''}${lcF(x.diff)}</strong>`}</td>
+    </tr>`; }).join('')
+   || '<tr><td colspan="13" class="center muted" style="padding:20px">Nothing matches this search — <a href="#" onclick="iq.lc=\'\';lcTab=\'all\';route();return false" style="color:var(--gold)">show everything</a>.</td></tr>';
+  return `
+    <div class="page-head"><div><h1>Landing Cost File</h1><p>Your landing-cost workbook, as it is — MRP · rate · TCS · special purpose fee · round off · landing cost. A reference list: it changes no rate by itself.</p></div>
+      <div class="page-actions">
+        <label class="btn btn-sm" style="cursor:pointer">📂 Upload new file<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="lcUpload(this)"></label>
+        <button class="btn btn-sm" onclick="expReport('landing','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
+        <button class="btn btn-sm" onclick="printSheet('landing')" title="Clean print — Save as PDF from the dialog">🖨 Print</button></div></div>
+    <div class="card bcledger">
+      <div class="bh"><div class="t">Landing Cost File</div><div class="f">Landing cost <b>=</b> Rate <b>+</b> TCS <b>+</b> Special purpose fee <b>+</b> Round off</div>
+        <div class="p">${fmt(all)} items · per bottle</div></div>
+      <div class="bclh lr5">
+        <div class="h c">Column</div><div class="h">Items in the file</div><div class="h">Landing ₹ given</div><div class="h">In my Item Master</div><div class="h">Average landing ₹</div>
+        <div class="k">Count</div>
+        <div class="rs big">${fmt(all)}<small>items</small></div>
+        <div class="rs big${withL.length===all?'':' mu'}">${fmt(withL.length)}<small>of ${fmt(all)}</small></div>
+        <div class="rs big${nMine===all?'':' mu'}">${fmt(nMine)}<small>of ${fmt(all)}</small></div>
+        <div class="rs big hi">₹ ${lcF(Math.round(avg))}<small>per bottle</small></div>
+      </div>
+      <div class="muted" style="font-size:11px;padding:7px 4px 0;line-height:1.5">A price list only. Liquor Room · Bar Stock Issue · Beverage Control still value everything at <strong>your Item Master rate</strong> (then the latest invoice rate, then MRP) — the last three columns just show what that rate is today and how far it sits from this file.</div>
+    </div>
+    <div class="card barinv laydense lctbl">
+      <div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Price list</h3><p>${fmt(rows.length)} shown${iq.lc?' · matching “'+esc(iq.lc)+'”':''}</p></div>
+        <div class="flex gap-8 items-center" style="flex-wrap:wrap">
+          <div class="tabs" style="margin:0">${tabs.map(t=>`<div class="tab ${lcTab===t[0]?'active':''}" onclick="lcSetTab('${t[0]}')">${t[1]} (${fmt(t[2])})</div>`).join('')}</div>
+          <div class="search lrq"><span>🔎</span><input id="searchBox" placeholder="Search item / group…" value="${esc(iq.lc||'')}" oninput="isearch('lc',this.value)" onkeydown="if(event.key==='Escape'){this.value='';isearch('lc','');}"></div>
+        </div></div>
+      <div class="table-wrap" style="max-height:560px;overflow:auto"><table class="tbl">
+      <thead><tr><th style="width:44px">#</th><th>Item</th><th class="right" style="width:78px">Size</th>
+        <th class="right" style="width:86px">MRP ₹</th><th class="right" style="width:92px">Rate ₹</th><th class="right" style="width:80px">TCS ₹</th>
+        <th class="right nowrap" style="width:92px">SP Fee ₹</th><th class="right" style="width:82px">Round ₹</th>
+        <th class="right nowrap" style="width:104px">Landing ₹</th><th class="right nowrap" style="width:92px" title="Landing cost ÷ bottle size × 30 ml — worked out here, not taken from the file">₹ / 30 ml</th>
+        <th style="width:220px">In my Item Master</th><th class="right nowrap" style="width:104px" title="The rate you typed in Item Master (blank when you have not set one)">My rate ₹</th>
+        <th class="right nowrap" style="width:92px" title="My rate − the file's landing cost">Difference</th></tr></thead>
+      <tbody>${body}</tbody>
+      </table></div></div>`;
+};
+
 const REPORTS=[
   {id:'bev',     name:'Beverage Control Report',        ico:'🍾'},
   {id:'lroom',   name:'Liquor Room Report',             ico:'🏬'},
@@ -2449,8 +2584,11 @@ function lowStockList(){ const out=[];
       if(ml<=0) out.push({name:t.name,cat:t.category,closing:0,u,status:'OUT',sev:2});
       else if(ml<sizeMl) out.push({name:t.name,cat:t.category,closing:ml,u,status:'LOW',sev:1}); } });
   return out.sort((a,b)=>b.sev-a.sev||a.name.localeCompare(b.name)); }
+function _rptName(id){ const r=REPORTS.find(x=>x.id===id); if(r) return r.name;
+  return id==='landing' ? 'Landing Cost File' : id; }   // sheets with a page but no report card (v2.52.0)
 function reportAoa(id){
-  const meta=(cols)=>[[ (cfg.company||'TRAFFIC GASTROPUB')+' — '+(REPORTS.find(r=>r.id===id)||{name:'Report'}).name ],
+  if(id==='landing') return _lcAoa();   // its own page, not a report card (v2.52.0)
+  const meta=(cols)=>[[ (cfg.company||'TRAFFIC GASTROPUB')+' — '+_rptName(id) ],
     [ 'Period', period.from+' to '+period.to ], [], cols];
   if(id==='bev'){ const a=meta(['Item','Category','Unit','Opening','Receipt','Closing','Consumption','Sale','Variance','Sale ₹','Var ₹']);
     const T={c:0,s:0,v:0,sv:0,vv:0};
@@ -2510,11 +2648,20 @@ function reportAoa(id){
 function _dlBlob(name,text,type){ const b=new Blob([text],{type:type}); const u=URL.createObjectURL(b);
   const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
 function _aoaCSV(aoa){ return aoa.map(r=>r.map(c=>{ const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\r\n'); }
+function _lcAoa(){
+  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Landing Cost File' ], [ 'Items', landingData.length ], [],
+    ['Item','Size ml','MRP','Rate','TCS','SP Fee','Round off','Landing cost','₹ / 30 ml','In my Item Master','My rate ₹']];
+  const n=v=>(v==null?'':v);
+  landingData.forEach(r=>{ const mine=lcMine(r.f); const my=mine?landSetOf(mine.r.item):null;
+    a.push([r.f, n(r.z), n(r.m), n(r.r), n(r.t), n(r.s), n(r.o), n(r.l),
+      (r.l!=null&&r.z)?Math.round(r.l/r.z*30*100)/100:'', mine?mine.r.item:'', my==null?'':my]); });
+  return a;
+}
 function expReport(id,kind){ const aoa=reportAoa(id); const base=id+'_'+period.from+'_'+period.to;
   if(kind==='csv'){ _dlBlob(base+'.csv', _aoaCSV(aoa), 'text/csv;charset=utf-8'); toast('Exported',id+' → CSV','ok'); return; }
   if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page','err'); return; }
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,(REPORTS.find(r=>r.id===id)||{name:'Report'}).name.slice(0,28));
+  XLSX.utils.book_append_sheet(wb,ws,_rptName(id).slice(0,28));
   XLSX.writeFile(wb, base+'.xlsx'); toast('Exported',id+' → Excel','ok'); }
 VIEWS.reports = () => {
   const {totalC,totalS}=calcGrandTotals(); const sales=totalC+totalS;
@@ -3354,7 +3501,7 @@ function _printWin(packs,label,title){
 }
 /* One-click clean print for a single sheet (Received / Liquor Room / MR Detail / Beverage Control) */
 function printSheet(id){
-  const name=(REPORTS.find(r=>r.id===id)||{name:id}).name;
+  const name=_rptName(id);
   _printWin([{id, name, aoa:reportAoa(id)}], period.from+'_'+period.to, name.toUpperCase());
 }
 function monthClose(){
@@ -3898,6 +4045,7 @@ function cloudRefreshState(keys){
   if(has('invoices'))      invoices=bls('invoices', []);
   if(has('bevmap'))        bevMap=bls('bevmap', {});
   if(has('bevpages'))      bevPages=bls('bevpages', []);
+  if(has('landing'))       landingData=bls('landing', (typeof LANDING_SEED!=='undefined'?LANDING_SEED:[]).map(r=>({...r})));
   list.forEach(k=>{ if(k.indexOf('inv2_')===0) delete bevStores[k.slice(5)]; });
   try{ invalidateCalcCache(); }catch(e){} _bevIdx=null; _bevDupCache={ver:-1,list:null};
   if(has('cfg')||has('pref')){ try{ applyAppearance(); renderShell(); }catch(e){} }
