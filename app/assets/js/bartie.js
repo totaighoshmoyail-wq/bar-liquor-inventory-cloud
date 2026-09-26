@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.60.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.60.1';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1186,7 +1186,7 @@ const NAV = [
   { group:'Inventory Center', items:[
     {id:'rawdata',    label:'Item Master', ico:ICO.item},
     {id:'landing',    label:'Landing Cost File', ico:ICO.reports},
-    {id:'lifting',    label:'BEVCO Lifting', ico:ICO.purchase},
+    {id:'lifting',    label:'Esteemed Lifting', ico:ICO.purchase},
     {id:'received',   label:'Purchase', ico:ICO.purchase},
     {id:'liquorroom', label:'Liquor Room', ico:ICO.room},
     {id:'mrdetail',   label:'Bar Stock Issue', ico:ICO.issue},
@@ -1212,7 +1212,7 @@ const TITLES = {
   ckalias:['Cocktail Alias','POS button → cocktail mappings (which name counts as which cocktail)'],
   rawdata:['Item Master','Item master — group, brand & bottle size'],
   landing:['Landing Cost File','Your own price file — MRP · rate · TCS · fees · landing cost'],
-  lifting:['BEVCO Esteemed Lifting','What to lift from BEVCO — qty × landing price = esteemed amount'],
+  lifting:['Esteemed Lifting Calculation','What to lift from BEVCO — qty × landing price = esteemed amount'],
   received:['Purchase','Purchases into the Liquor Room (Excel / BEVCO invoice)'],
   mrdetail:['Bar Stock Issue','Material requisition — Liquor Room → Bar'],
   liquorroom:['Liquor Room','Opening + Received − Issued = Closing'],

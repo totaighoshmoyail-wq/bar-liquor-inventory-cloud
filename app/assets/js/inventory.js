@@ -2783,7 +2783,7 @@ VIEWS.landing = () => {
 };
 
 /* ============================================================
-   BEVCO ESTEEMED LIFTING (v2.56.0) — what to lift from BEVCO, priced at the Landing Cost File.
+   ESTEEMED LIFTING CALCULATION (v2.56.0, renamed v2.60.1) — what to lift from BEVCO, priced at the Landing Cost File.
    One ledger box: the lines already on the order, then the live entry row (item search → category ·
    size · landing ₹ fill themselves from the Landing Cost File → qty → Enter), then the GRAND TOTAL
    ESTEEMED. Every cell of a saved line stays editable and ✕ removes it.
@@ -2914,7 +2914,7 @@ function lfClearAll(){ const T=lfTot();
     function(){ liftData=[]; lfSave(); routeQuiet(); toast('Lifting cleared','','ok'); }); }
 function _lfAoa(){
   const T=lfTot();
-  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — BEVCO Esteemed Lifting' ], [ 'Date', new Date().toISOString().slice(0,10) ], [],
+  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Esteemed Lifting Calculation' ], [ 'Date', new Date().toISOString().slice(0,10) ], [],
     ['#','Item','Category','Size ml','Landing ₹','Case','Per case','Qty','Amount ₹']];
   liftData.forEach((r,i)=>a.push([i+1, r.item, r.cat||'', r.z==null?'':r.z, r.land==null?'':r.land, lfCases(r), lfPer(r), r.qty, Math.round(lfAmt(r)*100)/100]));
   a.push(['','GRAND TOTAL ESTEEMED','','','', T.cs, '', T.q, Math.round(T.a*100)/100]);
@@ -2941,13 +2941,13 @@ VIEWS.lifting = () => {
       <div class="x${r.id===_lfLast?' new':''}"><button class="btn rmx" onclick="lfDel(${i})" title="Take this line off">✕</button></div>`; }).join('')
    || `<div class="empty">${liftData.length?'No line matches “'+esc(iq.lf||'')+'”':'Nothing on the lifting yet — search an item below and press Enter.'}</div>`;
   return `
-    <div class="page-head"><div><h1>BEVCO Esteemed Lifting</h1><p>What to lift from BEVCO, priced at your Landing Cost File. An order sheet only — no stock and no rate anywhere else changes.</p></div>
+    <div class="page-head"><div><h1>Esteemed Lifting Calculation</h1><p>What to lift from BEVCO, priced at your Landing Cost File. An order sheet only — no stock and no rate anywhere else changes.</p></div>
       <div class="page-actions">
         <button class="btn btn-sm" onclick="expReport('lifting','xlsx')" title="Download this lifting as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('lifting')" title="Clean print — Save as PDF from the dialog">🖨 Print</button>
         ${liftData.length?`<button class="btn btn-sm" style="color:var(--red)" onclick="lfClearAll()" title="Empty the lifting">🗑️ Clear all</button>`:''}</div></div>
     <div class="card bcledger lchead">
-      <div class="bh"><div class="t">BEVCO Esteemed Lifting</div><div class="f">Amount <b>=</b> Qty <b>×</b> Landing ₹ <span class="muted">· the landing price comes from the Landing Cost File</span></div>
+      <div class="bh"><div class="t">Esteemed Lifting Calculation</div><div class="f">Amount <b>=</b> Qty <b>×</b> Landing ₹ <span class="muted">· the landing price comes from the Landing Cost File</span></div>
         <div class="p">${fmt(T.n)} lines · ${lcF(T.cs)} cases · ${fmt(T.q)} bottles</div></div>
       <div class="bclh lr5">
         <div class="h c">Column</div><div class="h">Lines</div><div class="h">Cases · Bottles</div><div class="h">Average ₹ / bottle</div><div class="h">Grand Total Esteemed</div>
@@ -3008,7 +3008,7 @@ function lowStockList(){ const out=[];
       else if(ml<sizeMl) out.push({name:t.name,cat:t.category,closing:ml,u,status:'LOW',sev:1}); } });
   return out.sort((a,b)=>b.sev-a.sev||a.name.localeCompare(b.name)); }
 function _rptName(id){ const r=REPORTS.find(x=>x.id===id); if(r) return r.name;
-  return id==='landing' ? 'Landing Cost File' : id==='lifting' ? 'BEVCO Esteemed Lifting' : id; }   // sheets with a page but no report card (v2.52.0)
+  return id==='landing' ? 'Landing Cost File' : id==='lifting' ? 'Esteemed Lifting Calculation' : id; }   // sheets with a page but no report card (v2.52.0)
 function reportAoa(id){
   if(id==='landing') return _lcAoa();   // its own page, not a report card (v2.52.0)
   if(id==='lifting') return _lfAoa();   // the BEVCO lifting order sheet (v2.56.0)
