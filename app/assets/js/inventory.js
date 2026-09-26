@@ -2431,7 +2431,7 @@ function exportBarInvExcel(){
 /* ============================================================
    LANDING COST FILE (v2.52.0 · editable since v2.53.0) — the client's own landing-cost
    workbook as a page of its own: Item · Category · Size · MRP · Rate · TCS · SP purpose fee ·
-   Round off · Landing cost, plus ₹/30 ml worked out here.
+   Round off · Landing cost, plus ₹ per peg worked out here (the TCS % and the peg are set on the page).
    EVERY cell is editable, new items can be typed in, and the file's own formula fills itself in:
        TCS      = Rate × its own TCS percentage   (2 % unless the row already implies another)
        Landing  = Rate + TCS + SP fee + Round off
@@ -2529,7 +2529,36 @@ function lcCatFill(){                                    // one pass — from th
 function lcCatList(){ const s=new Set(CATEGORIES); landingData.forEach(r=>{ if(r.c) s.add(r.c); }); return [...s]; }
 
 /* ---- the file's own formula ---------------------------------------------------------------- */
+/* The TCS percentage and the peg are the client's own settings for this sheet (v2.54.0):
+   every line is worked out at lcTcs() % — their file mixed 1 % and 2 % — and the last column
+   divides by lcPeg() ml instead of a fixed 30, the way their Excel lets them change it. */
+function lcTcs(){ const v=+(pref.lcTcs); return (isFinite(v)&&v>0)?v:2; }
+function lcPeg(){ const v=+(pref.lcPeg); return (isFinite(v)&&v>0)?v:30; }
+function lcSetTcs(v){ const n=+evalNum(String(v==null?'':v).trim());
+  pref.lcTcs=(isFinite(n)&&n>0&&n<100)?Math.round(n*100)/100:2; bsv('pref',pref); route(); }
+function lcSetPeg(v){ const n=+evalNum(String(v==null?'':v).trim());
+  pref.lcPeg=(isFinite(n)&&n>0)?Math.round(n*100)/100:30; bsv('pref',pref); route(); }
+function lcPegVal(r){ return (r.l!=null&&r.z)?r.l/r.z*lcPeg():null; }
 function lcTcsPct(r){ return (r.r&&r.t!=null) ? Math.round(r.t/r.r*10000)/100 : null; }
+function lcTcsOff(r,p){ return r.r!=null && Math.abs((r.t||0)-r.r*p/100)>0.005; }   // this line is not at p %
+function lcApplyTcs(silent){                                     // work every line out again at the set %
+  const p=lcTcs(); let n=0;
+  landingData.forEach(r=>{ if(r.r==null) return; const t=Math.round(r.r*p/100*10000)/10000;
+    if(r.t!==t){ r.t=t; lcRecalc(r); n++; } });
+  if(n) lcSave();
+  if(!silent){ route(); toast('TCS at '+p+' %', n?fmt(n)+' lines worked out again — the landing cost follows':'every line was already at '+p+' %','ok'); }
+  return n; }
+function lcApplyTcsAsk(){ const p=lcTcs(), n=landingData.filter(r=>lcTcsOff(r,p)).length;
+  if(!n){ toast('Nothing to change','Every line is already at '+p+' % TCS','ok'); return; }
+  confirmAsk('Work TCS out at <strong>'+p+' %</strong> on every line?<br><br><strong>'+fmt(n)+'</strong> lines change and their landing cost follows (Rate + TCS + SP fee + Round off).<br><span class="muted">This price list only — no rate anywhere else in the app changes.</span>',
+    function(){ lcApplyTcs(); }); }
+function lcTcsMigrate(){                                        // the client asked for 2 % everywhere — done once per company
+  try{ if(localStorage.getItem(CO_PREFIX+'lctcs')==='2') return 0; }catch(e){ return 0; }
+  if(pref.lcTcs==null){ pref.lcTcs=2; bsv('pref',pref); }
+  const n=lcApplyTcs(true);
+  try{ localStorage.setItem(CO_PREFIX+'lctcs','2'); }catch(e){}
+  if(n) setTimeout(function(){ toast('TCS set to 2 %', fmt(n)+' lines worked out again — change the % above the sheet any time','ok'); },400);
+  return n; }
 function lcPctTxt(r){ const p=lcTcsPct(r); return p==null?'':p+'%'; }
 function lcRecalc(r){
   if(r.r==null && r.t==null && r.s==null && r.o==null){ delete r.l; return; }
@@ -2544,19 +2573,19 @@ function lcSetField(i,f,v){
     lcSave(); route(); return; }
   if(f==='c'){ const c=String(v||'').trim().toUpperCase(); if(c) r.c=c; else delete r.c;
     lcSave(); lcPaintHead(); return; }
-  const pct=lcTcsPct(r);                                                   // the row's own TCS %, read before the change
+  const pct=lcTcs();                                                       // the sheet's TCS % (set above the table)
   const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
   const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
   if(val==null) delete r[f]; else r[f]=val;
-  if(f==='r'){ if(r.r==null) delete r.t; else r.t=Math.round(r.r*(pct==null?2:pct)/100*10000)/10000; }
+  if(f==='r'){ if(r.r==null) delete r.t; else r.t=Math.round(r.r*pct/100*10000)/10000; }
   if(f==='r'||f==='t'||f==='s'||f==='o') lcRecalc(r);
   lcSave(); lcPaint(i); lcPaintHead();
 }
 function lcPaint(i){                                                       // repaint one row in place — no re-render, so nothing jumps
   const r=landingData[i]; if(!r) return;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
-  set('lc_r_'+i, lcE(r.r)); set('lc_t_'+i, lcE(r.t)); set('lc_l_'+i, lcE(r.l));
-  const peg=(r.l!=null&&r.z)?r.l/r.z*30:null, p=document.getElementById('lc_peg_'+i);
+  set('lc_r_'+i, lcE(r.r)); set('lc_t_'+i, lcE(r.t)); set('lc_l_'+i, lcE(r.l)); set('lc_z_'+i, lcE(r.z));
+  const peg=lcPegVal(r), p=document.getElementById('lc_peg_'+i);
   if(p) p.innerHTML=(peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg));
   const pc=document.getElementById('lc_p_'+i); if(pc) pc.textContent=lcPctTxt(r);
 }
@@ -2577,9 +2606,9 @@ function lcNewSet(f,v){
   const raw=String(v==null?'':v).trim();
   if(f==='f'||f==='c'){ _lcN[f]=raw.toUpperCase(); return; }
   const n=(raw===''?null:+evalNum(raw)), val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
-  if(f==='tp'){ _lcN.tp=(val==null?2:val); }
+  if(f==='tp'){ _lcN.tp=(val==null?lcTcs():val); }
   else { _lcN[f]=val; if(f==='t') _lcN.tT=(val!=null); if(f==='l') _lcN.lT=(val!=null); }
-  if((f==='r'||f==='tp') && !_lcN.tT) _lcN.t = (_lcN.r==null?null:Math.round(_lcN.r*(_lcN.tp==null?2:_lcN.tp)/100*10000)/10000);
+  if((f==='r'||f==='tp') && !_lcN.tT) _lcN.t = (_lcN.r==null?null:Math.round(_lcN.r*(_lcN.tp==null?lcTcs():_lcN.tp)/100*10000)/10000);
   if(f!=='l' && f!=='m' && f!=='z' && f!=='c' && !_lcN.lT){
     const has=(_lcN.r!=null||_lcN.t!=null||_lcN.s!=null||_lcN.o!=null);
     _lcN.l = has ? Math.round(((_lcN.r||0)+(_lcN.t||0)+(_lcN.s||0)+(_lcN.o||0))*10000)/10000 : null; }
@@ -2663,23 +2692,23 @@ function lcUpload(inp){
   rd.readAsArrayBuffer(f);
 }
 VIEWS.landing = () => {
-  lcCatFill();
+  lcTcsMigrate(); lcCatFill();
   const rows=lcRows(), S=lcStats(), cats=lcCatList();
   const tabs=[['all','All',S.all],['nol','⚠ No landing ₹',S.all-S.nL],['noc','⚠ No category',S.noC]];
   const inp=(i,f,cls,extra)=>`<input class="lcin ${cls||''}" id="lc_${f}_${i}" value="${esc(lcE(landingData[i][f]))}" onchange="lcSetField(${i},'${f}',this.value)"${extra||''}>`;
   const body=rows.map((x,n)=>{
-    const r=x.r, i=x.i, peg=(r.l!=null&&r.z)?r.l/r.z*30:null;
+    const r=x.r, i=x.i, peg=lcPegVal(r);
     return `<tr>
       <td class="num muted lcn">${n+1}</td>
       <td class="lcnm"><input class="lcin nm" id="lc_f_${i}" value="${esc(r.f)}" title="${esc(r.f)}" onchange="lcSetField(${i},'f',this.value)"></td>
       <td><input class="lcin cat" id="lc_c_${i}" list="lcCatsDL" value="${esc(r.c||'')}" placeholder="—" onchange="lcSetField(${i},'c',this.value)"></td>
-      <td class="num">${inp(i,'z','lcr',' placeholder="ml"')}</td>
       <td class="num">${inp(i,'m','lcr')}</td>
       <td class="num">${inp(i,'r','lcr')}</td>
-      <td class="num lctcs"><i id="lc_p_${i}">${lcPctTxt(r)}</i>${inp(i,'t','lcr',' title="Rate × its own TCS percentage — type another figure to change it"')}</td>
+      <td class="num lctcs"><i id="lc_p_${i}">${lcPctTxt(r)}</i>${inp(i,'t','lcr',' title="Rate × the TCS % set above the sheet — type another figure to keep your own"')}</td>
       <td class="num">${inp(i,'s','lcr')}</td>
       <td class="num">${inp(i,'o','lcr')}</td>
       <td class="num">${inp(i,'l','lcr land',' title="Rate + TCS + SP fee + Round off — type a figure to keep your own"')}</td>
+      <td class="num">${inp(i,'z','lcr bsz',' placeholder="ml"')}</td>
       <td class="num nowrap peg" id="lc_peg_${i}">${peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg)}</td>
       <td class="center"><button class="btn rmx" onclick="lcDel(${i})" title="Remove this item">✕</button></td>
     </tr>`; }).join('')
@@ -2709,6 +2738,9 @@ VIEWS.landing = () => {
       <div class="card-head" style="flex-wrap:wrap;gap:8px 14px"><div><h3>Price list</h3><p id="lcShown">${fmt(rows.length)} shown${iq.lc?' · matching “'+esc(iq.lc)+'”':''}</p></div>
         <div class="flex gap-8 items-center" style="flex-wrap:wrap">
           <div class="tabs" style="margin:0">${tabs.map(t=>`<div class="tab ${lcTab===t[0]?'active':''}" onclick="lcSetTab('${t[0]}')">${t[1]} (${fmt(t[2])})</div>`).join('')}</div>
+          <span class="lcset" title="Every line is worked out at this percentage">TCS
+            <input class="lcin pct" id="lcTcsBox" value="${lcTcs()}" onchange="lcSetTcs(this.value)">%
+            <button class="btn btn-xs" onclick="lcApplyTcsAsk()" title="Work TCS out again on every line at this percentage">Apply to all</button></span>
           <select class="lcin sel" style="width:150px" onchange="lcSetCatF(this.value)"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c)}"${lcCatF===c?' selected':''}>${esc(c)}</option>`).join('')}</select>
           <div class="search lrq"><span>🔎</span><input id="searchBox" placeholder="Search item / category…" value="${esc(iq.lc||'')}" oninput="lcSearchType(this.value)" onkeydown="if(event.key==='Escape'){this.value='';lcSearchType('');}"></div>
         </div></div>
@@ -2717,7 +2749,7 @@ VIEWS.landing = () => {
         ${nb('lcnF','Item name',196,'f','nm')}
         <input class="lcin nb cat" id="lcnC" list="lcCatsDL" placeholder="Category" style="width:112px" oninput="lcNewSet('c',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();lcAdd();}">
         ${nb('lcnZ','Size',58,'z','lcr')}${nb('lcnM','MRP',64,'m','lcr')}${nb('lcnR','Rate',74,'r','lcr')}
-        <span class="tp">TCS <input class="lcin nb lcr" id="lcnTp" value="2" style="width:34px" oninput="lcNewSet('tp',this.value)">%</span>
+        <span class="tp">TCS <input class="lcin nb lcr" id="lcnTp" value="${lcTcs()}" style="width:34px" oninput="lcNewSet('tp',this.value)">%</span>
         ${nb('lcnT','TCS',60,'t','lcr')}${nb('lcnS','SP fee',62,'s','lcr')}${nb('lcnO','Round',58,'o','lcr')}${nb('lcnL','Landing',74,'l','lcr land')}
         <span class="sum" id="lcnSum"><span class="muted">Rate + TCS + fee + round</span></span>
         <button class="btn btn-sm btn-gold" id="lcnAdd" onclick="lcAdd()">＋ Add</button>
@@ -2725,12 +2757,12 @@ VIEWS.landing = () => {
       </div>
       <div class="table-wrap" style="max-height:58vh;overflow:auto"><table class="tbl">
       <thead><tr><th style="width:34px">#</th><th style="min-width:300px">Item</th><th style="width:118px">Category</th>
-        <th class="right" style="width:62px">Size</th>
         <th class="right" style="width:76px">MRP ₹</th><th class="right" style="width:80px">Rate ₹</th>
-        <th class="right" style="width:78px" title="Rate × its own TCS percentage — the % it used is shown on the left of each box">TCS ₹</th>
+        <th class="right" style="width:78px" title="Rate × the TCS % set above the sheet — each box shows the % that line is actually at">TCS ₹</th>
         <th class="right nowrap" style="width:76px">SP Fee ₹</th><th class="right" style="width:70px">Round ₹</th>
         <th class="right nowrap" style="width:88px" title="Rate + TCS + SP fee + Round off">Landing ₹</th>
-        <th class="right nowrap" style="width:78px" title="Landing cost ÷ bottle size × 30 ml — worked out here, not taken from the file">₹ / 30 ml</th>
+        <th class="right nowrap" style="width:84px" title="The bottle size in ml — used by the next column">Bottle Size/ML</th>
+        <th class="right nowrap lcpegth" style="width:92px" title="Landing cost ÷ bottle size × the peg — change the peg in the box">₹ / <input class="lcin lcpegin" id="lcPegBox" value="${lcPeg()}" onchange="lcSetPeg(this.value)" title="Peg in ml — 30, 60, 180 …"> ml</th>
         <th style="width:30px"></th></tr></thead>
       <tbody>${body}</tbody>
       </table></div>
@@ -2826,10 +2858,10 @@ function _aoaCSV(aoa){ return aoa.map(r=>r.map(c=>{ const s=String(c==null?'':c)
 function _lcAoa(){
   const S=lcStats();
   const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Landing Cost File' ], [ 'Items', S.all ], [ 'Landing ₹ given', S.nL ], [],
-    ['Item','Category','Size ml','MRP','Rate','TCS','TCS %','SP Fee','Round off','Landing cost','₹ / 30 ml']];
+    ['Item','Category','MRP','Rate','TCS','TCS %','SP Fee','Round off','Landing cost','Bottle Size/ML','₹ / '+lcPeg()+' ml']];
   const n=v=>(v==null?'':v);
-  landingData.forEach(r=>{ a.push([r.f, r.c||'', n(r.z), n(r.m), n(r.r), n(r.t), lcTcsPct(r)==null?'':lcTcsPct(r), n(r.s), n(r.o), n(r.l),
-    (r.l!=null&&r.z)?Math.round(r.l/r.z*30*100)/100:'']); });
+  landingData.forEach(r=>{ a.push([r.f, r.c||'', n(r.m), n(r.r), n(r.t), lcTcsPct(r)==null?'':lcTcsPct(r), n(r.s), n(r.o), n(r.l), n(r.z),
+    lcPegVal(r)==null?'':Math.round(lcPegVal(r)*100)/100]); });
   return a;
 }
 function expReport(id,kind){ const aoa=reportAoa(id); const base=id+'_'+period.from+'_'+period.to;
