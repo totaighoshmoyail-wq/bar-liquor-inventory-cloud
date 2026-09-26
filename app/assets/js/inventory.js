@@ -2833,12 +2833,16 @@ function lfLive(){ const r=lfPicked(), set=(id,h)=>{ const e=$(id); if(e) e.inne
   set('#lfLand', land==null?'<span class="mu">—</span>':`<b>₹ ${lcF(land)}</b>`);
   const q=+evalNum(String(_lf.qty||'').trim())||0;
   set('#lfAmt', (land!=null&&q>0)?`<b class="tot">₹ ${lcF(land*q)}</b>`:'<span class="mu">—</span>');
-  const pe=$('#lfPer'); if(pe) pe.textContent='×'+fmt(lfPerCat(r&&r.c)); }
-function lfQtyType(v){ _lf.qty=v; const c=$('#lfCase'), r=lfPicked();
-  if(c){ const p=lfPerCat(r&&r.c), q=+evalNum(String(v||'').trim());
+  const pe=$('#lfPer'); if(pe && !_lf.perT && pe.value!==String(lfPerCat(r&&r.c))) pe.value=lfPerCat(r&&r.c); }
+function lfQtyType(v){ _lf.qty=v; const c=$('#lfCase');
+  if(c){ const p=lfPerNow(), q=+evalNum(String(v||'').trim());
     c.value=(isFinite(q)&&q>0&&p>0)?String(Math.round(q/p*100)/100):''; }
   lfLive(); }
-function lfCaseType(v){ const r=lfPicked(), p=lfPerCat(r&&r.c), n=+evalNum(String(v||'').trim());
+function lfPerNow(){ const v=+evalNum(String(_lf.per||'').trim()); if(isFinite(v)&&v>0) return v;
+  const r=lfPicked(); return lfPerCat(r&&r.c); }
+function lfPerType(v){ _lf.per=v; _lf.perT=(String(v||'').trim()!=='');
+  const c=$('#lfCase'); if(c && String(c.value||'').trim()!=='') lfCaseType(c.value); else lfLive(); }
+function lfCaseType(v){ const p=lfPerNow(), n=+evalNum(String(v||'').trim());
   _lf.qty=(isFinite(n)&&n>0&&p>0)?String(Math.round(n*p*1000)/1000):'';
   const q=$('#lfQty'); if(q) q.value=_lf.qty; lfLive(); }
 function lfCaseKey(e){ if(e.key==='Enter'||(e.key==='Tab'&&!e.shiftKey&&String(_lf.qty||'').trim()!=='')){ e.preventDefault(); lfAdd(); } }
@@ -2849,7 +2853,7 @@ function lfItemKey(e){ const k=e.key;
     _lf.sel=(_lf.sel+(k==='ArrowDown'?1:_lf.hits.length-1))%_lf.hits.length; lfDD(); return; }
   if(k==='Enter'||k==='Tab'){ if(_lf.hits.length){ e.preventDefault(); lfPick(_lf.hits[_lf.sel]); return; }
     if(k==='Enter'){ e.preventDefault(); const q=$('#lfQty'); if(q) q.focus(); } return; }
-  if(k==='Escape'){ _lf={i:-1,q:'',qty:_lf.qty,hits:[],sel:0}; const b=$('#lfItem'); if(b) b.value=''; lfDD(); lfLive(); } }
+  if(k==='Escape'){ _lf={i:-1,q:'',qty:_lf.qty,hits:[],sel:0,per:_lf.per,perT:_lf.perT,cs:_lf.cs}; const b=$('#lfItem'); if(b) b.value=''; lfDD(); lfLive(); } }
 function lfQtyKey(e){ const k=e.key;
   if(k==='Enter'||(k==='Tab'&&!e.shiftKey)){ if(String(_lf.qty||'').trim()===''){ if(k==='Enter'){ e.preventDefault(); const b=$('#lfItem'); if(b) b.focus(); } return; }
     e.preventDefault(); lfAdd(); return; }
@@ -2862,8 +2866,9 @@ function lfAdd(){
   if(!isFinite(q)||q<=0){ toast('How many?','Type the bottles to lift','err'); const e=$('#lfQty'); if(e){ e.focus(); e.select(); } return; }
   const row={ id:'lf'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), item:nm,
     cat:p?(p.c||''):'', z:p?(p.z||null):null, land:(p&&p.l!=null)?p.l:null, qty:Math.round(q*1000)/1000 };
+  { const pn=lfPerNow(); if(pn>0 && pn!==lfPerCat(row.cat)) row.cs=pn; }       // a pack size typed by hand travels with the line
   liftData.push(row); lfSave(); _lfLast=row.id;
-  _lf={i:-1,q:'',qty:'',hits:[],sel:0};
+  _lf={i:-1,q:'',qty:'',hits:[],sel:0,per:(_lf.perT?_lf.per:''),perT:_lf.perT,cs:''};   // a typed pack size stays for the next line
   routeQuiet();
   const b=$('#lfItem'); if(b){ b.focus(); try{ b.scrollIntoView({block:'nearest'}); }catch(e){} }
   toast('Added to the lifting', nm+' × '+fmt(row.qty)+(row.land!=null?' · ₹ '+lcF(row.land*row.qty):' — no landing price in the file, type one'), row.land!=null?'ok':'err'); }
@@ -2879,6 +2884,8 @@ function lfSetField(i,f,v){
   if(f==='cat'){ r.cat=String(v||'').trim().toUpperCase(); lfSave(); return; }   // nothing to work out again
   const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
   const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
+  if(f==='per'){ if(val==null||val<=0) delete r.cs; else r.cs=Math.round(val*1000)/1000;   // bottles in one case — the bottles stay, the case count follows
+    lfSave(); lfPaint(i); return; }
   if(f==='case'){ if(val==null||val<=0){ toast('Cases?','Type how many cases — or type the bottles in QTY','err'); lfPaint(i); return; }
     r.qty=Math.round(val*lfPer(r)*1000)/1000; lfSave(); lfPaint(i); return; }
   if(f==='qty'){ if(val==null||val<=0){ toast('Bottles?','Type a number bigger than 0 — ✕ removes the line','err'); routeQuiet(); return; } r.qty=val; }
@@ -2894,7 +2901,7 @@ function lfPaintTot(){                                   // grand total + head, 
 function lfPaint(i){ const r=liftData[i]; if(!r) return;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
   set('lf_qty_'+i, lcE(r.qty)); set('lf_case_'+i, lcE(lfCases(r)));
-  const pc=document.getElementById('lf_per_'+i); if(pc) pc.textContent='×'+fmt(lfPer(r));
+  set('lf_per_'+i, lcE(lfPer(r)));
   const a=document.getElementById('lf_amt_'+i);
   if(a) a.innerHTML=(r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(lfAmt(r)));
   lfPaintTot(); }
@@ -2928,7 +2935,7 @@ VIEWS.lifting = () => {
       <div class="${r.id===_lfLast?'new':''}">${cell(i,'cat','cat',' placeholder="—"')}</div>
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'z','lcr bsz',' placeholder="ml"')}</div>
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'land','lcr land',' placeholder="₹" title="From the Landing Cost File — type another figure for this order only"')}</div>
-      <div class="r cs${r.id===_lfLast?' new':''}"><i id="lf_per_${i}">×${fmt(lfPer(r))}</i><input class="lcin lcr case" id="lf_case_${i}" value="${esc(lcE(lfCases(r)))}" title="Cases — beer &amp; breezer 24 a case, liquor 12, a keg 1" onchange="lfSetField(${i},'case',this.value)"></div>
+      <div class="r cs${r.id===_lfLast?' new':''}"><span class="mul">×</span><input class="lcin per" id="lf_per_${i}" value="${esc(lcE(lfPer(r)))}" title="Bottles in one case — type your own (24, 12, 6 …). The bottles stay as they are and the case count follows; type the cases again to re-fill." onchange="lfSetField(${i},'per',this.value)"><input class="lcin lcr case" id="lf_case_${i}" value="${esc(lcE(lfCases(r)))}" title="Cases — beer &amp; breezer 24 a case, liquor 12, a keg 1" onchange="lfSetField(${i},'case',this.value)"></div>
       <div class="r${r.id===_lfLast?' new':''}"><input class="lcin lcr qty" id="lf_qty_${i}" value="${esc(lcE(r.qty))}" title="Bottles" onchange="lfSetField(${i},'qty',this.value)"></div>
       <div class="r amt${r.id===_lfLast?' new':''}" id="lf_amt_${i}">${r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(amt)}</div>
       <div class="x${r.id===_lfLast?' new':''}"><button class="btn rmx" onclick="lfDel(${i})" title="Take this line off">✕</button></div>`; }).join('')
@@ -2965,7 +2972,7 @@ VIEWS.lifting = () => {
         <div class="lv" id="lfCat"><span class="mu">—</span></div>
         <div class="lv r sz" id="lfSize"><span class="mu">—</span></div>
         <div class="lv r ld" id="lfLand"><span class="mu">—</span></div>
-        <div class="lv r cs"><i id="lfPer">×${fmt(lfPerCat(lfPicked()&&lfPicked().c))}</i><input class="msin q cse" id="lfCase" placeholder="case" oninput="lfCaseType(this.value)" onkeydown="lfCaseKey(event)" title="Type the cases — the bottles fill themselves"></div>
+        <div class="lv r cs"><span class="mul">×</span><input class="msin per" id="lfPer" value="${esc(_lf.per||String(lfPerCat(lfPicked()&&lfPicked().c)))}" oninput="lfPerType(this.value)" onkeydown="lfCaseKey(event)" title="Bottles in one case — beer &amp; breezer 24, liquor 12, a keg 1. Type your own for this item."><input class="msin q cse" id="lfCase" placeholder="case" value="${esc(_lf.cs||'')}" oninput="lfCaseType(this.value);_lf.cs=this.value" onkeydown="lfCaseKey(event)" title="Type the cases — the bottles fill themselves"></div>
         <div class="lv r"><input class="msin q" id="lfQty" type="number" min="0" step="1" placeholder="0" value="${esc(_lf.qty||'')}" oninput="lfQtyType(this.value)" onkeydown="lfQtyKey(event)"></div>
         <div class="lv r am" id="lfAmt"><span class="mu">—</span></div>
         <div class="lv x"><button class="btn btn-gold" onclick="lfAdd()" title="Add this item — the next line opens by itself">＋</button></div>
