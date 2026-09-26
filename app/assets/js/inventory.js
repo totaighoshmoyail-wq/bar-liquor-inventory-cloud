@@ -3909,36 +3909,98 @@ function closingPack(packs,label,kind){
   _printWin(packs, label, 'MONTH CLOSING REPORTS');
 }
 /* Serif-gold print window shared by the closing bundle AND the per-page 🖨 Print buttons */
+/* Every printed sheet wears look ② "Crown Certificate" (v2.60.0 — the client picked it from a
+   5-design canvas): a double gold frame with corner diamonds on EVERY page (position:fixed repeats
+   per page in Chrome's print), a centred masthead, the report name in a ribbon, one centred meta
+   line, a hairline table whose TOTAL rows are bold on a gold tint, and a signature foot. */
+/* one printed cell: a real number goes right, grouped the Indian way, with its own decimals kept;
+   anything else is text and stays left (the old rule right-aligned every column from the third on,
+   which pushed CATEGORY and other words to the right edge) */
+function _ptd(c){
+  const e2=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(typeof c==='number' && isFinite(c)){
+    const d=Math.min(4,(String(c).split('.')[1]||'').length);
+    return '<td class="n">'+c.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d})+'</td>'; }
+  return '<td>'+e2(c)+'</td>'; }
 function _printWin(packs,label,title){
   const e2=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const secs=packs.map(p=>{ const cols=p.aoa[3]||[]; const data=p.aoa.slice(4);
+  const many=packs.length>1;
+  const secs=packs.map(p=>{
+    /* the column row is not always row 3 — a sheet may carry extra lines above it (the Landing Cost
+       File has two), which printed an empty head and pushed the names into the first data row */
+    let hi=3;
+    for(let i=0;i<Math.min(6,p.aoa.length-1);i++){ const r=p.aoa[i], nx=p.aoa[i+1];
+      if(Array.isArray(r)&&r.length>1&&Array.isArray(nx)&&nx.length===r.length&&r.every(c=>typeof c==='string')) hi=i; }
+    const cols=p.aoa[hi]||[]; const data=p.aoa.slice(hi+1);
+    const numc=[]; data.forEach(r=>{ if(r.length>1) r.forEach((c,i)=>{ if(typeof c==='number'&&isFinite(c)) numc[i]=1; }); });   // a head sits over its own column
     const body=data.map(r=> r.length===1
       ? `<tr class="g"><td colspan="${cols.length||1}">${e2(r[0])}</td></tr>`
-      : `<tr${(/TOTAL/i.test(String(r[0]||''))||(!String(r[0]||'').trim()&&/^(GRAND\s+)?TOTAL/i.test(String(r[1]||''))))?' class="t"':''}>${r.map((c,i)=>`<td class="${i>=2?'n':''}">${e2(c)}</td>`).join('')}</tr>`).join('');
-    return `<h2>${e2(p.name)}</h2><table><thead><tr>${cols.map(c=>`<th>${e2(c)}</th>`).join('')}</tr></thead><tbody>${body||'<tr><td>No data</td></tr>'}</tbody></table>`; }).join('');
+      : `<tr${(/TOTAL/i.test(String(r[0]||''))||(!String(r[0]||'').trim()&&/^(GRAND\s+)?TOTAL/i.test(String(r[1]||''))))?' class="t"':''}>${r.map(c=>_ptd(c)).join('')}</tr>`).join('');
+    return `${many?`<h2><span>${e2(p.name)}</span></h2>`:''}<table><thead><tr>${cols.map((c,i)=>`<th class="${numc[i]?'n':''}">${e2(c)}</th>`).join('')}</tr></thead><tbody>${body||'<tr><td>No data</td></tr>'}</tbody></table>`; }).join('');
+  const P=(function(){ let p; try{ p=_lhParts(title); }catch(e){ p={co:'Bar',sub:'',meta:'',who:'',desig:'',title:title||'',per:''}; }
+    try{ p.mob=(typeof cfg!=='undefined'&&cfg.mobile)||''; }catch(e){ p.mob=''; } return p; })();
   const w=window.open('','_blank'); if(!w){ toast('Popup blocked','Allow popups to print the PDF','err'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e2(title)} ${e2(label)}</title><style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;margin:14px}
-    .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
-      border-bottom:2.5px double #b5832e;padding-bottom:5px;margin-bottom:3px}
-    .bhead .co{font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
-    .bhead .rt{font-size:11px;color:#8a6d3b;letter-spacing:1.5px;text-transform:uppercase;white-space:nowrap}
-    .sub{display:flex;justify-content:space-between;font-size:9px;color:#777;margin-bottom:10px}
-    h2{font-size:11.5px;letter-spacing:.8px;text-transform:uppercase;color:#5c4a28;
-      border-bottom:1.5px solid #b5832e;padding-bottom:2px;margin:14px 0 5px}
+    @page{margin:0}
+    html,body{background:#fff}
+    body{font-family:Georgia,'Times New Roman',serif;color:#14120f;margin:0;padding:13mm 14mm 14mm}
+    .frm,.frm2,.dia{position:fixed;z-index:0}
+    .frm{top:6mm;left:6mm;right:6mm;bottom:6mm;border:2px solid #b5832e}
+    .frm2{top:7.8mm;left:7.8mm;right:7.8mm;bottom:7.8mm;border:.75px solid #d9c290}
+    .dia{width:9px;height:9px;background:#b5832e;transform:rotate(45deg)}
+    .d1{top:4.7mm;left:4.7mm} .d2{top:4.7mm;right:4.7mm} .d3{bottom:4.7mm;left:4.7mm} .d4{bottom:4.7mm;right:4.7mm}
+    .pg{position:relative;z-index:1}
+    .cr{text-align:center;font-size:12px;color:#b5832e;letter-spacing:.3em;line-height:1}
+    .co{font-size:22px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin-top:2px}
+    .by{text-align:center;margin:13px auto 0;max-width:300px;padding:9px 0 8px;
+      border-top:1px solid #e3d4b0;border-bottom:1px solid #e3d4b0}
+    .by .lb{font-size:7.5px;letter-spacing:.36em;text-transform:uppercase;color:#a08a55}
+    .by .wh{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:5px}
+    .by .dg{font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:#8a5e12}
+    .by .dm{font-size:6px;color:#c8a96a}
+    .by .nm{font-size:13.5px;font-weight:700;letter-spacing:.04em;color:#14120f}
+    .by .mb{font-size:9px;letter-spacing:.14em;color:#554d42;margin-top:5px}
+    .lg{display:block;margin:0 auto 5px;max-height:42px;max-width:150px;object-fit:contain}
+    .rib{display:flex;align-items:center;justify-content:center;gap:12px;margin:12px 0 0}
+    .rib i{flex:1;max-width:150px;height:1px;background:#b5832e;opacity:.55}
+    .rib b{font-size:12.5px;font-weight:400;letter-spacing:.32em;text-transform:uppercase;color:#8a5e12;white-space:nowrap}
+    .mt{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 18px;font-size:8.5px;color:#554d42;margin:11px 0 13px}
+    .mt s{text-decoration:none;color:#cdbfa4}
+    .mt b{color:#14120f;font-weight:700}
+    h2{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#8a5e12;text-align:center;margin:16px 0 7px;
+      display:flex;align-items:center;gap:10px;font-weight:400}
+    h2:before,h2:after{content:"";flex:1;height:1px;background:#e0d3b4}
     table{width:100%;border-collapse:collapse;font-size:9px;page-break-inside:auto}
     tr{page-break-inside:avoid} thead{display:table-header-group}
-    th{background:#f3ead6;border:1px solid #d8c9a5;padding:3px 5px;text-align:left;font-size:8.5px;
-      letter-spacing:.4px;text-transform:uppercase;white-space:nowrap}
-    td{border:1px solid #e7dfcc;padding:2px 5px} td.n{text-align:right;font-variant-numeric:tabular-nums}
-    tbody tr:nth-child(even) td{background:#fbf8f1}
-    tr.g td{background:#f6efdd;font-weight:700;border-top:1.5px solid #d8c9a5}
-    tr.t td{background:#f3ead6;font-weight:700;border-top:1.5px solid #b5832e}
-    @page{margin:10mm}</style></head><body>
-    ${(function(){ try{ return letterheadHTML(title); }catch(e){
-      return `<div class="bhead"><span class="co">${e2((typeof cfg!=='undefined'&&cfg.company)||'Bar')}</span><span class="rt">${e2(title)}</span></div>
-        <div class="sub"><span>Period: ${e2(label.replace('_',' to '))}</span><span>Generated ${e2(new Date().toLocaleString())}</span></div>`; } })()}
-    ${secs}<script>window.onload=function(){window.print();}<\/script></body></html>`);
+    th{padding:5px 5px 6px;text-align:left;font-size:8px;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap;
+      color:#14120f;font-weight:700;border-bottom:1.5px solid #14120f}
+    th.n{text-align:right}
+    td{border-bottom:1px solid #eae2d0;padding:3px 5px} td.n{text-align:right;font-variant-numeric:tabular-nums}
+    tr.g td{background:#f6efdd;font-weight:700;border-top:1px solid #d8c9a5;letter-spacing:.06em}
+    tr.t td{background:#f3e9d2;font-weight:700;font-size:10px;border-top:1.5px solid #14120f;border-bottom:1.5px solid #14120f;
+      letter-spacing:.04em;padding:5px}
+    .ft{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-top:26px;page-break-inside:avoid}
+    .ft .nt{font-size:8px;color:#7a7063;max-width:300px;line-height:1.5}
+    .ft .sg{border-top:1px solid #b5832e;padding-top:4px;min-width:150px;text-align:center;font-size:8px;
+      letter-spacing:.14em;text-transform:uppercase;color:#7a7063}
+    </style></head><body>
+    <div class="frm"></div><div class="frm2"></div>
+    <div class="dia d1"></div><div class="dia d2"></div><div class="dia d3"></div><div class="dia d4"></div>
+    <div class="pg">
+      ${P.logo?`<img class="lg" src="${P.logo}">`:'<div class="cr">&#10070;</div>'}
+      <div class="co">${e2(P.co)}</div>
+      <div class="rib"><i></i><b>${e2(title)}</b><i></i></div>
+      <div class="by">
+        <div class="lb">Created by</div>
+        <div class="wh"><span class="dg">${e2(P.desig||'F&B Controller')}</span>${P.who?`<span class="dm">&#9670;</span><span class="nm">${e2(P.who)}</span>`:''}</div>
+        ${P.mob?`<div class="mb">Mob ${e2(P.mob)}</div>`:''}
+      </div>
+      <div class="mt"><span>Period <b>${e2(P.per)}</b></span><s>|</s><span>Generated <b>${e2(new Date().toLocaleString())}</b></span></div>
+      ${secs}
+      <div class="ft"><div class="nt">Figures as they stand in the system when this sheet was printed.</div>
+        <div class="sg">Authorised signature</div></div>
+    </div>
+    <script>window.onload=function(){window.print();}<\/script></body></html>`);
   w.document.close();
 }
 /* One-click clean print for a single sheet (Received / Liquor Room / MR Detail / Beverage Control) */
