@@ -2863,20 +2863,31 @@ function lfSetField(i,f,v){
     if(!nm){ route(); return; }
     r.item=nm; const p=lfLandRow(nm);
     if(p){ r.cat=p.c||''; r.z=p.z||null; r.land=(p.l!=null?p.l:null); }
-    lfSave(); route(); return; }
-  if(f==='cat'){ r.cat=String(v||'').trim().toUpperCase(); lfSave(); return; }
+    lfSave(); routeQuiet(); return; }
+  if(f==='cat'){ r.cat=String(v||'').trim().toUpperCase(); lfSave(); return; }   // nothing to work out again
   const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
   const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
-  if(f==='qty'){ if(val==null||val<=0){ toast('Bottles?','Type a number bigger than 0 — ✕ removes the line','err'); route(); return; } r.qty=val; }
+  if(f==='qty'){ if(val==null||val<=0){ toast('Bottles?','Type a number bigger than 0 — ✕ removes the line','err'); routeQuiet(); return; } r.qty=val; }
   else if(val==null) r[f]=null; else r[f]=val;
-  lfSave(); route(); }
+  lfSave(); lfPaint(i); }        // in place — the page never jumps while typing
+function lfPaintTot(){                                   // grand total + head, in place (v2.57.0)
+  const T=lfTot(), set=(id,h)=>{ const e=document.getElementById(id); if(e) e.innerHTML=h; };
+  set('lfGTq', '<b>'+fmt(T.q)+'</b>'); set('lfGTa', '₹ '+lcF(Math.round(T.a)));
+  set('lfGTavg', T.q?'₹ '+lcF(Math.round(T.a/T.q)):'');
+  set('lfHN', fmt(T.n)+'<small>items</small>'); set('lfHQ', fmt(T.q)+'<small>bottles</small>');
+  set('lfHAvg', '₹ '+lcF(T.q?Math.round(T.a/T.q):0)+'<small>per bottle</small>');
+  set('lfHTot', '₹ '+lcF(Math.round(T.a))+'<small>esteemed</small>'); }
+function lfPaint(i){ const r=liftData[i]; if(!r) return;
+  const a=document.getElementById('lf_amt_'+i);
+  if(a) a.innerHTML=(r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(lfAmt(r)));
+  lfPaintTot(); }
 function lfDel(i){ const r=liftData[i]; if(!r) return;
   confirmAsk('Take <strong>'+esc(r.item)+'</strong> off the lifting?<br><span class="muted">This order sheet only — nothing else in the app changes.</span>',
-    function(){ liftData.splice(i,1); lfSave(); route(); toast('Removed', r.item,'ok'); }); }
+    function(){ liftData.splice(i,1); lfSave(); routeQuiet(); toast('Removed', r.item,'ok'); }); }
 function lfClearAll(){ const T=lfTot();
   if(!T.n){ toast('Nothing to clear','The lifting is empty','err'); return; }
   confirmAsk('Clear the whole lifting?<br><br><strong>'+fmt(T.n)+' lines · '+fmt(T.q)+' bottles · ₹ '+lcF(Math.round(T.a))+'</strong> go.<br><span class="muted">This order sheet only — nothing else in the app changes.</span>',
-    function(){ liftData=[]; lfSave(); route(); toast('Lifting cleared','','ok'); }); }
+    function(){ liftData=[]; lfSave(); routeQuiet(); toast('Lifting cleared','','ok'); }); }
 function _lfAoa(){
   const T=lfTot();
   const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — BEVCO Esteemed Lifting' ], [ 'Date', new Date().toISOString().slice(0,10) ], [],
@@ -2886,7 +2897,7 @@ function _lfAoa(){
   return a; }
 
 VIEWS.lifting = () => {
-  lcCatFill();                       // the price file fills its own categories — a lifting can be started before that page is opened
+  lcTcsMigrate(); lcCatFill();      // the price file settles its 2 % TCS and its categories even if that page was never opened
   (function(){ let ch=0;                  // a line still missing its category / size / price takes them from the price file
     liftData.forEach(r=>{ if(r.cat&&r.z!=null&&r.land!=null) return; const p=lfLandRow(r.item); if(!p) return;
       if(!r.cat&&p.c){ r.cat=p.c; ch++; } if(r.z==null&&p.z){ r.z=p.z; ch++; } if(r.land==null&&p.l!=null){ r.land=p.l; ch++; } });
@@ -2901,7 +2912,7 @@ VIEWS.lifting = () => {
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'z','lcr bsz',' placeholder="ml"')}</div>
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'land','lcr land',' placeholder="₹" title="From the Landing Cost File — type another figure for this order only"')}</div>
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'qty','lcr qty')}</div>
-      <div class="r amt${r.id===_lfLast?' new':''}">${r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(amt)}</div>
+      <div class="r amt${r.id===_lfLast?' new':''}" id="lf_amt_${i}">${r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(amt)}</div>
       <div class="x${r.id===_lfLast?' new':''}"><button class="btn rmx" onclick="lfDel(${i})" title="Take this line off">✕</button></div>`; }).join('')
    || `<div class="empty">${liftData.length?'No line matches “'+esc(iq.lf||'')+'”':'Nothing on the lifting yet — search an item below and press Enter.'}</div>`;
   return `
@@ -2916,10 +2927,10 @@ VIEWS.lifting = () => {
       <div class="bclh lr5">
         <div class="h c">Column</div><div class="h">Lines</div><div class="h">Bottles</div><div class="h">Average ₹ / bottle</div><div class="h">Grand Total Esteemed</div>
         <div class="k">Lifting</div>
-        <div class="rs big">${fmt(T.n)}<small>items</small></div>
-        <div class="rs big">${fmt(T.q)}<small>bottles</small></div>
-        <div class="rs big">₹ ${lcF(T.q?Math.round(T.a/T.q):0)}<small>per bottle</small></div>
-        <div class="rs big hi">₹ ${lcF(Math.round(T.a))}<small>esteemed</small></div>
+        <div class="rs big" id="lfHN">${fmt(T.n)}<small>items</small></div>
+        <div class="rs big" id="lfHQ">${fmt(T.q)}<small>bottles</small></div>
+        <div class="rs big" id="lfHAvg">₹ ${lcF(T.q?Math.round(T.a/T.q):0)}<small>per bottle</small></div>
+        <div class="rs big hi" id="lfHTot">₹ ${lcF(Math.round(T.a))}<small>esteemed</small></div>
       </div>
       ${T.miss?`<div class="lcnote" style="color:var(--red)">⚠ ${fmt(T.miss)} line${T.miss>1?'s have':' has'} no landing price in the Landing Cost File — type the ₹ in the line, or set it on that page.</div>`:''}
     </div>
@@ -2940,8 +2951,8 @@ VIEWS.lifting = () => {
         <div class="lv r am" id="lfAmt"><span class="mu">—</span></div>
         <div class="lv x"><button class="btn btn-gold" onclick="lfAdd()" title="Add this item — the next line opens by itself">＋</button></div>
         <div class="gt c">Σ</div><div class="gt">GRAND TOTAL ESTEEMED</div><div class="gt"></div><div class="gt"></div>
-        <div class="gt r">${T.q?'₹ '+lcF(Math.round(T.a/T.q)):''}</div><div class="gt r"><b>${fmt(T.q)}</b></div>
-        <div class="gt r tot">₹ ${lcF(Math.round(T.a))}</div><div class="gt"></div>
+        <div class="gt r" id="lfGTavg">${T.q?'₹ '+lcF(Math.round(T.a/T.q)):''}</div><div class="gt r" id="lfGTq"><b>${fmt(T.q)}</b></div>
+        <div class="gt r tot" id="lfGTa">₹ ${lcF(Math.round(T.a))}</div><div class="gt"></div>
       </div>
       <datalist id="lfItemsDL">${landingData.slice(0,600).map(r=>`<option value="${esc(r.f)}">`).join('')}</datalist>
     </div>`;
@@ -3137,15 +3148,33 @@ AFTER.reports = () => {
    ============================================================ */
 document.addEventListener('keydown', function(e){
   const el=e.target;
-  if(!(el instanceof HTMLInputElement) || !el.classList.contains('cell-input')) return;
+  if(!(el instanceof HTMLInputElement)) return;
+  if(!(el.classList.contains('cell-input')||el.classList.contains('lcin'))) return;   // .lcin = the Landing / Lifting sheets (v2.57.0)
   const k=(e.key==='Enter')?'ArrowDown':e.key;      // Enter = commit + move down, Excel-style
   if(k!=='ArrowUp' && k!=='ArrowDown' && k!=='ArrowLeft' && k!=='ArrowRight') return;
   const len=(el.value||'').length;
   let ss=null, se=null; try{ ss=el.selectionStart; se=el.selectionEnd; }catch(err){}
   if(k==='ArrowLeft'  && ss!=null && ss>0) return;      // still editing inside the text
   if(k==='ArrowRight' && se!=null && se<len) return;
+  if(el.getAttribute('list') && e.key!=='Enter') return;          // a datalist box keeps its own ↑↓ for the suggestions
+  const grid=el.closest('.lfg');
+  if(grid){ const cells=Array.from(grid.querySelectorAll('#lfLines > div'));
+    const cell=el.closest('#lfLines > div'); const ix=cells.indexOf(cell); if(ix<0) return;
+    let ni=(k==='ArrowDown')?ix+8:(k==='ArrowUp')?ix-8:(k==='ArrowRight')?ix+1:ix-1;
+    let t=null;
+    while(ni>=0 && ni<cells.length){ const inp=cells[ni].querySelector('input.lcin'); if(inp){ t=inp; break; }
+      if(k==='ArrowDown') ni+=8; else if(k==='ArrowUp') ni-=8; else if(k==='ArrowRight') ni++; else ni--; }
+    if(!t && k==='ArrowDown'){ const c=ix%8; t=(c<=2)?$('#lfItem'):$('#lfQty'); }      // the last line → the live entry row
+    if(!t) return;
+    e.preventDefault(); const keep=cells.indexOf(t.closest('#lfLines > div'));
+    el.blur();
+    setTimeout(function(){ let n2=t;
+      if(keep>=0 && !document.body.contains(t)){ const g2=document.querySelector('.lfg'); if(!g2) return;
+        const c2=Array.from(g2.querySelectorAll('#lfLines > div')); n2=c2[keep]?c2[keep].querySelector('input.lcin'):null; }
+      if(n2){ n2.focus({preventScroll:true}); if(n2.select) n2.select(); n2.scrollIntoView({block:'nearest',behavior:'smooth'}); } },0);
+    return; }
   const table=el.closest('table'); if(!table) return;
-  const all=Array.from(table.querySelectorAll('input.cell-input'));
+  const all=Array.from(table.querySelectorAll('input.cell-input,input.lcin'));
   let target=null;
   if(k==='ArrowLeft' || k==='ArrowRight'){
     const ix=all.indexOf(el); if(ix<0) return;
@@ -3159,7 +3188,7 @@ document.addEventListener('keydown', function(e){
       row=(k==='ArrowDown')?row.nextElementSibling:row.previousElementSibling;
       if(!row) break;
       const c=row.children[colIdx]; if(!c) continue;              // group rows (colspan) are skipped
-      const cin=c.querySelectorAll('input.cell-input');
+      const cin=c.querySelectorAll('input.cell-input,input.lcin');
       if(cin.length){ target=cin[Math.min(Math.max(inTd,0),cin.length-1)]; break; }
     }
   }
@@ -3170,7 +3199,7 @@ document.addEventListener('keydown', function(e){
   el.blur();                                                       // commits the edit (may route()-re-render)
   setTimeout(function(){
     const tb=Array.from(document.querySelectorAll('#view table'))[ti]; if(!tb) return;
-    const a2=Array.from(tb.querySelectorAll('input.cell-input'));
+    const a2=Array.from(tb.querySelectorAll('input.cell-input,input.lcin'));
     const nx=a2[gIdx]; if(nx){ nx.focus({preventScroll:true}); if(nx.select) nx.select(); nx.scrollIntoView({block:'nearest',behavior:'smooth'}); }
   },0);
 });
@@ -3859,7 +3888,7 @@ function _printWin(packs,label,title){
   const secs=packs.map(p=>{ const cols=p.aoa[3]||[]; const data=p.aoa.slice(4);
     const body=data.map(r=> r.length===1
       ? `<tr class="g"><td colspan="${cols.length||1}">${e2(r[0])}</td></tr>`
-      : `<tr${String(r[0])==='TOTAL'?' class="t"':''}>${r.map((c,i)=>`<td class="${i>=2?'n':''}">${e2(c)}</td>`).join('')}</tr>`).join('');
+      : `<tr${(/TOTAL/i.test(String(r[0]||''))||(!String(r[0]||'').trim()&&/^(GRAND\s+)?TOTAL/i.test(String(r[1]||''))))?' class="t"':''}>${r.map((c,i)=>`<td class="${i>=2?'n':''}">${e2(c)}</td>`).join('')}</tr>`).join('');
     return `<h2>${e2(p.name)}</h2><table><thead><tr>${cols.map(c=>`<th>${e2(c)}</th>`).join('')}</tr></thead><tbody>${body||'<tr><td>No data</td></tr>'}</tbody></table>`; }).join('');
   const w=window.open('','_blank'); if(!w){ toast('Popup blocked','Allow popups to print the PDF','err'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e2(title)} ${e2(label)}</title><style>

@@ -1946,11 +1946,11 @@ html{scroll-behavior:smooth}
 .lfg .lv b.tot{font-size:15px}
 .lfg .lv.x .btn-gold{padding:3px 9px;font-size:14px;line-height:18px;font-weight:700}
 /* the grand total row */
-.lfg .gt{min-height:32px;border-top:3px double var(--gold);border-bottom:0;background:color-mix(in srgb,var(--gold) 8%,var(--panel));
+.lfg .gt{min-height:34px;font-weight:700;border-top:3px double var(--gold);border-bottom:0;background:color-mix(in srgb,var(--gold) 8%,var(--panel));
   font-family:Georgia,'Times New Roman',serif;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
 .lfg .gt.c{justify-content:center;font-size:12px}
-.lfg .gt b{font-size:14px;color:var(--text)}
-.lfg .gt.tot{font-size:16px;font-weight:700;color:var(--gold)}
+.lfg .gt b{font-size:15px;font-weight:700;color:var(--text)}
+.lfg .gt.tot{font-size:16.5px;font-weight:800;color:var(--gold);letter-spacing:0}
 .lfg .new{animation:msFlash 1.4s ease-out both}
 .lfg .empty{grid-column:1/-1;justify-content:center;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:11.5px;color:var(--text-dim);min-height:30px}
 @media (max-width:1240px){ .lfg{grid-template-columns:28px minmax(150px,2fr) minmax(80px,.9fr) 66px minmax(84px,1fr) 74px minmax(92px,1fr) 34px}
