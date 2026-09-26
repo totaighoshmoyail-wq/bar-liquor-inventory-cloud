@@ -2431,7 +2431,7 @@ function exportBarInvExcel(){
 /* ============================================================
    LANDING COST FILE (v2.52.0 · editable since v2.53.0) — the client's own landing-cost
    workbook as a page of its own: Item · Category · Size · MRP · Rate · TCS · SP purpose fee ·
-   Round off · Landing cost, plus ₹ per peg worked out here (the TCS % and the peg are set on the page).
+   Round off · Landing cost, plus ₹ per ml worked out here as landing / bottle size * ml, each line carrying its own ml.
    EVERY cell is editable, new items can be typed in, and the file's own formula fills itself in:
        TCS      = Rate × its own TCS percentage   (2 % unless the row already implies another)
        Landing  = Rate + TCS + SP fee + Round off
@@ -2536,9 +2536,16 @@ function lcTcs(){ const v=+(pref.lcTcs); return (isFinite(v)&&v>0)?v:2; }
 function lcPeg(){ const v=+(pref.lcPeg); return (isFinite(v)&&v>0)?v:30; }
 function lcSetTcs(v){ const n=+evalNum(String(v==null?'':v).trim());
   pref.lcTcs=(isFinite(n)&&n>0&&n<100)?Math.round(n*100)/100:2; bsv('pref',pref); route(); }
-function lcSetPeg(v){ const n=+evalNum(String(v==null?'':v).trim());
+function lcSetPeg(v){ const n=+evalNum(String(v==null?'':v).trim());   // the default for lines that carry no ml of their own
   pref.lcPeg=(isFinite(n)&&n>0)?Math.round(n*100)/100:30; bsv('pref',pref); route(); }
-function lcPegVal(r){ return (r.l!=null&&r.z)?r.l/r.z*lcPeg():null; }
+function lcPegOf(r){ const v=+(r&&r.p); return (isFinite(v)&&v>0)?v:lcPeg(); }   // this line's own ml, else the sheet's
+function lcPegVal(r){ return (r.l!=null&&r.z)?r.l/r.z*lcPegOf(r):null; }         // Excel: landing / bottle size * ml
+function lcApplyPeg(){ const p=lcPeg(); let n=0;
+  landingData.forEach(r=>{ if(lcPegOf(r)!==p){ r.p=p; n++; } });
+  if(n) lcSave(); route(); toast('Every line set to '+p+' ml', n?fmt(n)+' lines changed — type another figure on any line for just that one':'every line was already at '+p+' ml','ok'); }
+function lcApplyPegAsk(){ const p=lcPeg(), n=landingData.filter(r=>lcPegOf(r)!==p).length;
+  if(!n){ toast('Nothing to change','Every line is already worked out per '+p+' ml','ok'); return; }
+  confirmAsk('Work every line out per <strong>'+p+' ml</strong>?<br><br><strong>'+fmt(n)+'</strong> lines are on another ml at the moment. Each line keeps its own figure afterwards — type in its ML box to change just that one.', lcApplyPeg); }
 function lcTcsPct(r){ return (r.r&&r.t!=null) ? Math.round(r.t/r.r*10000)/100 : null; }
 function lcTcsOff(r,p){ return r.r!=null && Math.abs((r.t||0)-r.r*p/100)>0.005; }   // this line is not at p %
 function lcApplyTcs(silent){                                     // work every line out again at the set %
@@ -2584,10 +2591,10 @@ function lcSetField(i,f,v){
 function lcPaint(i){                                                       // repaint one row in place — no re-render, so nothing jumps
   const r=landingData[i]; if(!r) return;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
-  set('lc_r_'+i, lcE(r.r)); set('lc_t_'+i, lcE(r.t)); set('lc_l_'+i, lcE(r.l)); set('lc_z_'+i, lcE(r.z));
+  set('lc_r_'+i, lcE(r.r)); set('lc_t_'+i, lcE(r.t)); set('lc_l_'+i, lcE(r.l)); set('lc_z_'+i, lcE(r.z)); set('lc_p_'+i, lcE(r.p));
   const peg=lcPegVal(r), p=document.getElementById('lc_peg_'+i);
   if(p) p.innerHTML=(peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg));
-  const pc=document.getElementById('lc_p_'+i); if(pc) pc.textContent=lcPctTxt(r);
+  const pc=document.getElementById('lc_pc_'+i); if(pc) pc.textContent=lcPctTxt(r);
 }
 function lcStats(){ const all=landingData.length, withL=landingData.filter(r=>r.l!=null);
   return {all, nL:withL.length, avg:withL.length?withL.reduce((a,r)=>a+r.l,0)/withL.length:0,
@@ -2704,15 +2711,16 @@ VIEWS.landing = () => {
       <td><input class="lcin cat" id="lc_c_${i}" list="lcCatsDL" value="${esc(r.c||'')}" placeholder="—" onchange="lcSetField(${i},'c',this.value)"></td>
       <td class="num">${inp(i,'m','lcr')}</td>
       <td class="num">${inp(i,'r','lcr')}</td>
-      <td class="num lctcs"><i id="lc_p_${i}">${lcPctTxt(r)}</i>${inp(i,'t','lcr',' title="Rate × the TCS % set above the sheet — type another figure to keep your own"')}</td>
+      <td class="num lctcs"><i id="lc_pc_${i}">${lcPctTxt(r)}</i>${inp(i,'t','lcr',' title="Rate × the TCS % set above the sheet — type another figure to keep your own"')}</td>
       <td class="num">${inp(i,'s','lcr')}</td>
       <td class="num">${inp(i,'o','lcr')}</td>
       <td class="num">${inp(i,'l','lcr land',' title="Rate + TCS + SP fee + Round off — type a figure to keep your own"')}</td>
       <td class="num">${inp(i,'z','lcr bsz',' placeholder="ml"')}</td>
+      <td class="num">${inp(i,'p','lcr mlbox',' placeholder="'+lcPeg()+'" title="The ml this line is worked out per — 30, 60, 750 … blank uses the sheet figure"')}</td>
       <td class="num nowrap peg" id="lc_peg_${i}">${peg==null?'<span class="muted">—</span>':'₹ '+lcF(peg)}</td>
       <td class="center"><button class="btn rmx" onclick="lcDel(${i})" title="Remove this item">✕</button></td>
     </tr>`; }).join('')
-   || `<tr><td colspan="12" class="center muted" style="padding:18px">Nothing matches — <a href="#" onclick="iq.lc='';lcTab='all';lcCatF='';route();return false" style="color:var(--gold)">show everything</a>.</td></tr>`;
+   || `<tr><td colspan="13" class="center muted" style="padding:18px">Nothing matches — <a href="#" onclick="iq.lc='';lcTab='all';lcCatF='';route();return false" style="color:var(--gold)">show everything</a>.</td></tr>`;
   const nb=(id,ph,w,f,cls)=>`<input class="lcin nb ${cls||''}" id="${id}" placeholder="${ph}" style="width:${w}px" oninput="lcNewSet('${f}',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();lcAdd();}if(event.key==='Escape')lcNewClear()">`;
   return `
     <div class="page-head"><div><h1>Landing Cost File</h1><p>Your landing-cost price list — every cell editable, the formula fills itself in. A reference list: it changes no rate by itself.</p></div>
@@ -2741,6 +2749,9 @@ VIEWS.landing = () => {
           <span class="lcset" title="Every line is worked out at this percentage">TCS
             <input class="lcin pct" id="lcTcsBox" value="${lcTcs()}" onchange="lcSetTcs(this.value)">%
             <button class="btn btn-xs" onclick="lcApplyTcsAsk()" title="Work TCS out again on every line at this percentage">Apply to all</button></span>
+          <span class="lcset" title="The ml used by a line that has none of its own — each line can carry its own">ML
+            <input class="lcin pct" id="lcPegBox" value="${lcPeg()}" onchange="lcSetPeg(this.value)">
+            <button class="btn btn-xs" onclick="lcApplyPegAsk()" title="Put this ml on every line">Apply to all</button></span>
           <select class="lcin sel" style="width:150px" onchange="lcSetCatF(this.value)"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c)}"${lcCatF===c?' selected':''}>${esc(c)}</option>`).join('')}</select>
           <div class="search lrq"><span>🔎</span><input id="searchBox" placeholder="Search item / category…" value="${esc(iq.lc||'')}" oninput="lcSearchType(this.value)" onkeydown="if(event.key==='Escape'){this.value='';lcSearchType('');}"></div>
         </div></div>
@@ -2756,13 +2767,14 @@ VIEWS.landing = () => {
         <button class="btn btn-sm" onclick="lcNewClear()" title="Clear this row">✕</button>
       </div>
       <div class="table-wrap" style="max-height:58vh;overflow:auto"><table class="tbl">
-      <thead><tr><th style="width:34px">#</th><th style="min-width:300px">Item</th><th style="width:118px">Category</th>
-        <th class="right" style="width:76px">MRP ₹</th><th class="right" style="width:80px">Rate ₹</th>
+      <thead><tr><th style="width:34px">#</th><th style="min-width:300px">Item</th><th style="width:110px">Category</th>
+        <th class="right" style="width:72px">MRP ₹</th><th class="right" style="width:80px">Rate ₹</th>
         <th class="right" style="width:78px" title="Rate × the TCS % set above the sheet — each box shows the % that line is actually at">TCS ₹</th>
-        <th class="right nowrap" style="width:76px">SP Fee ₹</th><th class="right" style="width:70px">Round ₹</th>
+        <th class="right nowrap" style="width:72px">SP Fee ₹</th><th class="right" style="width:66px">Round ₹</th>
         <th class="right nowrap" style="width:88px" title="Rate + TCS + SP fee + Round off">Landing ₹</th>
-        <th class="right nowrap" style="width:84px" title="The bottle size in ml — used by the next column">Bottle Size/ML</th>
-        <th class="right nowrap lcpegth" style="width:92px" title="Landing cost ÷ bottle size × the peg — change the peg in the box">₹ / <input class="lcin lcpegin" id="lcPegBox" value="${lcPeg()}" onchange="lcSetPeg(this.value)" title="Peg in ml — 30, 60, 180 …"> ml</th>
+        <th class="right nowrap" style="width:78px" title="The bottle size in ml">Bottle Size/ML</th>
+        <th class="right nowrap lcpegth" style="width:54px" title="The ml each line is worked out per — type any figure on any line (30, 40, 750 …)">ML</th>
+        <th class="right nowrap" style="width:84px" title="Landing cost ÷ Bottle Size/ML × ML — worked out here, line by line">₹ / ML</th>
         <th style="width:30px"></th></tr></thead>
       <tbody>${body}</tbody>
       </table></div>
@@ -2858,9 +2870,9 @@ function _aoaCSV(aoa){ return aoa.map(r=>r.map(c=>{ const s=String(c==null?'':c)
 function _lcAoa(){
   const S=lcStats();
   const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Landing Cost File' ], [ 'Items', S.all ], [ 'Landing ₹ given', S.nL ], [],
-    ['Item','Category','MRP','Rate','TCS','TCS %','SP Fee','Round off','Landing cost','Bottle Size/ML','₹ / '+lcPeg()+' ml']];
+    ['Item','Category','MRP','Rate','TCS','TCS %','SP Fee','Round off','Landing cost','Bottle Size/ML','ML','₹ / ML']];
   const n=v=>(v==null?'':v);
-  landingData.forEach(r=>{ a.push([r.f, r.c||'', n(r.m), n(r.r), n(r.t), lcTcsPct(r)==null?'':lcTcsPct(r), n(r.s), n(r.o), n(r.l), n(r.z),
+  landingData.forEach(r=>{ a.push([r.f, r.c||'', n(r.m), n(r.r), n(r.t), lcTcsPct(r)==null?'':lcTcsPct(r), n(r.s), n(r.o), n(r.l), n(r.z), lcPegOf(r),
     lcPegVal(r)==null?'':Math.round(lcPegVal(r)*100)/100]); });
   return a;
 }
