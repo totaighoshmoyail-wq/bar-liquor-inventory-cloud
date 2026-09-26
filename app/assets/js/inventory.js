@@ -2782,6 +2782,173 @@ VIEWS.landing = () => {
     </div>`;
 };
 
+/* ============================================================
+   BEVCO ESTEEMED LIFTING (v2.56.0) — what to lift from BEVCO, priced at the Landing Cost File.
+   One ledger box: the lines already on the order, then the live entry row (item search → category ·
+   size · landing ₹ fill themselves from the Landing Cost File → qty → Enter), then the GRAND TOTAL
+   ESTEEMED. Every cell of a saved line stays editable and ✕ removes it.
+   Stored per company as `lifting`. It PLANS only — no stock, no rate and no sheet anywhere else in
+   the app is touched by this page.
+   ============================================================ */
+let liftData = bls('lifting', []);
+var _lf={i:-1,q:'',qty:'',hits:[],sel:0};      // the live entry row
+var _lfLast='';                                // the line just added (green flash)
+function lfSave(){ bsv('lifting', liftData); }
+function lfLandRow(name){ const n=norm(name);  // the Landing Cost File line for this item
+  for(let i=0;i<landingData.length;i++){ if(norm(landingData[i].f)===n) return landingData[i]; } return null; }
+function lfAmt(r){ const q=+r.qty||0, l=(r.land==null?0:+r.land||0); return q*l; }
+function lfTot(list){ const L=list||liftData; let q=0,a=0,miss=0;
+  L.forEach(r=>{ q+=(+r.qty||0); a+=lfAmt(r); if(r.land==null) miss++; });
+  return {n:L.length, q, a, miss}; }
+function lfRows(){ const q=norm(iq.lf||'');
+  return liftData.map((r,i)=>({i,r})).filter(x=> !q || norm(x.r.item).includes(q) || norm(x.r.cat||'').includes(q)); }
+
+/* ---- the live entry row ---- */
+function lfHits(q){ const n=norm(q); if(!n) return [];
+  const st=[], ct=[];
+  for(let i=0;i<landingData.length;i++){ const r=landingData[i], rn=norm(r.f);
+    if(rn.indexOf(n)===0){ if(st.length<8) st.push(i); }
+    else if(rn.indexOf(n)>=0 || norm(r.c||'').indexOf(n)>=0){ if(ct.length<8) ct.push(i); } }
+  return st.concat(ct).slice(0,8); }
+function lfType(v){ _lf.q=v; _lf.i=-1; _lf.sel=0; _lf.hits=lfHits(v); lfDD(); lfLive(); }
+function lfDD(){ const d=$('#lfDD'); if(!d) return;
+  if(!_lf.hits.length){ d.innerHTML=''; d.classList.remove('open'); return; }
+  d.innerHTML=_lf.hits.map((ix,k)=>{ const r=landingData[ix];
+    return `<div class="o${k===_lf.sel?' on':''}" onmousedown="event.preventDefault();lfPick(${ix})">
+      <span class="nm">${esc(r.f)}</span><span class="gp">${esc(r.c||'—')}${r.z?' · '+fmt(r.z)+' ml':''}</span>
+      <span class="st${r.l==null?' z':''}">${r.l==null?'no price':'₹ '+lcF(r.l)}</span></div>`; }).join('');
+  d.classList.add('open'); }
+function lfPick(ix){ const r=landingData[ix]; if(!r) return;
+  _lf.i=ix; _lf.q=r.f; const b=$('#lfItem'); if(b) b.value=r.f;
+  _lf.hits=[]; lfDD(); lfLive(); const q=$('#lfQty'); if(q){ q.focus(); q.select(); } }
+function lfPicked(){ if(_lf.i>=0) return landingData[_lf.i]; return _lf.q?lfLandRow(_lf.q):null; }
+function lfLive(){ const r=lfPicked(), set=(id,h)=>{ const e=$(id); if(e) e.innerHTML=h; };
+  set('#lfCat', r&&r.c?`<span class="pill gray">${esc(r.c)}</span>`:'<span class="mu">—</span>');
+  set('#lfSize', r&&r.z?`<b>${fmt(r.z)}</b><small>ml</small>`:'<span class="mu">—</span>');
+  const land=(r&&r.l!=null)?r.l:null;
+  set('#lfLand', land==null?'<span class="mu">—</span>':`<b>₹ ${lcF(land)}</b>`);
+  const q=+evalNum(String(_lf.qty||'').trim())||0;
+  set('#lfAmt', (land!=null&&q>0)?`<b class="tot">₹ ${lcF(land*q)}</b>`:'<span class="mu">—</span>'); }
+function lfQtyType(v){ _lf.qty=v; lfLive(); }
+function lfBlur(){ setTimeout(function(){ const d=$('#lfDD'); if(d){ d.innerHTML=''; d.classList.remove('open'); }
+  if(_lf.i<0 && _lf.q){ const ex=lfLandRow(_lf.q); if(ex){ _lf.i=landingData.indexOf(ex); const b=$('#lfItem'); if(b) b.value=ex.f; lfLive(); } } },150); }
+function lfItemKey(e){ const k=e.key;
+  if(k==='ArrowDown'||k==='ArrowUp'){ if(!_lf.hits.length) return; e.preventDefault();
+    _lf.sel=(_lf.sel+(k==='ArrowDown'?1:_lf.hits.length-1))%_lf.hits.length; lfDD(); return; }
+  if(k==='Enter'||k==='Tab'){ if(_lf.hits.length){ e.preventDefault(); lfPick(_lf.hits[_lf.sel]); return; }
+    if(k==='Enter'){ e.preventDefault(); const q=$('#lfQty'); if(q) q.focus(); } return; }
+  if(k==='Escape'){ _lf={i:-1,q:'',qty:_lf.qty,hits:[],sel:0}; const b=$('#lfItem'); if(b) b.value=''; lfDD(); lfLive(); } }
+function lfQtyKey(e){ const k=e.key;
+  if(k==='Enter'||(k==='Tab'&&!e.shiftKey)){ if(String(_lf.qty||'').trim()===''){ if(k==='Enter'){ e.preventDefault(); const b=$('#lfItem'); if(b) b.focus(); } return; }
+    e.preventDefault(); lfAdd(); return; }
+  if(k==='ArrowUp'){ e.preventDefault(); const b=$('#lfItem'); if(b) b.focus(); } }
+function lfAdd(){
+  const p=lfPicked();
+  const nm=p?p.f:String(_lf.q||'').replace(/\s+/g,' ').trim().toUpperCase();
+  if(!nm){ toast('Which item?','Search the item first — the price comes from the Landing Cost File','err'); const b=$('#lfItem'); if(b) b.focus(); return; }
+  const q=+evalNum(String(_lf.qty||'').trim());
+  if(!isFinite(q)||q<=0){ toast('How many?','Type the bottles to lift','err'); const e=$('#lfQty'); if(e){ e.focus(); e.select(); } return; }
+  const row={ id:'lf'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), item:nm,
+    cat:p?(p.c||''):'', z:p?(p.z||null):null, land:(p&&p.l!=null)?p.l:null, qty:Math.round(q*1000)/1000 };
+  liftData.push(row); lfSave(); _lfLast=row.id;
+  _lf={i:-1,q:'',qty:'',hits:[],sel:0};
+  routeQuiet();
+  const b=$('#lfItem'); if(b){ b.focus(); try{ b.scrollIntoView({block:'nearest'}); }catch(e){} }
+  toast('Added to the lifting', nm+' × '+fmt(row.qty)+(row.land!=null?' · ₹ '+lcF(row.land*row.qty):' — no landing price in the file, type one'), row.land!=null?'ok':'err'); }
+
+/* ---- a saved line ---- */
+function lfSetField(i,f,v){
+  const r=liftData[i]; if(!r) return;
+  if(f==='item'){ const nm=String(v||'').replace(/\s+/g,' ').trim().toUpperCase();
+    if(!nm){ route(); return; }
+    r.item=nm; const p=lfLandRow(nm);
+    if(p){ r.cat=p.c||''; r.z=p.z||null; r.land=(p.l!=null?p.l:null); }
+    lfSave(); route(); return; }
+  if(f==='cat'){ r.cat=String(v||'').trim().toUpperCase(); lfSave(); return; }
+  const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
+  const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
+  if(f==='qty'){ if(val==null||val<=0){ toast('Bottles?','Type a number bigger than 0 — ✕ removes the line','err'); route(); return; } r.qty=val; }
+  else if(val==null) r[f]=null; else r[f]=val;
+  lfSave(); route(); }
+function lfDel(i){ const r=liftData[i]; if(!r) return;
+  confirmAsk('Take <strong>'+esc(r.item)+'</strong> off the lifting?<br><span class="muted">This order sheet only — nothing else in the app changes.</span>',
+    function(){ liftData.splice(i,1); lfSave(); route(); toast('Removed', r.item,'ok'); }); }
+function lfClearAll(){ const T=lfTot();
+  if(!T.n){ toast('Nothing to clear','The lifting is empty','err'); return; }
+  confirmAsk('Clear the whole lifting?<br><br><strong>'+fmt(T.n)+' lines · '+fmt(T.q)+' bottles · ₹ '+lcF(Math.round(T.a))+'</strong> go.<br><span class="muted">This order sheet only — nothing else in the app changes.</span>',
+    function(){ liftData=[]; lfSave(); route(); toast('Lifting cleared','','ok'); }); }
+function _lfAoa(){
+  const T=lfTot();
+  const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — BEVCO Esteemed Lifting' ], [ 'Date', new Date().toISOString().slice(0,10) ], [],
+    ['#','Item','Category','Size ml','Landing ₹','Qty','Amount ₹']];
+  liftData.forEach((r,i)=>a.push([i+1, r.item, r.cat||'', r.z==null?'':r.z, r.land==null?'':r.land, r.qty, Math.round(lfAmt(r)*100)/100]));
+  a.push(['','GRAND TOTAL ESTEEMED','','','', T.q, Math.round(T.a*100)/100]);
+  return a; }
+
+VIEWS.lifting = () => {
+  lcCatFill();                       // the price file fills its own categories — a lifting can be started before that page is opened
+  (function(){ let ch=0;                  // a line still missing its category / size / price takes them from the price file
+    liftData.forEach(r=>{ if(r.cat&&r.z!=null&&r.land!=null) return; const p=lfLandRow(r.item); if(!p) return;
+      if(!r.cat&&p.c){ r.cat=p.c; ch++; } if(r.z==null&&p.z){ r.z=p.z; ch++; } if(r.land==null&&p.l!=null){ r.land=p.l; ch++; } });
+    if(ch) lfSave(); })();
+  const rows=lfRows(), T=lfTot(), TS=lfTot(rows.map(x=>x.r));
+  const cell=(i,f,cls,extra)=>`<input class="lcin ${cls||''}" value="${esc(f==='qty'||f==='land'||f==='z'?lcE(liftData[i][f]):(liftData[i][f]||''))}" onchange="lfSetField(${i},'${f}',this.value)"${extra||''}>`;
+  const lines=rows.map((x,n)=>{
+    const r=x.r, i=x.i, amt=lfAmt(r);
+    return `<div class="n${r.id===_lfLast?' new':''}">${n+1}</div>
+      <div class="it${r.id===_lfLast?' new':''}"><input class="lcin nm" value="${esc(r.item)}" title="${esc(r.item)}" list="lfItemsDL" onchange="lfSetField(${i},'item',this.value)"></div>
+      <div class="${r.id===_lfLast?'new':''}">${cell(i,'cat','cat',' placeholder="—"')}</div>
+      <div class="r${r.id===_lfLast?' new':''}">${cell(i,'z','lcr bsz',' placeholder="ml"')}</div>
+      <div class="r${r.id===_lfLast?' new':''}">${cell(i,'land','lcr land',' placeholder="₹" title="From the Landing Cost File — type another figure for this order only"')}</div>
+      <div class="r${r.id===_lfLast?' new':''}">${cell(i,'qty','lcr qty')}</div>
+      <div class="r amt${r.id===_lfLast?' new':''}">${r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(amt)}</div>
+      <div class="x${r.id===_lfLast?' new':''}"><button class="btn rmx" onclick="lfDel(${i})" title="Take this line off">✕</button></div>`; }).join('')
+   || `<div class="empty">${liftData.length?'No line matches “'+esc(iq.lf||'')+'”':'Nothing on the lifting yet — search an item below and press Enter.'}</div>`;
+  return `
+    <div class="page-head"><div><h1>BEVCO Esteemed Lifting</h1><p>What to lift from BEVCO, priced at your Landing Cost File. An order sheet only — no stock and no rate anywhere else changes.</p></div>
+      <div class="page-actions">
+        <button class="btn btn-sm" onclick="expReport('lifting','xlsx')" title="Download this lifting as Excel">📊 Excel</button>
+        <button class="btn btn-sm" onclick="printSheet('lifting')" title="Clean print — Save as PDF from the dialog">🖨 Print</button>
+        ${liftData.length?`<button class="btn btn-sm" style="color:var(--red)" onclick="lfClearAll()" title="Empty the lifting">🗑️ Clear all</button>`:''}</div></div>
+    <div class="card bcledger lchead">
+      <div class="bh"><div class="t">BEVCO Esteemed Lifting</div><div class="f">Amount <b>=</b> Qty <b>×</b> Landing ₹ <span class="muted">· the landing price comes from the Landing Cost File</span></div>
+        <div class="p">${fmt(T.n)} lines · ${fmt(T.q)} bottles</div></div>
+      <div class="bclh lr5">
+        <div class="h c">Column</div><div class="h">Lines</div><div class="h">Bottles</div><div class="h">Average ₹ / bottle</div><div class="h">Grand Total Esteemed</div>
+        <div class="k">Lifting</div>
+        <div class="rs big">${fmt(T.n)}<small>items</small></div>
+        <div class="rs big">${fmt(T.q)}<small>bottles</small></div>
+        <div class="rs big">₹ ${lcF(T.q?Math.round(T.a/T.q):0)}<small>per bottle</small></div>
+        <div class="rs big hi">₹ ${lcF(Math.round(T.a))}<small>esteemed</small></div>
+      </div>
+      ${T.miss?`<div class="lcnote" style="color:var(--red)">⚠ ${fmt(T.miss)} line${T.miss>1?'s have':' has'} no landing price in the Landing Cost File — type the ₹ in the line, or set it on that page.</div>`:''}
+    </div>
+    <div class="card bcledger lfslip">
+      <div class="bh"><div class="t">Lifting Sheet</div>
+        <div class="dt"><span class="search lrq" style="min-width:210px"><span>🔎</span><input id="searchBox" placeholder="Search item / category…" value="${esc(iq.lf||'')}" oninput="isearch('lf',this.value)" onkeydown="if(event.key==='Escape'){this.value='';isearch('lf','');}"></span></div>
+        <div class="p">${iq.lf?fmt(rows.length)+' of '+fmt(T.n)+' shown · ₹ '+lcF(Math.round(TS.a)):fmt(T.n)+' lines'}</div></div>
+      <div class="lfg">
+        <div class="h c">#</div><div class="h">Item</div><div class="h">Category</div><div class="h r">Size</div>
+        <div class="h r">Landing ₹</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h c"></div>
+        <div id="lfLines" style="display:contents">${lines}</div>
+        <div class="lv n">→</div>
+        <div class="lv it"><input class="msin" id="lfItem" autocomplete="off" placeholder="Search an item from the Landing Cost File…" value="${esc(_lf.q||'')}" oninput="lfType(this.value)" onkeydown="lfItemKey(event)" onblur="lfBlur()"><div class="msdd" id="lfDD"></div></div>
+        <div class="lv" id="lfCat"><span class="mu">—</span></div>
+        <div class="lv r sz" id="lfSize"><span class="mu">—</span></div>
+        <div class="lv r ld" id="lfLand"><span class="mu">—</span></div>
+        <div class="lv r"><input class="msin q" id="lfQty" type="number" min="0" step="1" placeholder="0" value="${esc(_lf.qty||'')}" oninput="lfQtyType(this.value)" onkeydown="lfQtyKey(event)"></div>
+        <div class="lv r am" id="lfAmt"><span class="mu">—</span></div>
+        <div class="lv x"><button class="btn btn-gold" onclick="lfAdd()" title="Add this item — the next line opens by itself">＋</button></div>
+        <div class="gt c">Σ</div><div class="gt">GRAND TOTAL ESTEEMED</div><div class="gt"></div><div class="gt"></div>
+        <div class="gt r">${T.q?'₹ '+lcF(Math.round(T.a/T.q)):''}</div><div class="gt r"><b>${fmt(T.q)}</b></div>
+        <div class="gt r tot">₹ ${lcF(Math.round(T.a))}</div><div class="gt"></div>
+      </div>
+      <datalist id="lfItemsDL">${landingData.slice(0,600).map(r=>`<option value="${esc(r.f)}">`).join('')}</datalist>
+    </div>`;
+};
+AFTER.lifting = () => { const b=$('#lfItem');
+  if(b && (!document.activeElement || document.activeElement===document.body) && window.scrollY<80) b.focus(); };
+
 const REPORTS=[
   {id:'bev',     name:'Beverage Control Report',        ico:'🍾'},
   {id:'lroom',   name:'Liquor Room Report',             ico:'🏬'},
@@ -2804,9 +2971,10 @@ function lowStockList(){ const out=[];
       else if(ml<sizeMl) out.push({name:t.name,cat:t.category,closing:ml,u,status:'LOW',sev:1}); } });
   return out.sort((a,b)=>b.sev-a.sev||a.name.localeCompare(b.name)); }
 function _rptName(id){ const r=REPORTS.find(x=>x.id===id); if(r) return r.name;
-  return id==='landing' ? 'Landing Cost File' : id; }   // sheets with a page but no report card (v2.52.0)
+  return id==='landing' ? 'Landing Cost File' : id==='lifting' ? 'BEVCO Esteemed Lifting' : id; }   // sheets with a page but no report card (v2.52.0)
 function reportAoa(id){
   if(id==='landing') return _lcAoa();   // its own page, not a report card (v2.52.0)
+  if(id==='lifting') return _lfAoa();   // the BEVCO lifting order sheet (v2.56.0)
   const meta=(cols)=>[[ (cfg.company||'TRAFFIC GASTROPUB')+' — '+_rptName(id) ],
     [ 'Period', period.from+' to '+period.to ], [], cols];
   if(id==='bev'){ const a=meta(['Item','Category','Unit','Opening','Receipt','Closing','Consumption','Sale','Variance','Sale ₹','Var ₹']);
@@ -4265,6 +4433,7 @@ function cloudRefreshState(keys){
   if(has('bevmap'))        bevMap=bls('bevmap', {});
   if(has('bevpages'))      bevPages=bls('bevpages', []);
   if(has('landing'))       landingData=bls('landing', (typeof LANDING_SEED!=='undefined'?LANDING_SEED:[]).map(r=>({...r})));
+  if(has('lifting'))       liftData=bls('lifting', []);
   list.forEach(k=>{ if(k.indexOf('inv2_')===0) delete bevStores[k.slice(5)]; });
   try{ invalidateCalcCache(); }catch(e){} _bevIdx=null; _bevDupCache={ver:-1,list:null};
   if(has('cfg')||has('pref')){ try{ applyAppearance(); renderShell(); }catch(e){} }

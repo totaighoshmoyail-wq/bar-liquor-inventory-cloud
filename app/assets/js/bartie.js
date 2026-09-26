@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.55.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.56.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -271,7 +271,7 @@ function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cl
    base wins, one I removed stays removed, one they changed comes down. Before this an edited entry that kept its id
    (a register qty fixed in place) looked "unchanged" and the cloud copy overwrote the edit; and inv / bevmap were whole-key
    (the later push buried the other device's item edits — the "items go missing" of 2026-09-20). */
-const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1, rawdata2:1, tally:1};
+const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1, rawdata2:1, tally:1, lifting:1};
 const CLOUD_OBJKEYS={inv:1, bevmap:1};
 function _cloudKeyOf(k,e){ if(k==='rawdata2') return 'it:'+norm((e&&e.item)||''); if(k==='tally') return 'br:'+norm((e&&e.name)||''); return _cloudEntryKey(e); }
 function _cloudBaseGet(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudbase')||'{}')||{}; }catch(e){ return {}; } }
@@ -500,7 +500,7 @@ var _cloudTimer=null;   // var (not let): bsv -> cloudMark can fire during file 
 function cloudMark(k){
   if(!(k==='tally'||k==='alias'||k==='cocktails'||k==='cocktailAlias'||k==='pos'||k==='namemap'
      ||k==='inv'||k==='mr'||k==='recv'||k==='rawdata2'||k==='period'||k==='cfg'||k==='users'
-     ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k==='landing'||k.indexOf('inv2_')===0)) return;
+     ||k==='months'||k==='invoices'||k==='bevmap'||k==='bevpages'||k==='landing'||k==='lifting'||k.indexOf('inv2_')===0)) return;
   if(!cloudOn()) return;
   { const m=_cloudMeta(); const dk=Array.isArray(m.dirtyKeys)?m.dirtyKeys.slice():[]; if(dk.indexOf(k)<0) dk.push(k);
     _cloudSetMeta({dirty:true, dirtyKeys:dk}); }        // survives a reload; the key list is what lets a push MERGE (v2.34.0)
@@ -1186,6 +1186,7 @@ const NAV = [
   { group:'Inventory Center', items:[
     {id:'rawdata',    label:'Item Master', ico:ICO.item},
     {id:'landing',    label:'Landing Cost File', ico:ICO.reports},
+    {id:'lifting',    label:'BEVCO Lifting', ico:ICO.purchase},
     {id:'received',   label:'Purchase', ico:ICO.purchase},
     {id:'liquorroom', label:'Liquor Room', ico:ICO.room},
     {id:'mrdetail',   label:'Bar Stock Issue', ico:ICO.issue},
@@ -1211,6 +1212,7 @@ const TITLES = {
   ckalias:['Cocktail Alias','POS button → cocktail mappings (which name counts as which cocktail)'],
   rawdata:['Item Master','Item master — group, brand & bottle size'],
   landing:['Landing Cost File','Your own price file — MRP · rate · TCS · fees · landing cost'],
+  lifting:['BEVCO Esteemed Lifting','What to lift from BEVCO — qty × landing price = esteemed amount'],
   received:['Purchase','Purchases into the Liquor Room (Excel / BEVCO invoice)'],
   mrdetail:['Bar Stock Issue','Material requisition — Liquor Room → Bar'],
   liquorroom:['Liquor Room','Opening + Received − Issued = Closing'],
