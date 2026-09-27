@@ -1967,3 +1967,24 @@ html{scroll-behavior:smooth}
 @media (max-width:1240px){ .lfg{grid-template-columns:24px minmax(130px,1.8fr) minmax(70px,.8fr) 54px minmax(78px,.9fr) 104px 62px minmax(86px,1fr) 30px}
   .lfg>div,.lfg #lfLines>div{padding:1px 6px} .lfg .h{font-size:9px;letter-spacing:.06em} }
 @media print{ .lfg .lv,.lfslip .bh .dt{display:none!important} .lfg .lcin{border:none!important;background:none!important;padding:0} }
+/* ---- Esteemed Lifting — category share pie (v2.61.0): doughnut + a grid legend
+   (dot · category · cases·bottles · % · ₹) with a ruled TOTAL row. Theme tokens only. */
+.card.lfpie{margin-top:10px}
+.lfpie .card-head h3{font-family:Georgia,'Times New Roman',serif;font-size:13px;color:var(--gold);letter-spacing:.04em}
+.lfpie .card-head p{font-size:10.5px}
+.lfpie .card-body.pb{display:flex;gap:22px;align-items:center;flex-wrap:wrap;padding:12px 14px 14px}
+.lfpie .dchart{width:172px;height:172px;flex:none}
+.lfpie .dchart .ctr b{font-family:Georgia,'Times New Roman',serif;font-size:16px;color:var(--gold)}
+.lfleg{flex:1;min-width:300px;display:grid;grid-template-columns:11px minmax(96px,1.5fr) auto 52px minmax(84px,auto);
+  gap:6px 12px;align-items:center;font-variant-numeric:tabular-nums}
+.lfleg > i{width:10px;height:10px;border-radius:3px}
+.lfleg .nm{font-size:11.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
+.lfleg .q{font-size:9.5px;color:var(--text-muted);white-space:nowrap}
+.lfleg .p{font-size:11.5px;font-weight:700;color:var(--gold);text-align:right}
+.lfleg .a{font-size:12px;font-weight:600;color:var(--text);text-align:right;white-space:nowrap}
+.lfleg > .t{border-top:1.5px solid color-mix(in srgb,var(--gold) 45%,transparent);padding-top:6px;margin-top:2px}
+.lfleg i.t{background:transparent;border-radius:0;height:0}
+.lfleg .nm.t{font-family:Georgia,'Times New Roman',serif;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold)}
+.lfleg .a.t{font-size:13px;font-weight:800;color:var(--gold)}
+.lfleg .none{grid-column:1/-1;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:11.5px;color:var(--text-dim)}
+@media (max-width:1100px){ .lfpie .card-body.pb{gap:14px} .lfleg{min-width:240px;grid-template-columns:10px minmax(80px,1.3fr) auto 46px minmax(76px,auto)} }

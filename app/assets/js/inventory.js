@@ -2801,6 +2801,38 @@ function lfPerCat(cat){ const c=String(cat||'').toUpperCase().trim(); return LF_
 function lfPer(r){ const v=+(r&&r.cs); return (isFinite(v)&&v>0)?v:lfPerCat(r&&r.cat); }   // a line may carry its own pack size
 function lfCases(r){ const p=lfPer(r); return p>0?Math.round((+r.qty||0)/p*100)/100:0; }
 function lfAmt(r){ const q=+r.qty||0, l=(r.land==null?0:+r.land||0); return q*l; }
+function lfByCat(){                                     // what the lifting is made of, biggest ₹ first
+  const m={};
+  liftData.forEach(r=>{ const c=(r.cat||'').trim()||'— no category';
+    const o=m[c]||(m[c]={cat:c, amt:0, qty:0, cs:0, n:0});
+    o.amt+=lfAmt(r); o.qty+=(+r.qty||0); o.cs+=lfCases(r); o.n++; });
+  return Object.keys(m).map(k=>m[k]).sort((a,b)=>b.amt-a.amt||b.qty-a.qty);
+}
+function lfLegHtml(){
+  const cats=lfByCat(), T=lfTot();
+  if(!cats.length) return '<div class="none">Add a few lines and the share of each category shows here.</div>';
+  const row=(x,i)=>`<i style="background:${DBVIVID[i%DBVIVID.length]}"></i>`+
+    `<span class="nm">${esc(x.cat)}</span>`+
+    `<span class="q">${lcF(Math.round(x.cs*100)/100)} cs · ${fmt(x.qty)} btl</span>`+
+    `<span class="p">${T.a>0?(x.amt/T.a*100).toFixed(1):'0.0'}%</span>`+
+    `<span class="a">₹ ${lcF(Math.round(x.amt))}</span>`;
+  return cats.map(row).join('')+
+    `<i class="t"></i><span class="nm t">TOTAL · ${fmt(cats.length)} categor${cats.length===1?'y':'ies'}</span>`+
+    `<span class="q t">${lcF(T.cs)} cs · ${fmt(T.q)} btl</span><span class="p t">100%</span>`+
+    `<span class="a t">₹ ${lcF(Math.round(T.a))}</span>`;
+}
+var _lfPie=null;
+function lfPieDraw(){                                   // redrawn on render, refreshed in place on an edit
+  const el=$('#lfPie'); if(!el || typeof Chart==='undefined') return;
+  const cats=lfByCat();
+  const data={labels:cats.map(x=>x.cat), datasets:[{data:cats.map(x=>Math.round(x.amt)),
+    backgroundColor:cats.map((x,i)=>DBVIVID[i%DBVIVID.length]), borderColor:'rgba(0,0,0,.35)', borderWidth:2}]};
+  if(_lfPie && _lfPie.canvas===el){ _lfPie.data=data; _lfPie.update('none'); return; }
+  _lfPie=new Chart(el,{type:'doughnut', data:data, options:{cutout:'62%', responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{display:false}, tooltip:{callbacks:{label:function(c){ const t=c.dataset.data.reduce((a,b)=>a+b,0)||1;
+      return ' ₹ '+lcF(c.parsed)+'  ·  '+(c.parsed/t*100).toFixed(1)+'%'; }}}}}});
+  CHARTS.push(_lfPie);
+}
 function lfTot(list){ const L=list||liftData; let q=0,a=0,miss=0,cs=0;
   L.forEach(r=>{ q+=(+r.qty||0); a+=lfAmt(r); cs+=lfCases(r); if(r.land==null) miss++; });
   return {n:L.length, q, a, miss, cs:Math.round(cs*100)/100}; }
@@ -2897,7 +2929,10 @@ function lfPaintTot(){                                   // grand total + head, 
   set('lfGTavg', T.q?'₹ '+lcF(Math.round(T.a/T.q)):'');
   set('lfHN', fmt(T.n)+'<small>items</small>'); set('lfHQ', lcF(T.cs)+'<small>cases · '+fmt(T.q)+' btl</small>');
   set('lfHAvg', '₹ '+lcF(T.q?Math.round(T.a/T.q):0)+'<small>per bottle</small>');
-  set('lfHTot', '₹ '+lcF(Math.round(T.a))+'<small>esteemed</small>'); }
+  set('lfHTot', '₹ '+lcF(Math.round(T.a))+'<small>esteemed</small>');
+  set('lfPieTot', '₹ '+lcF(Math.round(T.a)));
+  const lg=document.getElementById('lfLeg'); if(lg) lg.innerHTML=lfLegHtml();
+  try{ lfPieDraw(); }catch(e){} }
 function lfPaint(i){ const r=liftData[i]; if(!r) return;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
   set('lf_qty_'+i, lcE(r.qty)); set('lf_case_'+i, lcE(lfCases(r)));
@@ -2981,9 +3016,17 @@ VIEWS.lifting = () => {
         <div class="gt r tot" id="lfGTa">₹ ${lcF(Math.round(T.a))}</div><div class="gt"></div>
       </div>
       <datalist id="lfItemsDL">${landingData.slice(0,600).map(r=>`<option value="${esc(r.f)}">`).join('')}</datalist>
+    </div>
+    <div class="card lfpie">
+      <div class="card-head"><div><h3>❖ Category share</h3><p>How much of this lifting is whisky, vodka, beer … — share of the esteemed amount</p></div></div>
+      <div class="card-body pb">
+        <div class="dchart"><canvas id="lfPie"></canvas><div class="ctr"><b id="lfPieTot">₹ ${lcF(Math.round(T.a))}</b><span>Esteemed</span></div></div>
+        <div class="lfleg" id="lfLeg">${lfLegHtml()}</div>
+      </div>
     </div>`;
 };
-AFTER.lifting = () => { const b=$('#lfItem');
+AFTER.lifting = () => { try{ lfPieDraw(); }catch(e){}
+  const b=$('#lfItem');
   if(b && (!document.activeElement || document.activeElement===document.body) && window.scrollY<80) b.focus(); };
 
 const REPORTS=[
