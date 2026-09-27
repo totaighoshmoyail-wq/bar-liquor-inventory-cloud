@@ -1852,18 +1852,23 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .mrslip .bh .dt{display:flex;align-items:center;gap:7px;margin-left:auto;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
 .mrslip .bh .dt input{width:auto;padding:3px 8px;font-size:12px;border-radius:7px;border-color:color-mix(in srgb,var(--gold) 45%,var(--border))}
 .mrslip .bh .p{margin-left:0;color:var(--gold);font-weight:600}
-.msg{display:grid;grid-template-columns:30px minmax(220px,2.3fr) minmax(120px,1fr) minmax(150px,1.1fr) 90px minmax(100px,.9fr) 42px;border:1px solid color-mix(in srgb,var(--gold) 40%,var(--border));border-radius:10px;background:var(--panel);font-variant-numeric:tabular-nums}
+.msg{display:grid;grid-template-columns:30px 112px minmax(196px,2.2fr) minmax(112px,1fr) minmax(138px,1.05fr) 96px minmax(96px,.9fr) 42px;border:1px solid color-mix(in srgb,var(--gold) 40%,var(--border));border-radius:10px;background:var(--panel);font-variant-numeric:tabular-nums}
 .msg>div,.msg #msLines>div{padding:2px 9px;display:flex;align-items:center;min-width:0;min-height:30px;border-bottom:1px solid var(--border-soft);border-left:1px solid var(--border-soft)}   /* the lines live in #msLines (display:contents) — grid items, not children */
-.msg>div:nth-child(7n+1),.msg #msLines>div:nth-child(7n+1){border-left:0}
+.msg>div:nth-child(8n+1),.msg #msLines>div:nth-child(8n+1){border-left:0}
 .msg #msLines>div{min-height:27px;padding:1px 9px}
 .msg .h{font-family:Georgia,'Times New Roman',serif;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);border-bottom:2px solid var(--gold);background:color-mix(in srgb,var(--gold) 6%,var(--bg-2));min-height:24px;white-space:nowrap}
-.msg .h:first-child{border-top-left-radius:9px} .msg .h:nth-child(7){border-top-right-radius:9px}
+.msg .h:first-child{border-top-left-radius:9px} .msg .h:nth-child(8){border-top-right-radius:9px}
 .msg .h.c{font-family:'Inter',sans-serif;font-size:8.5px;letter-spacing:.14em;color:var(--text-muted);justify-content:center}
 .msg .r{justify-content:flex-end;text-align:right}
 .msg .lv{background:color-mix(in srgb,var(--gold) 5%,transparent);min-height:36px;border-bottom:2px solid color-mix(in srgb,var(--gold) 45%,var(--border))}
 .msg .lv.it{position:relative;overflow:visible;padding:2px 6px}
 .msg .msin{width:100%;text-align:left;padding:5px 9px;font-size:12.5px;border-radius:7px;border-color:color-mix(in srgb,var(--gold) 40%,var(--border))}
-.msg .msin.q{text-align:right;width:70px;font-weight:700;-moz-appearance:textfield} .msg .msin.q::-webkit-inner-spin-button,.msg .msin.q::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.msg .msin.q{text-align:right;width:70px;font-weight:700;-moz-appearance:textfield}
+.msg .msin.dt{width:100%;padding:2px 4px;font-size:10.5px;text-align:center;border-color:transparent;background:transparent;color:var(--text-muted)}
+.msg .msin.dt:hover,.msg .msin.dt:focus{border-color:color-mix(in srgb,var(--gold) 45%,var(--border));background:var(--panel);color:var(--text)}
+.msg .msin.q.ln{width:56px;padding:2px 5px;font-size:12px;color:var(--red);border-color:transparent;background:transparent;margin-left:2px}
+.msg .msin.q.ln:hover,.msg .msin.q.ln:focus{border-color:color-mix(in srgb,var(--red) 45%,var(--border));background:var(--panel)}
+.msg .c.dt{padding:1px 4px} .msg .c.lv.dt .d{font-size:10.5px;color:var(--gold);opacity:.75;width:100%;text-align:center} .msg .msin.q::-webkit-inner-spin-button,.msg .msin.q::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .msg .n{font-family:Georgia,'Times New Roman',serif;font-size:11px;color:color-mix(in srgb,var(--gold) 60%,var(--text-muted));justify-content:center}
 .msg .lv.n{color:var(--gold);font-size:14px}
 .msg .it strong{font-size:12px;letter-spacing:.2px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1877,7 +1882,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .msg .more,.msg .empty{grid-column:1/-1;justify-content:center;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:11px;color:var(--text-dim);min-height:28px}
 .msg .empty b{color:var(--gold);font-style:normal;margin:0 3px}
 .msg #msLines>.empty:last-child,.msg #msLines>.more:last-child{border-bottom:0}
-.msg #msLines:not(:has(.more,.empty))>div:nth-last-child(-n+7){border-bottom:0}   /* the last row closes on the frame */
+.msg #msLines:not(:has(.more,.empty))>div:nth-last-child(-n+8){border-bottom:0}   /* the last row closes on the frame */
 .msdd{position:absolute;left:6px;width:max(100%,580px);max-width:calc(100vw - 340px);top:calc(100% - 3px);z-index:40;display:none;max-height:300px;overflow-y:auto;background:var(--panel);border:1px solid var(--gold);border-radius:9px;box-shadow:0 14px 34px rgba(0,0,0,.35)}
 .msdd.open{display:block}
 .msdd .o{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:6px 11px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border-soft)}
@@ -1887,7 +1892,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .msdd .o .gp{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);white-space:nowrap}
 .msdd .o .st{font-family:Georgia,'Times New Roman',serif;font-size:13.5px;color:var(--gold);white-space:nowrap} .msdd .o .st.z{color:var(--red)} .msdd .o .st small{font-family:'Inter',sans-serif;font-size:9px;color:var(--text-muted);margin-left:3px}
 .msdd .none{padding:8px 11px;font-size:11.5px;color:var(--text-dim)}
-@media (max-width:1100px){ .msg{grid-template-columns:26px minmax(160px,2fr) minmax(90px,.9fr) minmax(120px,1fr) 74px minmax(84px,.8fr) 38px} .msg>div,.msg #msLines>div{padding:2px 6px} .msg .h{font-size:9px;letter-spacing:.06em} .mrslip .bh .p{flex-basis:100%;text-align:right} }
+@media (max-width:1100px){ .msg{grid-template-columns:24px 96px minmax(150px,1.9fr) minmax(84px,.85fr) minmax(110px,.95fr) 80px minmax(80px,.8fr) 36px} .msg>div,.msg #msLines>div{padding:2px 6px} .msg .h{font-size:9px;letter-spacing:.06em} .mrslip .bh .p{flex-basis:100%;text-align:right} }
 @media print{.mrslip{display:none}}
 
 /* ---- Smooth scrolling + keyboard (v2.49.0): keyboard/anchor scrolls glide; route() restores positions with behavior:instant.

@@ -1445,8 +1445,10 @@ function mrRegSet(k,v){ _mrf[k]=v||''; mrRegPaint(); }
 function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:'', dup:''}; ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
 function mrSetField(i,f,v){ const r=mrDetail[i]; if(!r) return;   // v2.48.3 — the register's date · item · qty edited in place
   if(f==='qty'){ const n=evalNum(v); if(n===''||isNaN(+n)||!(+n>0)){ toast('Qty?','Bottles issued must be more than 0 — ✕ removes the line','err'); route(); return; } r.qty=+n; }
-  else if(f==='date'){ const d=String(v||'').trim(); if(!d){ route(); return; } r.date=d; }
-  else if(f==='item'){ const nm=String(v||'').replace(/s+/g,' ').trim().toUpperCase(); if(!nm){ route(); return; } const ex=findRawExact(nm)||findRaw(nm); r.item=ex?ex.item:nm; r.group=ex?(ex.group||''):(r.group||''); }
+  else if(f==='date'){ const nd=String(v||'').trim(); if(!nd){ route(); return; }
+    const was=r.date; r.date=nd;
+    if(was!==nd) toast('Moved to '+nd, esc(r.item)+' — it now sits on that date', 'ok'); }
+  else if(f==='item'){ const nm=String(v||'').replace(/\s+/g,' ').trim().toUpperCase(); if(!nm){ route(); return; } const ex=findRawExact(nm)||findRaw(nm); r.item=ex?ex.item:nm; r.group=ex?(ex.group||''):(r.group||''); }
   bsv('mr',mrDetail); route(); }
 function clearAllMr(){ if(!mrDetail.length){ toast('Empty','No MR issues to clear','err'); return; }
   confirmAsk(`Delete <strong>ALL ${mrDetail.length} MR issue(s)</strong>? This clears the entire Bar Stock Issue list and cannot be undone.`, ()=>{
@@ -1496,8 +1498,10 @@ function mrSlipLinesHtml(){
   const d=_mqDate||period.from; const all=mrDetail.map((r,i)=>({r,i})).filter(x=>x.r.date===d).reverse(); const show=all.slice(0,12);
   if(!all.length) return `<div class="empty">No issue on ${esc(d)} yet — type an item above, pick it, enter the bottles and press <b>Enter</b>.</div>`;
   return show.map((x,k)=>{ const r=x.r, ok=inRaw(r.item), q=fnum(r.qty), amt=q*landOf(r.item); const cl=ok?_msStock(r.item).cl:null;
-    return `<div class="c n ${x.i===_msLast?'new':''}">${all.length-k}</div><div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
-      <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−${Number.isInteger(q)?fmt(q):esc(String(r.qty))}</span></div>
+    return `<div class="c n ${x.i===_msLast?'new':''}">${all.length-k}</div>
+      <div class="c dt ${x.i===_msLast?'new':''}"><input class="msin dt" type="date" value="${esc(r.date||'')}" title="Issue date — change it and the line moves to that date" onchange="mrSetField(${x.i},'date',this.value)"></div>
+      <div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
+      <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−</span><input class="msin q ln" value="${esc(String(r.qty))}" title="Bottles issued — type to correct it (✕ removes the line)" onchange="mrSetField(${x.i},'qty',this.value)"></div>
       <div class="c r amt">${amt?'₹ '+fmt(Math.round(amt)):'<span class="mu">—</span>'}</div><div class="c x"><button class="btn rmx" onclick="delMr(${x.i})" title="Remove this issue">✕</button></div>`; }).join('')
     + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
 }
@@ -1509,8 +1513,9 @@ function mrFindPanel(){
       <div class="dt"><label for="mqDate">Issue date</label><input class="input" type="date" id="mqDate" value="${esc(_mqDate||period.from)}" oninput="_mqDate=this.value" onchange="mrSlipDate(this.value)"></div>
       <div class="p" id="msHead">${mrSlipHead()}</div></div>
     <div class="msg">
-      <div class="h c">#</div><div class="h">Item · type to search</div><div class="h">Group</div><div class="h r" title="Opening + Received − Issued, as it stands now">In Liquor Room</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h"></div>
+      <div class="h c">#</div><div class="h c">Date</div><div class="h">Item · type to search</div><div class="h">Group</div><div class="h r" title="Opening + Received − Issued, as it stands now">In Liquor Room</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h"></div>
       <div class="c lv n">→</div>
+      <div class="c lv dt"><span class="d">${esc(_mqDate||period.from)}</span></div>
       <div class="c lv it"><input id="msItem" class="cell-input msin" placeholder="Search item…" autocomplete="off" value="${esc(_ms.q)}" oninput="mrSlipType(this.value)" onfocus="mrSlipType(this.value)" onblur="mrSlipBlur()" onkeydown="mrSlipItemKey(event)"><div id="msDD" class="msdd"></div></div>
       <div class="c lv g" id="msGrp"><span class="mu">—</span></div>
       <div class="c lv r stk" id="msStk"><span class="mu">—</span></div>
