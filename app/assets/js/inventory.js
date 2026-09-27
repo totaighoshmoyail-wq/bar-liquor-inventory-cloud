@@ -1822,12 +1822,19 @@ function mrVoiceAddSave(){
    ============================================================ */
 let lrFilter='all';
 let lrBlank='none';
+/* One column filter with both sides (v2.63.0): 'hop/hrv/his/hcl' = that column has something,
+   'op/rv/is/cl' = it is empty, 'none' = every row. The select and the column heads drive the same state. */
+function lrColTh(c,lbl){ const on=(lrBlank==='h'+c)?'has':(lrBlank===c)?'none':'';
+  return `<button class="lrcolf${on?' on '+on:''}" onclick="lrColCycle('${c}')" title="Click: only rows WITH ${lbl.toLowerCase()} · again: only rows without · again: off">${lbl}${on==='has'?'<i>●</i>':on==='none'?'<i>○</i>':''}</button>`; }
+function lrColCycle(c){ lrBlank = (lrBlank==='h'+c) ? c : (lrBlank===c) ? 'none' : 'h'+c; route(); }
 VIEWS.liquorroom = () => {
   const q=iq.lr;
   const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
   let tOpen=0,tRecv=0,tIss=0,tClose=0, tValO=0,tValR=0,tValI=0, shownN=0, shownSel=0;
   const pass=cl=> lrFilter==='all' || (lrFilter==='instock'&&cl>0) || (lrFilter==='zero'&&cl===0) || (lrFilter==='neg'&&cl<0);
-  const passB=v=> lrBlank==='none' || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0);
+  const passB=v=> lrBlank==='none'
+    || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0)
+    || (lrBlank==='hop'&&v.op!==0) || (lrBlank==='hrv'&&v.rv>0)  || (lrBlank==='his'&&v.is>0)  || (lrBlank==='hcl'&&v.cl!==0);
   let tVal=0;
   const rowHtml=(name,idx,grpKnown,op,rv,is,cl,grp)=>{
     const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
@@ -1867,7 +1874,7 @@ VIEWS.liquorroom = () => {
   const ftab=(id,lbl)=>`<div class="tab ${lrFilter===id?'active':''}" onclick="lrFilter='${id}';route()">${lbl}</div>`;
   const lay=pageLay('liquorroom');
   const defCard=`<div class="card"><div class="table-wrap" style="max-height:600px;overflow-y:auto"><table class="tbl rawhead">
-      <thead><tr><th><input type="checkbox" id="rdSelAll" class="selcb" ${shownN&&shownSel===shownN?'checked':''} title="Select all shown" onchange="rdSelAll(this.checked)"> Item</th><th class="right nowrap" style="width:112px">Landing ₹/bot</th><th class="right" style="width:96px">Opening</th><th class="right" style="width:90px">Received</th><th class="right" style="width:90px">Issued</th><th class="right" style="width:96px">Closing</th><th class="right" style="width:112px">Value ₹</th><th style="width:86px">Status</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="rdSelAll" class="selcb" ${shownN&&shownSel===shownN?'checked':''} title="Select all shown" onchange="rdSelAll(this.checked)"> Item</th><th class="right nowrap" style="width:112px">Landing ₹/bot</th><th class="right" style="width:96px">${lrColTh('op','Opening')}</th><th class="right" style="width:90px">${lrColTh('rv','Received')}</th><th class="right" style="width:90px">${lrColTh('is','Issued')}</th><th class="right" style="width:96px">${lrColTh('cl','Closing')}</th><th class="right" style="width:112px">Value ₹</th><th style="width:86px">Status</th></tr></thead>
       <tbody>${body}</tbody></table></div></div>`;
   let bodyHtml;
   if(lay==='def') bodyHtml=defCard;
@@ -1934,7 +1941,9 @@ VIEWS.liquorroom = () => {
   const pctOf=v=>tVal>0?v/tVal*100:0;
   const smallSel=(title,onchange,opts,cur)=>`<select class="input" style="width:auto;padding:4px 8px;font-size:11.5px" title="${title}" onchange="${onchange}">${opts.map(o=>`<option value="${o[0]}" ${cur===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select>`;
   const LOOK_OPTS=[['def','① Classic'],['donut','② Royal Donut'],['bars','③ Golden Bars'],['gauge','④ Crown Gauge'],['register','⑤ Monogram Register']];
-  const BLANK_OPTS=[['none','— blank filter'],['op','Opening blank (0)'],['rv','Received 0'],['is','Issued 0'],['cl','Closing 0']];
+  const BLANK_OPTS=[['none','— every row'],
+    ['hop','🏛️ Opening — has'],['hrv','📦 Received — has'],['his','🍸 Issued — has'],['hcl','♛ Closing — has'],
+    ['op','🏛️ Opening — none'],['rv','📦 Received — none'],['is','🍸 Issued — none'],['cl','♛ Closing — none']];
   const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
   const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
   const tools=`${periodBar(true)}<span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
