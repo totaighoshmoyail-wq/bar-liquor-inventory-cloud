@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.65.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.66.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2236,7 +2236,7 @@ VIEWS.errors = () => {
    ml item as ml × x. Nothing else about the alias table changed. */
 const RV_ML=[30,60,90,150,180,375,500,650,750];
 const RV_PCS=[1,2,3,6,12];
-var _rv={name:'',qty:0,brand:'',cat:'',pcs:false,base:30,x:1,sure:false,own:false,cands:[]};
+var _rv={name:'',qty:0,brand:'',cat:'',pcs:false,base:30,x:1,sure:false,own:false,cands:[],q:'',hits:[],sel:0,open:false};
 function rvOfferOf(name){                                   // "1 On 1" = one free on one = 2 served · "3 On 1" = 3
   const m=String(name||'').toUpperCase().match(/(\d)\s*(?:ON|[:+])\s*1\b/);   // 3 On 1 · 3:1 · 1+1
   if(!m) return 1; const n=+m[1]; return (n<=1)?2:n;
@@ -2284,7 +2284,8 @@ function rvServeOf(name, brand){                            // one POS sale = ho
 function rvInit(name, qty){
   const M=rvMatch(name), brand=M.name||'';
   _rv={ name:name, qty:+qty||0, brand:brand, cat:'', pcs:rvIsPcs(brand), base:rvServeOf(name,brand),
-        x:rvOfferOf(name), sure:!!M.sure, own:false, cands:(M.all||[]).slice(0,5) };
+        x:rvOfferOf(name), sure:!!M.sure, own:false, cands:(M.all||[]).slice(0,5),
+        q:'', hits:[], sel:0, open:false };
   const it=getTallyItem(brand);
   _rv.cat = it ? it.category : ((M.all&&M.all[0])?M.all[0].group:'');
 }
@@ -2332,19 +2333,75 @@ function rvSumHtml(){
   return `<span class="mu">${fmt(R.qty)} sold × ${R.base} ${u}${R.x!==1?' × '+R.x:''} =</span> <b>${fmt(tot)} ${u}</b> <span class="mu">of ${esc(R.brand)} in this period</span>`;
 }
 function rvPaint(){
-  const s=$('#rvBrand');
-  if(s){ const k=norm(_rv.brand); s.selectedIndex=0;                 // never s.value= : "HEINEKEN CAN 500  ML" (two spaces)
-    for(let i=0;i<s.options.length;i++){ if(k && norm(s.options[i].value)===k){ s.selectedIndex=i; break; } } }
+  const s=$('#rvBrand'); if(s && document.activeElement!==s) s.value=_rv.brand||'';
   const a=$('#rvAuto'); if(a) a.innerHTML=rvAutoHtml();
   const c=$('#rvCands'); if(c) c.innerHTML=rvCandsHtml();
   const v=$('#rvServe'); if(v) v.innerHTML=rvServeHtml();
   const m=$('#rvSum'); if(m) m.innerHTML=rvSumHtml();
 }
+/* ---- Resolve: the brand is SEARCHED, not scrolled (v2.66.0) ----------------------
+   A native <select> of 330 brands only answers the browser's own type-ahead: it matches from the
+   first letter, forgets what you typed after a second, and jumps somewhere else — "RAMPUR" while
+   the box says SAMARA WHITE WINE. This is the Issue Slip's search box instead (the one they use
+   daily): every word you type has to appear in the name, names that START with it come first, and
+   ↓ ↑ Enter walk the list. The list is IN the flow — .modal-body scrolls and .modal clips, so an
+   absolute dropdown would be cut off. */
+function rvHits(q){
+  const toks=norm(q||'').split(' ').filter(Boolean);
+  const all=tallyNamesSorted();
+  if(!toks.length) return all.slice(0,60);
+  const a=[], b=[], c=[];
+  all.forEach(n=>{ const k=norm(n);
+    if(toks.every(t=>k.indexOf(t)>=0)){ (k.indexOf(toks[0])===0?a:b).push(n); return; }
+    const it=getTallyItem(n); const g=it?norm(it.category):'';
+    if(g && toks.every(t=>(k+' '+g).indexOf(t)>=0)) c.push(n); });
+  return a.concat(b, c).slice(0, 60);
+}
+function rvServeTxt(n){ const it=getTallyItem(n); if(!it) return '';
+  return rvIsPcs(n) ? 'pcs' : ((+it.pegMl>0?fmt(it.pegMl):'30')+' ml'); }
+function rvDDHtml(){
+  const R=_rv, hits=R.hits||[];
+  if(!hits.length) return `<div class="none">No brand of yours matches that — try fewer letters, or open ✨ New brand.</div>`;
+  return hits.map((n,i)=>`<div class="o${i===R.sel?' on':''}" onmousedown="event.preventDefault();rvPick(${i})">
+      <span class="nm">${esc(n)}</span><span class="gp">${esc((getTallyItem(n)||{}).category||'')}</span>
+      <span class="st">${rvServeTxt(n)}</span></div>`).join('');
+}
+function rvDDPaint(){ const d=$('#rvDD'); if(!d) return;
+  d.innerHTML=rvDDHtml(); d.classList.toggle('open', !!_rv.open);
+  const on=d.querySelector('.o.on'); if(on) try{ on.scrollIntoView({block:'nearest'}); }catch(e){} }
+function rvType(v){ _rv.q=String(v||''); _rv.hits=rvHits(_rv.q); _rv.sel=0; _rv.open=true; rvDDPaint(); }
+function rvListOpen(){ const b=$('#rvBrand'), v=b?b.value:'';
+  const chosen = _rv.brand && norm(v)===norm(_rv.brand);               // the box still holds the chosen name → show them everything
+  if(chosen && b) try{ b.select(); }catch(e){}                         // and the first keystroke replaces it
+  _rv.hits=rvHits(chosen?'':v); _rv.sel=0; _rv.open=true; rvDDPaint(); }
+function rvListClose(){ _rv.open=false; const d=$('#rvDD'); if(d) d.classList.remove('open'); }
+function rvPick(i){ const n=(_rv.hits||[])[i]; if(!n) return; rvListClose(); rvSetBrand(n);
+  const b=$('#rvBrand'); if(b) b.value=_rv.brand;        // rvPaint leaves a focused box alone — an explicit pick must fill it
+  const s=$(_rv.pcs?'#rvPcs':'#rvMl'); if(s) s.focus(); }
+function rvKey(e){
+  const k=e.key;
+  if(k==='ArrowDown'||k==='ArrowUp'){ e.preventDefault();
+    if(!_rv.open){ rvListOpen(); return; }
+    const n=(_rv.hits||[]).length; if(!n) return;
+    _rv.sel=(_rv.sel+(k==='ArrowDown'?1:-1)+n)%n; rvDDPaint(); return; }
+  if(k==='Enter'||k==='Tab'){
+    if(_rv.open && (_rv.hits||[]).length){ e.preventDefault(); rvPick(_rv.sel); return; }
+    return; }
+  if(k==='Escape'){ if(_rv.open){ e.preventDefault(); rvListClose(); } }
+}
+function rvBlur(){ setTimeout(()=>{ rvListClose();
+  const b=$('#rvBrand'); if(!b) return;
+  const it=getTallyItem(b.value); if(it && norm(it.name)!==norm(_rv.brand)) rvSetBrand(it.name);
+  else if(!it) b.value=_rv.brand||'';                      // a half-typed name goes back to the chosen one
+}, 150); }
 function rvExistingHtml(){
   const R=_rv;
   return `<div id="rvAuto">${rvAutoHtml()}</div>
       <div class="field"><label>Map "${esc(R.name)}" to a brand in my Tally Sheet</label>
-        <select class="input" id="rvBrand" onchange="rvSetBrand(this.value)"><option value="">— choose a brand —</option>${brandOptions(R.brand)}</select></div>
+        <input class="input rvsearch" id="rvBrand" autocomplete="off" spellcheck="false"
+          placeholder="Type any part of the name — ${fmt(tallyNamesSorted().length)} brands"
+          value="${esc(R.brand)}" oninput="rvType(this.value)" onfocus="rvListOpen()" onblur="rvBlur()" onkeydown="rvKey(event)">
+        <div class="rvdd" id="rvDD"></div></div>
       <div class="rvcands" id="rvCands">${rvCandsHtml()}</div>
       <div id="rvServe">${rvServeHtml()}</div>
       <div class="rvsum" id="rvSum">${rvSumHtml()}</div>`;
@@ -2382,15 +2439,17 @@ function openResolve(i){
     </div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doResolve()">Resolve</button>`);
   _ckLines=[{spirit:'',ml:''}];
+  if(!_rv.brand) setTimeout(()=>{ const b=$('#rvBrand'); if(b){ b.focus(); rvListOpen(); } },30);
 }
 let _rvMode='existing';
 function rvTab(m){ _rvMode=m; ['existing','new','cocktail'].forEach(x=>{ $('#rv-'+x).style.display = x===m?'block':'none'; }); $$('[data-rv]').forEach(t=>t.classList.toggle('active', t.dataset.rv===m)); if(m==='cocktail') ckRenderLines(); }
 function rvCatDefault(){ const c=$('#rvNewCat').value; const d=CAT_DEFAULTS[c]; if(d) $('#rvNewMl').value=d.peg; }
 function doResolve(){
   if(_rvMode==='existing'){
-    const sel=$('#rvBrand'), picked=sel?String(sel.value||'').trim():'';
-    const bit=getTallyItem(picked), brand=bit?bit.name:picked;      // the option's text comes back with its spaces collapsed
-    if(!brand){ toast('Which brand?','Pick the brand this POS name belongs to — or open ✨ New brand','err'); return; }
+    const sel=$('#rvBrand'), typed=sel?String(sel.value||'').trim():'';
+    // the box holds free text now: it must name a real brand of theirs (empty falls back to the one picked)
+    const bit=getTallyItem(typed) || (typed?null:getTallyItem(_rv.brand)), brand=bit?bit.name:'';
+    if(!brand){ toast('Which brand?', typed?('No brand of yours is called "'+typed+'" — pick one from the list, or open ✨ New brand'):'Pick the brand this POS name belongs to — or open ✨ New brand','err'); return; }
     const pcs=rvIsPcs(brand), box=$(pcs?'#rvPcs':'#rvMl'), xb=$('#rvX');
     const base=box?(+box.value||_rv.base):_rv.base, x=xb?(+xb.value||1):_rv.x;
     // a pcs brand counts PIECES (the engine reads only the ×), an ml brand counts ml × the offer
