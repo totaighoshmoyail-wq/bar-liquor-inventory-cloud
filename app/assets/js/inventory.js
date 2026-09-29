@@ -4325,7 +4325,11 @@ function bevcoMatch(name, opt){
   const lone=scored.filter(x=>x.it.r.item!==best.it.r.item).length===0;
   const sure=!best.missDistinct && ((best.s>=0.8 && gap>=0.12) || (best.s>=0.9 && gap>=0.06));
   const guess=!best.missDistinct && (best.s>=0.62 || (szB>=5000 && lone && best.s>=0.5));   // a lone keg of the brand at that size is offered (amber — the person confirms once, bevmap remembers) (v2.47.0)
-  return { name:guess?best.it.r.item:'', group:best.it.r.group||'', score:Math.round(best.s*100)/100, sure, alt:(second&&second.s>=0.55)?second.it.r.item:'', top:{name:best.it.r.item, group:best.it.r.group||'', score:best.s} };
+  const out={ name:guess?best.it.r.item:'', group:best.it.r.group||'', score:Math.round(best.s*100)/100, sure, alt:(second&&second.s>=0.55)?second.it.r.item:'', top:{name:best.it.r.item, group:best.it.r.group||'', score:best.s} };
+  if(opt.all){ const seen={}; out.all=[];                                                 // the ranked shortlist, for a person to choose from (v2.64.0)
+    scored.forEach(x=>{ const k=x.it.r.item; if(seen[k]||out.all.length>=6) return; seen[k]=1;
+      out.all.push({name:k, group:x.it.r.group||'', score:Math.round(x.s*100)/100}); }); }
+  return out;
 }
 function bevcoMapName(name){ return bevcoMatch(name).name; }   // kept for callers of the old strip-fuzzy
 // the house spelling for a brand-new BEVCO item: "Aperol, 750 Ml." → "APEROL 750 ML"

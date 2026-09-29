@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.63.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.64.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2226,11 +2226,133 @@ VIEWS.errors = () => {
       <div class="page-actions">${layDrop('errors')}<span class="pill ${errs.length?'red':'green'}"><span class="dotpulse"></span> ${errs.length} unresolved</span></div></div>
     ${bodyHtml}`;
 };
+/* ---- Error Queue · Resolve: the brand is found for you (v2.64.0) ----------------
+   The POS button name is read with the same matcher the BEVCO invoices use, so the brand
+   from THIS system is already chosen when the box opens, with the other close names one
+   click away. The serve is offered in ml for liquor and in PIECES for beer — whichever the
+   brand is counted in — and an offer written into the name ("3 On 1", "1+1") becomes the ×
+   the engine already understands: computeStraightMlMap counts a pcs item as x pieces and an
+   ml item as ml × x. Nothing else about the alias table changed. */
+const RV_ML=[30,60,90,150,180,375,500,650,750];
+const RV_PCS=[1,2,3,6,12];
+var _rv={name:'',qty:0,brand:'',cat:'',pcs:false,base:30,x:1,sure:false,own:false,cands:[]};
+function rvOfferOf(name){                                   // "1 On 1" = one free on one = 2 served · "3 On 1" = 3
+  const m=String(name||'').toUpperCase().match(/(\d)\s*(?:ON|\+)\s*1\b/);
+  if(!m) return 1; const n=+m[1]; return (n<=1)?2:n;
+}
+function rvCleanPos(name){                                  // the name without the offer and the serve words
+  return String(name||'').toUpperCase()
+    .replace(/(\d)\s*(?:ON|\+)\s*1\b/g,' ')
+    .replace(/\b(BTL|BOTTLE|PINT|PEG|LARGE|SMALL|SHOT|GLASS|MUG|JUG|HALF|FULL)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+function rvWords(s){ return ' '+norm(s).replace(/[^A-Z0-9]+/g,' ').trim()+' '; }
+function rvPrefer(q, all, cur){                             // a name that carries EVERY word of the POS name beats a shorter sibling
+  const w=q.split(' ').filter(t=>t.length>2);               // (HEINEKEN SILVER is not HEINEKEN CAN)
+  if(w.length<2 || !all.length) return cur;
+  const covers=n=>{ const u=rvWords(n); return w.every(t=>u.indexOf(' '+t+' ')>=0); };
+  if(cur && covers(cur)) return cur;
+  const hit=all.filter(c=>covers(c.name));                  // `all` is already best-first
+  return hit.length?hit[0].name:cur;
+}
+function rvMatch(name){                                     // -> {name, sure, all:[{name,group,score}]}
+  const none={name:'',sure:false,all:[]};
+  if(typeof bevcoMatch!=='function' || !tallyItems.length) return none;
+  const list=tallyItems.map(t=>({item:t.name, group:t.category})), q=rvCleanPos(name);
+  if(!q) return none;
+  const got=r=>!!(r && (r.name || (r.all||[]).length));
+  let r=bevcoMatch(q,{list:list, all:true});
+  if(!got(r)) r=bevcoMatch(q,{list:list, ignoreSize:true, all:true});   // a POS "500ml" is the glass, not the bottle
+  const w=q.split(' ');
+  if(!got(r) && w.length===2) r=bevcoMatch(w.join(''),{list:list, ignoreSize:true, all:true});   // JAGER MASTER -> JAGERMEISTER
+  if(!got(r)) return none;
+  const pick=rvPrefer(q, r.all||[], r.name);
+  return (pick===r.name) ? r : {name:pick, sure:false, all:r.all||[]};   // a promoted name is always amber — the person confirms
+}
+function rvIsPcs(brand){ const it=getTallyItem(brand); return !!(it && it.unit && String(it.unit).toLowerCase()!=='ml'); }
+function rvServeOf(name, brand){                            // one POS sale = how much, before the offer
+  if(!brand) return 30;
+  if(rvIsPcs(brand)) return 1;                              // beer / breezer / cigarettes: pieces
+  const it=getTallyItem(brand), u=String(name||'').toUpperCase(), m=u.match(/(\d{2,4})\s*ML\b/);
+  if(/\b(BTL|BOTTLE)\b/.test(u)){ const sz=m?+m[1]:((typeof bevSize==='function')?bevSize(brand):0); return sz||750; }
+  if(m) return +m[1];
+  if(/\bPINT\b/.test(u)) return 500;
+  if(/\bLARGE\b/.test(u)) return 60;
+  return (it && +it.pegMl>0)?+it.pegMl:30;
+}
+function rvInit(name, qty){
+  const M=rvMatch(name), brand=M.name||'';
+  _rv={ name:name, qty:+qty||0, brand:brand, cat:'', pcs:rvIsPcs(brand), base:rvServeOf(name,brand),
+        x:rvOfferOf(name), sure:!!M.sure, own:false, cands:(M.all||[]).slice(0,5) };
+  const it=getTallyItem(brand);
+  _rv.cat = it ? it.category : ((M.all&&M.all[0])?M.all[0].group:'');
+}
+function rvSetBrand(b){ const it=getTallyItem(b);                     // a <select> hands back the option's text, which the
+  _rv.brand=it?it.name:String(b||'');                                // browser collapses — snap it to the Tally spelling
+  _rv.pcs=rvIsPcs(_rv.brand); _rv.base=rvServeOf(_rv.name,_rv.brand);
+  _rv.own=!!_rv.brand;                                               // chosen by the person now — not "the closest name"
+  if(it) _rv.cat=it.category; rvPaint(); }
+function rvSetBase(v){ const n=+v; if(!(n>0)) return; _rv.base=Math.round(n*100)/100; rvPaint(); }
+function rvSetX(v){ const n=+v; if(!(n>0)) return; _rv.x=Math.round(n*100)/100; rvPaint(); }
+function rvAutoHtml(){
+  const R=_rv;
+  if(!R.brand) return `<div class="rvauto none">🔎 <b>No close name in my system</b><span class="mu">Pick the brand below, or open ✨ New brand to create it.</span></div>`;
+  const ok=R.sure||R.own;
+  return `<div class="rvauto ${ok?'ok':'guess'}">${ok?'✔':'≈'} <b>${esc(R.brand)}</b><span class="mu">${R.own?'your choice':(R.sure?'found in my Tally Sheet':'closest name — please check it')}${R.cat?' · '+esc(R.cat):''}</span></div>`;
+}
+function rvCandsHtml(){
+  const R=_rv; if(R.cands.length<2) return '';
+  return `<span class="lb">Close names</span>`+R.cands.map(c=>
+    `<button class="lrpill${norm(c.name)===norm(R.brand)?' on':''}" onclick='rvSetBrand(${jatt(c.name)})' title="${esc(c.group||'')} · match ${c.score}">${esc(c.name)}</button>`).join('');
+}
+function rvServeHtml(){
+  const R=_rv;
+  const chips=(R.pcs?RV_PCS:RV_ML).map(v=>
+    `<button class="lrpill${(+R.base===v)?' on':''}" onclick="rvSetBase(${v})">${v}${R.pcs?(v===1?' pc':' pcs'):' ml'}</button>`).join('');
+  const serve = R.brand ? `
+      <div class="rvrow"><span class="lb">One sale =</span>
+        <span class="rvunit">${R.pcs?'🍺 counted in pieces':'🥃 counted in ml'}${R.cat?' · '+esc(R.cat):''}</span></div>
+      <div class="rvrow"><span class="lb"></span>${chips}
+        <input class="input rvbox" id="${R.pcs?'rvPcs':'rvMl'}" type="number" min="0" step="${R.pcs?1:5}" value="${R.base}" onchange="rvSetBase(this.value)" title="${R.pcs?'pieces':'ml'} per sale">
+        <span class="mu">${R.pcs?'beer · breezer · cigarettes are counted in pieces, never in ml':'30 peg · 60 large · 750 full bottle'}</span></div>`
+    : `<div class="rvrow"><span class="lb">One sale =</span>
+        <span class="mu">choose a brand above — the serve is then offered in ml or in pieces, whichever that brand is counted in</span></div>`;
+  return serve+`
+      <div class="rvrow"><span class="lb">Offer</span>
+        <button class="lrpill${R.x===1?' on':''}" onclick="rvSetX(1)">No offer</button>
+        <button class="lrpill${R.x===2?' on':''}" onclick="rvSetX(2)">2 on 1 · ×2</button>
+        <button class="lrpill${R.x===3?' on':''}" onclick="rvSetX(3)">3 on 1 · ×3</button>
+        <input class="input rvbox" id="rvX" type="number" min="1" step="1" value="${R.x}" onchange="rvSetX(this.value)" title="units served per sale">
+        <span class="mu">"1 On 1" = one free on one = ×2${R.x!==1?' — read from this POS name':''}</span></div>`;
+}
+function rvSumHtml(){
+  const R=_rv; if(!R.brand) return '';
+  const u=R.pcs?'pcs':'ml', tot=Math.round(R.base*R.x*R.qty);
+  return `<span class="mu">${fmt(R.qty)} sold × ${R.base} ${u}${R.x!==1?' × '+R.x:''} =</span> <b>${fmt(tot)} ${u}</b> <span class="mu">of ${esc(R.brand)} in this period</span>`;
+}
+function rvPaint(){
+  const s=$('#rvBrand');
+  if(s){ const k=norm(_rv.brand); s.selectedIndex=0;                 // never s.value= : "HEINEKEN CAN 500  ML" (two spaces)
+    for(let i=0;i<s.options.length;i++){ if(k && norm(s.options[i].value)===k){ s.selectedIndex=i; break; } } }
+  const a=$('#rvAuto'); if(a) a.innerHTML=rvAutoHtml();
+  const c=$('#rvCands'); if(c) c.innerHTML=rvCandsHtml();
+  const v=$('#rvServe'); if(v) v.innerHTML=rvServeHtml();
+  const m=$('#rvSum'); if(m) m.innerHTML=rvSumHtml();
+}
+function rvExistingHtml(){
+  const R=_rv;
+  return `<div id="rvAuto">${rvAutoHtml()}</div>
+      <div class="field"><label>Map "${esc(R.name)}" to a brand in my Tally Sheet</label>
+        <select class="input" id="rvBrand" onchange="rvSetBrand(this.value)"><option value="">— choose a brand —</option>${brandOptions(R.brand)}</select></div>
+      <div class="rvcands" id="rvCands">${rvCandsHtml()}</div>
+      <div id="rvServe">${rvServeHtml()}</div>
+      <div class="rvsum" id="rvSum">${rvSumHtml()}</div>`;
+}
 let _resolveName=null;
 function openResolve(i){
   const item=(window._errList||[])[i]; if(!item) return;
   const name=item.name, qty=item.qty;
-  _resolveName=name; _rvMode='existing';
+  _resolveName=name; _rvMode='existing'; rvInit(name, qty);
   const brandOpts=tallyItems.map(t=>`<option>${t.name}</option>`).join('');
   modal('Resolve: '+name, `
     <div class="tabs" id="rvTabs">
@@ -2240,14 +2362,14 @@ function openResolve(i){
     </div>
     ${spiritDatalist()}
     <div id="rv-existing">
-      <div class="field"><label>Map "${esc(name)}" to existing brand</label><select class="input" id="rvBrand">${brandOptions()}</select></div>
-      <div class="field"><label>ML per unit (30 peg · 750 bottle · 1 beer/pcs)</label><input class="input" id="rvMl" type="number" value="30"></div>
+      ${rvExistingHtml()}
     </div>
     <div id="rv-new" style="display:none">
       <div class="form-grid">
-        <div class="field"><label>Brand Name</label><input class="input" id="rvNewName" value="${esc(name.toUpperCase())}"></div>
-        <div class="field"><label>Category</label><select class="input" id="rvNewCat" onchange="rvCatDefault()">${CATEGORIES.map(c=>`<option>${c}</option>`).join('')}</select></div>
-        <div class="field"><label>ML / unit</label><input class="input" id="rvNewMl" type="number" value="30"></div>
+        <div class="field"><label>Brand Name</label><input class="input" id="rvNewName" value="${esc(rvCleanPos(name))}"></div>
+        <div class="field"><label>Category</label><select class="input" id="rvNewCat" onchange="rvCatDefault()">${CATEGORIES.map(c=>`<option ${norm(c)===norm(_rv.cat)?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="field"><label>ML / unit (beer &amp; breezer = 1 piece)</label><input class="input" id="rvNewMl" type="number" value="30"></div>
+        <div class="field"><label>× units per sale (offer "3 On 1" = 3)</label><input class="input" id="rvNewX" type="number" min="1" step="1" value="${_rv.x}"></div>
         <div class="field"><label>POS name (alias)</label><input class="input" id="rvNewAlias" value="${esc(name)}"></div>
       </div>
     </div>
@@ -2265,15 +2387,25 @@ function rvTab(m){ _rvMode=m; ['existing','new','cocktail'].forEach(x=>{ $('#rv-
 function rvCatDefault(){ const c=$('#rvNewCat').value; const d=CAT_DEFAULTS[c]; if(d) $('#rvNewMl').value=d.peg; }
 function doResolve(){
   if(_rvMode==='existing'){
-    const brand=$('#rvBrand').value, ml=+$('#rvMl').value||30;
-    aliasTable.push({posName:_resolveName, tallyItem:brand, mlPerUnit:ml}); bsv('alias',aliasTable);
-    toast('Mapped',`"${_resolveName}" → ${brand}`,'ok');
+    const sel=$('#rvBrand'), picked=sel?String(sel.value||'').trim():'';
+    const bit=getTallyItem(picked), brand=bit?bit.name:picked;      // the option's text comes back with its spaces collapsed
+    if(!brand){ toast('Which brand?','Pick the brand this POS name belongs to — or open ✨ New brand','err'); return; }
+    const pcs=rvIsPcs(brand), box=$(pcs?'#rvPcs':'#rvMl'), xb=$('#rvX');
+    const base=box?(+box.value||_rv.base):_rv.base, x=xb?(+xb.value||1):_rv.x;
+    // a pcs brand counts PIECES (the engine reads only the ×), an ml brand counts ml × the offer
+    const e={posName:_resolveName, tallyItem:brand, mlPerUnit:(pcs?1:Math.round(base*100)/100)};
+    const tx=Math.round((pcs?base*x:x)*100)/100; if(tx>0 && Math.abs(tx-1)>0.001) e.x=tx;
+    aliasTable.push(e); bsv('alias',aliasTable);
+    toast('Mapped',`"${_resolveName}" → ${brand} · ${fmt(Math.round(base*x))} ${pcs?'pcs':'ml'} per sale`,'ok');
   } else if(_rvMode==='new'){
     const nm=$('#rvNewName').value.trim(), cat=$('#rvNewCat').value, ml=+$('#rvNewMl').value||30, al=$('#rvNewAlias').value.trim();
     const d=CAT_DEFAULTS[cat]||{unit:'ml',peg:30};
+    const xb=$('#rvNewX'), nx=xb?(+xb.value||1):1, pcs=!!(d.unit && String(d.unit).toLowerCase()!=='ml');
     tallyItems.push({name:nm, category:cat, posQty:0, unit:d.unit, pegMl:ml, cocktailMl:0, straightMl:0, bogo:0}); bsv('tally',tallyItems);
-    aliasTable.push({posName:al, tallyItem:nm, mlPerUnit:ml}); bsv('alias',aliasTable);
-    toast('Brand created',`${nm} (${cat})`,'ok');
+    const e={posName:al, tallyItem:nm, mlPerUnit:(pcs?1:ml)};
+    const tx=Math.round((pcs?ml*nx:nx)*100)/100; if(tx>0 && Math.abs(tx-1)>0.001) e.x=tx;
+    aliasTable.push(e); bsv('alias',aliasTable);
+    toast('Brand created',`${nm} (${cat}) · ${fmt(Math.round(ml*nx))} ${pcs?'pcs':'ml'} per sale`,'ok');
   } else {
     ckSyncFromDom();
     const nm=$('#rvCkName').value.trim();

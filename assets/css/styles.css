@@ -2003,3 +2003,19 @@ html{scroll-behavior:smooth}
 .tbl thead th .lrcolf i{font-style:normal;font-size:8px;line-height:1}
 .tbl thead th .lrcolf.on.none i{color:var(--text-muted)}
 @media print{ .tbl thead th .lrcolf i{display:none} }
+/* ---- Error Queue · Resolve — the brand is found for you (v2.64.0) ---- */
+.rvauto{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;border:1px solid var(--border-soft);border-left:3px solid var(--text-muted);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:12px;font-size:13.5px;line-height:1.35}
+.rvauto b{letter-spacing:.2px}
+.rvauto .mu,.rvrow .mu{color:var(--text-muted);font-size:11.5px}
+.rvauto.ok{border-left-color:var(--green);background:color-mix(in srgb,var(--green) 9%,transparent)}
+.rvauto.guess{border-left-color:var(--gold);background:color-mix(in srgb,var(--gold) 9%,transparent)}
+.rvauto.none{border-left-color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent)}
+.rvcands{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-4px 0 12px}
+.rvcands:empty{display:none}
+.rvrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.rvrow .lb,.rvcands .lb{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--text-muted);min-width:78px;flex:0 0 auto}
+.rvunit{font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 11px;background:color-mix(in srgb,var(--gold) 14%,transparent);color:var(--gold-soft)}
+.rvbox{width:80px;padding:5px 8px;font-size:12.5px;text-align:center}
+.rvsum{border-top:1px dashed var(--border-soft);padding-top:9px;margin-top:4px;font-size:12.5px}
+.rvsum b{color:var(--gold-soft);font-size:14.5px}
+.rvsum:empty{display:none}
