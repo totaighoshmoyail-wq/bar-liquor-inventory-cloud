@@ -2019,3 +2019,6 @@ html{scroll-behavior:smooth}
 .rvsum{border-top:1px dashed var(--border-soft);padding-top:9px;margin-top:4px;font-size:12.5px}
 .rvsum b{color:var(--gold-soft);font-size:14.5px}
 .rvsum:empty{display:none}
+/* the alias editor: what the POS name itself says about an offer (v2.65.0) */
+.alsaid{font-size:10px;white-space:nowrap;border-radius:999px;padding:2px 8px;border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);color:var(--gold-soft);background:color-mix(in srgb,var(--gold) 10%,transparent)}
+.rline #alOffer,.modal .rvrow{margin-bottom:0}

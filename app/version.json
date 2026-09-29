@@ -1,1 +1,1 @@
-{"version":"2.64.0","date":"2026-09-29","notes":"Error Queue: the brand from your own system is found for you, beer counts in pieces and liquor in ml, and \"2 on 1 / 3 on 1\" offers are one click."}
+{"version":"2.65.0","date":"2026-09-29","notes":"A layout or look you choose now stays chosen (each setting syncs on its own, so the other device can no longer carry its own back). Beer, breezer and cigarettes are counted in PIECES on the alias pages instead of ml, and the alias editor can set the offer — or read \"3:1\" / \"3 On 1\" straight from the POS names."}

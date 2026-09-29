@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.64.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.65.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -272,7 +272,8 @@ function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cl
    (a register qty fixed in place) looked "unchanged" and the cloud copy overwrote the edit; and inv / bevmap were whole-key
    (the later push buried the other device's item edits — the "items go missing" of 2026-09-20). */
 const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1, rawdata2:1, tally:1, lifting:1};
-const CLOUD_OBJKEYS={inv:1, bevmap:1};
+const CLOUD_OBJKEYS={inv:1, bevmap:1, pref:1};   // pref per SETTING (v2.65.0) — whole-key, the other device's
+                                                 // push used to carry its own theme/look/layout over this one's
 function _cloudKeyOf(k,e){ if(k==='rawdata2') return 'it:'+norm((e&&e.item)||''); if(k==='tally') return 'br:'+norm((e&&e.name)||''); return _cloudEntryKey(e); }
 function _cloudBaseGet(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudbase')||'{}')||{}; }catch(e){ return {}; } }
 function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).concat(Object.keys(CLOUD_OBJKEYS)).forEach(k=>{ if(data&&data[k]!=null) b[k]=data[k]; });
@@ -2237,12 +2238,12 @@ const RV_ML=[30,60,90,150,180,375,500,650,750];
 const RV_PCS=[1,2,3,6,12];
 var _rv={name:'',qty:0,brand:'',cat:'',pcs:false,base:30,x:1,sure:false,own:false,cands:[]};
 function rvOfferOf(name){                                   // "1 On 1" = one free on one = 2 served · "3 On 1" = 3
-  const m=String(name||'').toUpperCase().match(/(\d)\s*(?:ON|\+)\s*1\b/);
+  const m=String(name||'').toUpperCase().match(/(\d)\s*(?:ON|[:+])\s*1\b/);   // 3 On 1 · 3:1 · 1+1
   if(!m) return 1; const n=+m[1]; return (n<=1)?2:n;
 }
 function rvCleanPos(name){                                  // the name without the offer and the serve words
   return String(name||'').toUpperCase()
-    .replace(/(\d)\s*(?:ON|\+)\s*1\b/g,' ')
+    .replace(/(\d)\s*(?:ON|[:+])\s*1\b/g,' ')
     .replace(/\b(BTL|BOTTLE|PINT|PEG|LARGE|SMALL|SHOT|GLASS|MUG|JUG|HALF|FULL)\b/g,' ')
     .replace(/\s+/g,' ').trim();
 }
@@ -2428,7 +2429,7 @@ function aliasGroups(){
   const map = {};
   aliasTable.forEach(a=>{ const k=norm(a.tallyItem); (map[k]=map[k]||{brand:a.tallyItem, aliases:[]}).aliases.push(a); });
   return Object.values(map).map(g=>{ const it=getTallyItem(g.brand);
-    return { brand:g.brand, category:it?it.category:'—', aliases:g.aliases,
+    return { brand:g.brand, category:it?it.category:'—', aliases:g.aliases, pcs:rvIsPcs(g.brand),
       qty: it?getEffectivePosQty(it,posQtyMap):0, ml: it?getEffectiveStraightMl(it,smlMap):0 };
   }).sort((a,b)=>b.ml-a.ml);
 }
@@ -2441,12 +2442,16 @@ VIEWS.alias = () => {
   const lay=pref.aliasLayout||'ledger';
   let groups = aliasGroups().filter(g=>!aQuery||norm(g.brand).includes(norm(aQuery))||g.aliases.some(a=>norm(a.posName).includes(norm(aQuery))));
   if(lay==='dense' && _aCat!=='ALL') groups=groups.filter(g=>g.category===_aCat);
-  const totMl = groups.reduce((a,g)=>a+g.ml,0);
+  const totMl = groups.filter(g=>!g.pcs).reduce((a,g)=>a+g.ml,0);
+  const totPcs = groups.filter(g=>g.pcs).reduce((a,g)=>a+g.ml,0);
+  const totTxt = fmt(totMl)+' ml'+(totPcs?' · '+fmt(totPcs)+' pcs':'');   // beer is pieces, liquor is ml (v2.65.0)
+  const uTxt = g=>fmt(g.ml)+' '+(g.pcs?'pcs':'ml');
   const chipsOf=g=>{
     const dq=posQtyOfName(g.brand);
     const direct = dq>0 ? `<span class="chip" style="border-color:var(--gold)">${esc(g.brand)} <span class="pill gold" style="font-size:9px;padding:1px 6px">qty ${fmt(dq)}</span> <span class="muted">·direct</span></span>` : '';
     return direct + g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1;
-      const calc = ax!==1 ? `·${a.mlPerUnit}×${ax}=${fmt(Math.round((+a.mlPerUnit||0)*ax))}` : `·${a.mlPerUnit}`;
+      const calc = g.pcs ? `·${fmt(ax)} pc${ax===1?'':'s'}`
+        : (ax!==1 ? `·${a.mlPerUnit}×${ax}=${fmt(Math.round((+a.mlPerUnit||0)*ax))} ml` : `·${a.mlPerUnit} ml`);
       return `<span class="chip">${a.posName} <span class="pill blue" style="font-size:9px;padding:1px 6px">qty ${fmt(posQtyOfName(a.posName))}</span> <span class="muted">${calc}</span> <span class="xx" onclick='removeAliasAsk(${JSON.stringify(a.posName)})'>✕</span></span>`; }).join('');
   };
   const manage=g=>`<button class="btn btn-ghost btn-sm" onclick='openAliasEditor(${JSON.stringify(g.brand)})'>✎</button><button class="btn btn-gold btn-sm" onclick='openAddAlias(${JSON.stringify(g.brand)})'>＋</button><button class="btn btn-danger btn-sm" title="Remove brand & aliases" onclick='removeBrand(${JSON.stringify(g.brand)})'>🗑</button>`;
@@ -2455,22 +2460,22 @@ VIEWS.alias = () => {
     const body=groups.map(g=>`<tr>
       <td><strong>${g.brand}</strong></td><td><span class="pill gray">${g.category}</span></td>
       <td><div class="chips">${chipsOf(g)}</div></td>
-      <td class="num">${fmt(g.qty)}</td><td class="num gold">${fmt(g.ml)}</td>
+      <td class="num">${fmt(g.qty)}</td><td class="num gold">${uTxt(g)}</td>
       <td class="right nowrap">${manage(g)}</td></tr>`).join('');
     bodyHtml=`<div class="card barinv"><div class="table-wrap" style="max-height:620px;overflow-y:auto"><table class="tbl">
-      <thead><tr><th>Brand</th><th>Category</th><th>POS Aliases (all summed)</th><th class="right">Qty</th><th class="right">Straight ml</th><th class="right">Manage</th></tr></thead>
+      <thead><tr><th>Brand</th><th>Category</th><th>POS Aliases (all summed)</th><th class="right">Qty</th><th class="right">Straight sale</th><th class="right">Manage</th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="4" class="right"><strong>Total Straight Liquor ml</strong></td><td class="num gold"><strong>${fmt(totMl)}</strong></td><td></td></tr></tfoot>
+      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="4" class="right"><strong>Total straight sale</strong></td><td class="num gold"><strong>${totTxt}</strong></td><td></td></tr></tfoot>
       </table></div></div>`;
   } else if(lay==='twopane'){
     if(!_alSel || !groups.some(g=>g.brand===_alSel)) _alSel=groups.length?groups[0].brand:'';
     const sel=groups.find(g=>g.brand===_alSel);
     const list=groups.map(g=>`<div style="padding:7px 11px;cursor:pointer;border-left:3px solid ${g.brand===_alSel?'var(--gold)':'transparent'};background:${g.brand===_alSel?'var(--gold-dim)':'transparent'}" onclick='alSelBrand(${JSON.stringify(g.brand)})'>
-      <div style="font-size:12.5px;font-weight:600">${g.brand}</div><div class="muted" style="font-size:10px">${g.category} · ${g.aliases.length} links · <span class="gold">${fmt(g.ml)} ml</span></div></div>`).join('');
+      <div style="font-size:12.5px;font-weight:600">${g.brand}</div><div class="muted" style="font-size:10px">${g.category} · ${g.aliases.length} links · <span class="gold">${uTxt(g)}</span></div></div>`).join('');
     bodyHtml=`<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
       <div class="card" style="width:270px;flex:none"><div class="card-head"><h3>Brands · ${groups.length}</h3></div>
         <div style="max-height:560px;overflow-y:auto">${list||'<p class="muted center" style="padding:20px">No brands</p>'}</div></div>
-      <div class="card" style="flex:1;min-width:300px">${sel?`<div class="card-head"><div><h3>${sel.brand}</h3><p>${sel.category} · Qty ${fmt(sel.qty)} · <span class="gold">${fmt(sel.ml)} ml</span></p></div><div class="nowrap">${manage(sel)}</div></div>
+      <div class="card" style="flex:1;min-width:300px">${sel?`<div class="card-head"><div><h3>${sel.brand}</h3><p>${sel.category} · Qty ${fmt(sel.qty)} · <span class="gold">${uTxt(sel)}</span></p></div><div class="nowrap">${manage(sel)}</div></div>
         <div class="card-body"><div class="chips">${chipsOf(sel)||'<span class="muted">No aliases yet — press ＋</span>'}</div></div>`:'<div class="card-body muted center" style="padding:30px">Select a brand</div>'}</div></div>`;
   } else if(lay==='accordion'){
     bodyHtml=`<div class="card">${groups.map(g=>{ const open=_alOpen===g.brand;
@@ -2478,27 +2483,27 @@ VIEWS.alias = () => {
         <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer" onclick='alToggle(${JSON.stringify(g.brand)})'>
           <span class="muted">${open?'▾':'▸'}</span><strong style="flex:1">${g.brand}</strong>
           <span class="pill gray">${g.category}</span><span class="muted" style="font-size:11px">${g.aliases.length} links</span>
-          <span class="num gold" style="font-weight:700">${fmt(g.ml)}</span></div>
+          <span class="num gold" style="font-weight:700">${uTxt(g)}</span></div>
         ${open?`<div style="padding:0 14px 10px 34px"><div class="chips">${chipsOf(g)||'<span class="muted">No aliases</span>'}</div><div class="mt-8">${manage(g)}</div></div>`:''}</div>`; }).join('')||'<p class="muted center" style="padding:24px">No brands</p>'}
-      <div style="display:flex;justify-content:flex-end;padding:9px 14px"><span class="muted" style="margin-right:8px">Total Straight ml</span><strong class="gold">${fmt(totMl)}</strong></div></div>`;
+      <div style="display:flex;justify-content:flex-end;padding:9px 14px"><span class="muted" style="margin-right:8px">Total straight sale</span><strong class="gold">${totTxt}</strong></div></div>`;
   } else if(lay==='cards'){
     bodyHtml=`<div class="grid-3">${groups.map(g=>`<div class="card"><div class="card-head"><div><h3 style="font-size:12.5px">${g.brand}</h3><p>${g.category}</p></div></div>
       <div class="card-body"><div class="chips">${chipsOf(g)||'<span class="muted" style="font-size:11px">No aliases</span>'}</div>
-        <div class="flex between items-center mt-8"><span class="muted" style="font-size:11px">Qty ${fmt(g.qty)}</span><strong class="gold">${fmt(g.ml)} ml</strong></div>
+        <div class="flex between items-center mt-8"><span class="muted" style="font-size:11px">Qty ${fmt(g.qty)}</span><strong class="gold">${uTxt(g)}</strong></div>
         <div class="mt-8">${manage(g)}</div></div></div>`).join('')||'<p class="muted center" style="padding:24px">No brands</p>'}</div>
-      <div class="card mt-16"><div class="card-body" style="display:flex;justify-content:space-between"><span class="muted">Total Straight Liquor ml</span><strong class="gold">${fmt(totMl)}</strong></div></div>`;
+      <div class="card mt-16"><div class="card-body" style="display:flex;justify-content:space-between"><span class="muted">Total straight sale</span><strong class="gold">${totTxt}</strong></div></div>`;
   } else { // dense
     const cats=['ALL',...new Set(aliasGroups().map(g=>g.category))];
     const catChips=cats.map(c=>`<button class="btn btn-sm ${_aCat===c?'btn-gold':''}" style="margin:2px;padding:3px 9px;font-size:11px" onclick='setACat(${JSON.stringify(c)})'>${c}</button>`).join('');
     const rows=groups.map(g=>`<tr>
-      <td><strong>${g.brand}</strong> <span class="muted" style="font-size:11px">${g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1; return `${a.posName}·qty ${fmt(posQtyOfName(a.posName))}·${a.mlPerUnit}${ax!==1?'×'+ax:''}`; }).join(' · ')}</span></td>
-      <td class="num">${fmt(g.qty)}</td><td class="num gold">${fmt(g.ml)}</td>
+      <td><strong>${g.brand}</strong> <span class="muted" style="font-size:11px">${g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1; return `${a.posName}·qty ${fmt(posQtyOfName(a.posName))}·${g.pcs?fmt(ax)+' pcs':a.mlPerUnit+(ax!==1?'×'+ax:'')+' ml'}`; }).join(' · ')}</span></td>
+      <td class="num">${fmt(g.qty)}</td><td class="num gold">${uTxt(g)}</td>
       <td class="right nowrap">${manage(g)}</td></tr>`).join('');
     bodyHtml=`<div class="card barinv"><div class="card-body" style="padding:6px 12px;border-bottom:1px solid var(--border)"><div style="display:flex;flex-wrap:wrap;gap:2px;align-items:center"><span class="muted" style="font-size:11px;margin-right:4px">Category:</span>${catChips}</div></div>
       <div class="table-wrap" style="max-height:580px;overflow-y:auto"><table class="tbl">
-      <thead><tr><th>Brand → aliases (·ml inline)</th><th class="right">Qty</th><th class="right">ml</th><th class="right">Manage</th></tr></thead>
+      <thead><tr><th>Brand → aliases (serve inline)</th><th class="right">Qty</th><th class="right">Sale</th><th class="right">Manage</th></tr></thead>
       <tbody>${rows||'<tr><td colspan="4" class="center muted" style="padding:20px">No brands</td></tr>'}</tbody>
-      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="2" class="right"><strong>Total Straight ml</strong></td><td class="num gold"><strong>${fmt(totMl)}</strong></td><td></td></tr></tfoot>
+      <tfoot><tr style="position:sticky;bottom:0;background:var(--bg-2)"><td colspan="2" class="right"><strong>Total straight sale</strong></td><td class="num gold"><strong>${totTxt}</strong></td><td></td></tr></tfoot>
       </table></div></div>`;
   }
   return `
@@ -2577,30 +2582,88 @@ function delPos(idx){
     route(); toast('Removed',`${nm} removed`,'err');
   });
 }
+/* ---- The alias editor speaks the brand's own unit (v2.65.0) ----------------------
+   A brand counted in PIECES (BEER · ALCOPOPS · cigarettes) never had ml: computeStraightMlMap
+   reads only the alias × there, so "5 × 4 = 20 ml" on a beer row was both the wrong word and the
+   wrong number (the engine counts 4). Such a row now has ONE box — pieces served on one sale —
+   which is that ×. An ml brand keeps ml × offer. */
+function aliasOfferScan(brand){                      // POS names that say how many go out on one sale
+  const out=[];
+  aliasTable.forEach((a,idx)=>{ if(norm(a.tallyItem)!==norm(brand)) return;
+    const want=rvOfferOf(a.posName); if(want===1) return;
+    const now=(+a.x>0)?+a.x:1; if(Math.abs(now-want)<0.001) return;
+    out.push({idx, name:a.posName, now, want}); });
+  return out;
+}
+function aliasReadOffers(brand){                     // ⚡ — fills the × of every such name at once
+  const hits=aliasOfferScan(brand), pcs=rvIsPcs(brand);
+  if(!hits.length){ toast('Nothing to read','No POS name here carries an offer like 3:1 or 3 On 1','err'); return; }
+  hits.forEach(h=>{ const a=aliasTable[h.idx]; if(!a) return;
+    if(pcs) a.mlPerUnit=1;
+    if(Math.abs(h.want-1)>0.001) a.x=h.want; else delete a.x; });
+  bsv('alias',aliasTable); closeModal(); openAliasEditor(brand); route();
+  toast('Offers read', hits.map(h=>h.name+' ×'+h.want).join(' · '),'ok');
+}
+function updateAliasPcs(idx,val,brand){              // one box on a pcs brand: pieces per sale = the ×
+  if(!aliasTable[idx]) return;
+  const n=+val; if(!(n>0)){ toast('How many pieces?','One sale serves at least one piece','err'); closeModal(); openAliasEditor(brand); return; }
+  aliasTable[idx].mlPerUnit=1;
+  if(Math.abs(n-1)>0.001) aliasTable[idx].x=Math.round(n*100)/100; else delete aliasTable[idx].x;
+  bsv('alias',aliasTable);
+  const nm=aliasTable[idx].posName;
+  if(brand){ closeModal(); openAliasEditor(brand); }
+  toast('Updated', '"'+nm+'" = '+fmt(n)+' pc'+(n===1?'':'s')+' per sale','ok');
+}
+function alSetNewX(v){ const b=$('#newAliasX'); if(!b) return; b.value=v;
+  $$('#alOffer .lrpill').forEach(p=>p.classList.toggle('on', +p.dataset.x===+v)); }
+function alNewName(v){ const w=rvOfferOf(v); if(w!==1) alSetNewX(w); }   // "AMSTEL 3:1" typed in → ×3
 function openAliasEditor(brand){
+  const pcs=rvIsPcs(brand), unit=pcs?'pcs':'ml';
   const rows=aliasTable.map((a,idx)=>({a,idx})).filter(x=>norm(x.a.tallyItem)===norm(brand));
   const dqb=posQtyOfName(brand);
   const directB = dqb>0 ? `<div class="rline" style="opacity:.85"><input class="inp input" value="${esc(brand)} — direct" disabled style="flex:1;border-color:var(--gold-dim)"><span class="pill gold" style="font-size:10px;white-space:nowrap">qty ${fmt(dqb)}</span></div>` : '';
   const lines=directB+rows.map(x=>{ const ax=(+x.a.x>0)?+x.a.x:1; const ml=+x.a.mlPerUnit||0;
+    const said=rvOfferOf(x.a.posName);
+    const hint=(said!==1 && Math.abs(said-ax)>0.001) ? `<span class="alsaid" title="this POS name says ${said} go out on one sale — press ⚡ below">name says ×${said}</span>` : '';
+    const boxes = pcs
+      ? `<input class="input" type="number" min="1" step="1" value="${ax}" title="pieces served on one sale" onchange='updateAliasPcs(${x.idx}, this.value, ${jatt(brand)})' style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
+         <span class="pill gold" style="font-size:10px;white-space:nowrap">${fmt(ax)} pc${ax===1?'':'s'} per sale</span>`
+      : `<input class="input" type="number" value="${ml}" title="ml / unit" onchange='updateAliasMl(${x.idx}, this.value, ${jatt(brand)})' style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
+         <span class="muted" style="font-size:11px">×</span>
+         <input class="input" type="number" step="0.5" min="0" value="${ax}" title="offer — 1 on 1 = 2" onchange='updateAliasX(${x.idx}, this.value, ${jatt(brand)})' style="width:52px;padding:6px 6px;font-size:12px;text-align:center">
+         <span class="pill gold" style="font-size:10px;white-space:nowrap">${ml} × ${ax} = ${fmt(Math.round(ml*ax))} ml</span>`;
     return `<div class="rline" data-i="${x.idx}" style="gap:6px;align-items:center">
-    <input class="inp input" value="${x.a.posName}" disabled style="flex:1;font-size:12px;padding:6px 9px">
+    <input class="inp input" value="${esc(x.a.posName)}" disabled style="flex:1;font-size:12px;padding:6px 9px">
+    ${hint}
     <span class="pill blue" style="font-size:10px;white-space:nowrap">qty ${fmt(posQtyOfName(x.a.posName))}</span>
-    <input class="input" type="number" value="${ml}" title="ml / unit" onchange='updateAliasMl(${x.idx}, this.value, ${JSON.stringify(brand)})' style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
-    <span class="muted" style="font-size:11px">×</span>
-    <input class="input" type="number" step="0.5" min="0" value="${ax}" title="multiplier — 1+1 offer = 2" onchange='updateAliasX(${x.idx}, this.value, ${JSON.stringify(brand)})' style="width:52px;padding:6px 6px;font-size:12px;text-align:center">
-    <span class="pill gold" style="font-size:10px;white-space:nowrap">${ml} × ${ax} = ${fmt(Math.round(ml*ax))} ml</span>
-    <button class="del" onclick='removeAliasEditorDel(${JSON.stringify(x.a.posName)}, ${JSON.stringify(brand)})'>🗑</button></div>`; }).join('');
+    ${boxes}
+    <button class="del" onclick='removeAliasEditorDel(${jatt(x.a.posName)}, ${jatt(brand)})'>🗑</button></div>`; }).join('');
+  const scan=aliasOfferScan(brand);
+  const newBoxes = pcs
+    ? `<input class="input" id="newAliasX" type="number" min="1" step="1" value="1" title="pieces served on one sale" style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
+       <span class="muted" style="font-size:11px">pcs / sale</span>`
+    : `<input class="input" id="newAliasMl" type="number" value="30" title="ml / unit" style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
+       <span class="muted" style="font-size:11px">×</span>
+       <input class="input" id="newAliasX" type="number" step="0.5" min="0" value="1" title="offer — 1 on 1 = 2" style="width:52px;padding:6px 6px;font-size:12px;text-align:center">`;
   modal('Aliases for '+brand, `
     ${spiritDatalist()}
-    <p class="muted" style="font-size:12px;margin-bottom:12px">Edit ml/unit, delete a link, or add a new POS button name for this brand.</p>
+    <p class="muted" style="font-size:12px;margin-bottom:12px">${pcs
+      ? '🍺 <strong>'+esc(brand)+'</strong> is counted in <strong>pieces</strong>, so each link says how many bottles / pints go out on one sale — never ml.'
+      : '🥃 <strong>'+esc(brand)+'</strong> is counted in <strong>ml</strong> — ml per serve × the offer.'}</p>
     ${lines||'<p class="muted">No aliases yet.</p>'}
     <div class="divider"></div>
-    <div class="rline" style="gap:6px;align-items:center"><input class="input" id="newAliasName" list="spiritList" placeholder="New POS button name (all Tally alcohols listed)" style="flex:1;font-size:12px;padding:6px 9px">
-      <input class="input" id="newAliasMl" type="number" value="30" title="ml / unit" style="width:66px;padding:6px 6px;font-size:12px;text-align:center">
-      <span class="muted" style="font-size:11px">×</span>
-      <input class="input" id="newAliasX" type="number" step="0.5" min="0" value="1" title="multiplier" style="width:52px;padding:6px 6px;font-size:12px;text-align:center"></div>`,
-    `<button class="btn" onclick="closeModal()">Close</button>
-     <button class="btn btn-gold" onclick='addAliasFromEditor(${JSON.stringify(brand)})'>＋ Add Link</button>`);
+    <div class="rline" style="gap:6px;align-items:center"><input class="input" id="newAliasName" list="spiritList" oninput="alNewName(this.value)" placeholder="New POS button name (all Tally alcohols listed)" style="flex:1;font-size:12px;padding:6px 9px">
+      ${newBoxes}</div>
+    <div class="rvrow" id="alOffer" style="margin-top:9px">
+      <span class="lb">Offer</span>
+      <button class="lrpill on" data-x="1" onclick="alSetNewX(1)">No offer</button>
+      <button class="lrpill" data-x="2" onclick="alSetNewX(2)">2 on 1 · ×2</button>
+      <button class="lrpill" data-x="3" onclick="alSetNewX(3)">3 on 1 · ×3</button>
+      <button class="lrpill" data-x="4" onclick="alSetNewX(4)">4 on 1 · ×4</button>
+      <span class="mu">"1:1" / "1 On 1" = one free on one = ×2 — typed into the name box, it fills itself</span></div>`,
+    `${scan.length?`<button class="btn" style="margin-right:auto" onclick='aliasReadOffers(${jatt(brand)})'>⚡ Read the offers from ${scan.length} name${scan.length===1?'':'s'}</button>`:''}
+     <button class="btn" onclick="closeModal()">Close</button>
+     <button class="btn btn-gold" onclick='addAliasFromEditor(${jatt(brand)})'>＋ Add Link</button>`);
 }
 function updateAliasMl(idx,val,brand){ if(!aliasTable[idx]) return;
   aliasTable[idx].mlPerUnit=+val||0; bsv('alias',aliasTable); rebuildIndexes(); invalidateCalcCache();
@@ -2610,12 +2673,14 @@ function updateAliasX(idx,val,brand){ if(!aliasTable[idx]) return;
   bsv('alias',aliasTable); rebuildIndexes(); invalidateCalcCache();
   if(brand){ closeModal(); openAliasEditor(brand); } toast('Updated',`"${aliasTable[idx].posName}" = ×${x>0?x:1}`,'ok'); }
 function addAliasFromEditor(brand){
-  const nm=$('#newAliasName').value.trim(), ml=+$('#newAliasMl').value||30;
-  const x=+($('#newAliasX')?$('#newAliasX').value:1);
+  const nm=$('#newAliasName').value.trim(), pcs=rvIsPcs(brand);
+  const mlB=$('#newAliasMl'), xB=$('#newAliasX');
+  const x=+(xB?xB.value:1)||1, ml=pcs?1:(+(mlB?mlB.value:30)||30);
   if(!nm){ toast('Enter name','Type a POS button name','err'); return; }
   const e={posName:nm, tallyItem:brand, mlPerUnit:ml}; if(x>0 && Math.abs(x-1)>0.001) e.x=x;
   aliasTable.push(e); bsv('alias',aliasTable); rebuildIndexes(); invalidateCalcCache();
-  closeModal(); openAliasEditor(brand); route(); toast('Link added',`"${nm}" → ${brand} (×${x>0?x:1})`,'ok');
+  closeModal(); openAliasEditor(brand); route();
+  toast('Link added',`"${nm}" → ${brand} · ${pcs?fmt(x)+' pc'+(x===1?'':'s'):fmt(Math.round(ml*x))+' ml'} per sale`,'ok');
 }
 function openAddAlias(brand){ openAliasEditor(brand); }
 function openNewAlias(){
