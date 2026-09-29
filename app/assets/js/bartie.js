@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.66.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.67.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2282,10 +2282,15 @@ function rvServeOf(name, brand){                            // one POS sale = ho
   return (it && +it.pegMl>0)?+it.pegMl:30;
 }
 function rvInit(name, qty){
-  const M=rvMatch(name), brand=M.name||'';
-  _rv={ name:name, qty:+qty||0, brand:brand, cat:'', pcs:rvIsPcs(brand), base:rvServeOf(name,brand),
-        x:rvOfferOf(name), sure:!!M.sure, own:false, cands:(M.all||[]).slice(0,5),
-        q:'', hits:[], sel:0, open:false };
+  const M=rvMatch(name), CK=rvCkMatch(name);
+  const bGuess=M.name||'', ckGuess=CK?CK.name:'';
+  const kind = ckGuess ? 'c' : (bGuess ? 'b' : '');           // a cocktail of theirs named in the POS line wins — it IS a cocktail sale
+  const brand = kind==='b' ? bGuess : '';
+  _rv={ name:name, qty:+qty||0, kind:kind, brand:brand, ck:(kind==='c'?ckGuess:''), cat:'',
+        pcs:rvIsPcs(brand), base:rvServeOf(name,brand), x:rvOfferOf(name),
+        sure:(kind==='c' ? !!(CK&&CK.whole) : !!M.sure), own:false, cands:(M.all||[]).slice(0,5),
+        bGuess:bGuess, ckGuess:ckGuess,
+        q:'', hits:[], sel:0, open:false, ckHits:[], ckSel:0, ckOpen:false };
   const it=getTallyItem(brand);
   _rv.cat = it ? it.category : ((M.all&&M.all[0])?M.all[0].group:'');
 }
@@ -2293,17 +2298,18 @@ function rvSetBrand(b){ const it=getTallyItem(b);                     // a <sele
   _rv.brand=it?it.name:String(b||'');                                // browser collapses — snap it to the Tally spelling
   _rv.pcs=rvIsPcs(_rv.brand); _rv.base=rvServeOf(_rv.name,_rv.brand);
   _rv.own=!!_rv.brand;                                               // chosen by the person now — not "the closest name"
+  if(_rv.brand){ _rv.kind='b'; _rv.ck=''; const c=$('#rvCk'); if(c) c.value=''; }
   if(it) _rv.cat=it.category; rvPaint(); }
 function rvSetBase(v){ const n=+v; if(!(n>0)) return; _rv.base=Math.round(n*100)/100; rvPaint(); }
 function rvSetX(v){ const n=+v; if(!(n>0)) return; _rv.x=Math.round(n*100)/100; rvPaint(); }
 function rvAutoHtml(){
-  const R=_rv;
-  if(!R.brand) return `<div class="rvauto none">🔎 <b>No close name in my system</b><span class="mu">Pick the brand below, or open ✨ New brand to create it.</span></div>`;
-  const ok=R.sure||R.own;
-  return `<div class="rvauto ${ok?'ok':'guess'}">${ok?'✔':'≈'} <b>${esc(R.brand)}</b><span class="mu">${R.own?'your choice':(R.sure?'found in my Tally Sheet':'closest name — please check it')}${R.cat?' · '+esc(R.cat):''}</span></div>`;
+  const R=_rv, ok=R.sure||R.own;
+  if(R.kind==='c' && R.ck) return `<div class="rvauto ${ok?'ok':'guess'} ck">${ok?'✔':'≈'} <b>${esc(R.ck)}</b><span class="mu">🍹 ${R.own?'your choice':(R.sure?'this POS name IS that cocktail':'its name sits inside this POS name')} · ${ckRecipeTxt(R.ck)}</span></div>`;
+  if(!R.brand) return `<div class="rvauto none">🔎 <b>Nothing close in my system</b><span class="mu">Search a brand on the left or a cocktail on the right — or open ✨ New brand / 🍹 New cocktail.</span></div>`;
+  return `<div class="rvauto ${ok?'ok':'guess'}">${ok?'✔':'≈'} <b>${esc(R.brand)}</b><span class="mu">🥃 ${R.own?'your choice':(R.sure?'found in my Tally Sheet':'closest name — please check it')}${R.cat?' · '+esc(R.cat):''}</span></div>`;
 }
 function rvCandsHtml(){
-  const R=_rv; if(R.cands.length<2) return '';
+  const R=_rv; if(R.kind==='c' || R.cands.length<2) return '';
   return `<span class="lb">Close names</span>`+R.cands.map(c=>
     `<button class="lrpill${norm(c.name)===norm(R.brand)?' on':''}" onclick='rvSetBrand(${jatt(c.name)})' title="${esc(c.group||'')} · match ${c.score}">${esc(c.name)}</button>`).join('');
 }
@@ -2311,14 +2317,18 @@ function rvServeHtml(){
   const R=_rv;
   const chips=(R.pcs?RV_PCS:RV_ML).map(v=>
     `<button class="lrpill${(+R.base===v)?' on':''}" onclick="rvSetBase(${v})">${v}${R.pcs?(v===1?' pc':' pcs'):' ml'}</button>`).join('');
-  const serve = R.brand ? `
+  const serve = (R.kind==='c' && R.ck) ? `
+      <div class="rvrow"><span class="lb">One sale =</span>
+        <span class="rvunit ck">🍹 one ${esc(R.ck)}</span>
+        <span class="mu">its recipe — ${ckRecipeTxt(R.ck)} — is what reaches the brands</span></div>`
+    : R.brand ? `
       <div class="rvrow"><span class="lb">One sale =</span>
         <span class="rvunit">${R.pcs?'🍺 counted in pieces':'🥃 counted in ml'}${R.cat?' · '+esc(R.cat):''}</span></div>
       <div class="rvrow"><span class="lb"></span>${chips}
         <input class="input rvbox" id="${R.pcs?'rvPcs':'rvMl'}" type="number" min="0" step="${R.pcs?1:5}" value="${R.base}" onchange="rvSetBase(this.value)" title="${R.pcs?'pieces':'ml'} per sale">
         <span class="mu">${R.pcs?'beer · breezer · cigarettes are counted in pieces, never in ml':'30 peg · 60 large · 750 full bottle'}</span></div>`
     : `<div class="rvrow"><span class="lb">One sale =</span>
-        <span class="mu">choose a brand above — the serve is then offered in ml or in pieces, whichever that brand is counted in</span></div>`;
+        <span class="mu">pick a brand or a cocktail above — the serve then follows whichever it is</span></div>`;
   return serve+`
       <div class="rvrow"><span class="lb">Offer</span>
         <button class="lrpill${R.x===1?' on':''}" onclick="rvSetX(1)">No offer</button>
@@ -2328,12 +2338,20 @@ function rvServeHtml(){
         <span class="mu">"1 On 1" = one free on one = ×2${R.x!==1?' — read from this POS name':''}</span></div>`;
 }
 function rvSumHtml(){
-  const R=_rv; if(!R.brand) return '';
+  const R=_rv;
+  if(R.kind==='c' && R.ck){ const n=Math.round(R.qty*R.x);
+    return `<span class="mu">${fmt(R.qty)} sold${R.x!==1?' × '+R.x:''} =</span> <b>${fmt(n)} × ${esc(R.ck)}</b> <span class="mu">— counted with that cocktail, and its recipe reaches the brands</span>`; }
+  if(!R.brand) return '';
   const u=R.pcs?'pcs':'ml', tot=Math.round(R.base*R.x*R.qty);
   return `<span class="mu">${fmt(R.qty)} sold × ${R.base} ${u}${R.x!==1?' × '+R.x:''} =</span> <b>${fmt(tot)} ${u}</b> <span class="mu">of ${esc(R.brand)} in this period</span>`;
 }
 function rvPaint(){
   const s=$('#rvBrand'); if(s && document.activeElement!==s) s.value=_rv.brand||'';
+  const ck=$('#rvCk'); if(ck && document.activeElement!==ck) ck.value=_rv.ck||'';
+  const cb=$('#rvColB'); if(cb) cb.classList.toggle('on', _rv.kind==='b');
+  const cc=$('#rvColC'); if(cc) cc.classList.toggle('on', _rv.kind==='c');
+  const ab=$('#rvAltB'); if(ab) ab.innerHTML=rvAltHtml('b');
+  const ac=$('#rvAltC'); if(ac) ac.innerHTML=rvAltHtml('c');
   const a=$('#rvAuto'); if(a) a.innerHTML=rvAutoHtml();
   const c=$('#rvCands'); if(c) c.innerHTML=rvCandsHtml();
   const v=$('#rvServe'); if(v) v.innerHTML=rvServeHtml();
@@ -2346,6 +2364,75 @@ function rvPaint(){
    daily): every word you type has to appear in the name, names that START with it come first, and
    ↓ ↑ Enter walk the list. The list is IN the flow — .modal-body scrolls and .modal clips, so an
    absolute dropdown would be cut off. */
+/* ---- one POS name is either a STRAIGHT pour or a COCKTAIL (v2.67.0) ----------------
+   Until now the box could only map to a brand: "Gimlet Bombay Sapphire" was offered BOMBAY
+   SAPPHIRE although GIMLET is in their Cocktail Master, and the only way to a cocktail was
+   ✨ New cocktail — which would have made a second one. Two columns now, each with its own
+   search: pick on one side and the other clears. A cocktail link is a cocktailAlias
+   {alias, canonical, x} — the cocktail's own recipe then drives the brand-wise ml. */
+function ckNamesSorted(){ return [...new Set(cocktails.map(c=>c.name))].sort((a,b)=>a.localeCompare(b)); }
+function ckGet(n){ const k=norm(n); return cocktails.find(c=>norm(c.name)===k)||null; }
+function ckRecipeTxt(n){ const c=ckGet(n); if(!c||!c.recipe||!c.recipe.length) return 'no recipe yet';
+  return c.recipe.slice(0,3).map(r=>esc(r.spirit)+' '+fmt(r.ml)).join(' + ')+(c.recipe.length>3?' + '+(c.recipe.length-3)+' more':''); }
+function rvCkHits(q){
+  const toks=norm(q||'').split(' ').filter(Boolean), all=ckNamesSorted();
+  if(!toks.length) return all.slice(0,60);
+  const a=[], b=[];
+  all.forEach(n=>{ const k=norm(n); if(toks.every(t=>k.indexOf(t)>=0)) (k.indexOf(toks[0])===0?a:b).push(n); });
+  return a.concat(b).slice(0,60);
+}
+/* the POS name names a cocktail when EVERY word of that cocktail's name is in it */
+function rvCkMatch(name){
+  const p=' '+norm(name).replace(/[^A-Z0-9]+/g,' ').trim()+' ';
+  let best=null;
+  cocktails.forEach(c=>{
+    const toks=norm(c.name).replace(/[^A-Z0-9]+/g,' ').trim().split(' ').filter(t=>t&&t!=='B');
+    if(!toks.length) return;
+    if(!toks.every(t=>p.indexOf(' '+t+' ')>=0)) return;
+    if(!toks.some(t=>t.length>=4)) return;                       // one short common word is not a cocktail
+    const sc=toks.join('').length*100 - c.name.length;           // more of the name explained, shorter name wins ties
+    if(!best || sc>best.sc) best={name:c.name, sc:sc, whole:norm(c.name)===norm(name)};
+  });
+  return best;
+}
+function rvCkDDHtml(){
+  const R=_rv, hits=R.ckHits||[];
+  if(!hits.length) return `<div class="none">No cocktail of yours matches that — 🍹 New cocktail makes one.</div>`;
+  return hits.map((n,i)=>`<div class="o${i===R.ckSel?' on':''}" onmousedown="event.preventDefault();rvCkPick(${i})">
+      <span class="nm">${esc(n)}</span><span class="st">${((ckGet(n)||{recipe:[]}).recipe||[]).length} sp</span></div>`).join('');
+}
+function rvCkDDPaint(){ const d=$('#rvCkDD'); if(!d) return;
+  d.innerHTML=rvCkDDHtml(); d.classList.toggle('open', !!_rv.ckOpen);
+  const on=d.querySelector('.o.on'); if(on) try{ on.scrollIntoView({block:'nearest'}); }catch(e){} }
+function rvCkType(v){ _rv.ckHits=rvCkHits(v); _rv.ckSel=0; _rv.ckOpen=true; rvCkDDPaint(); }
+function rvCkListOpen(){ const b=$('#rvCk'), v=b?b.value:'';
+  const chosen=_rv.ck && norm(v)===norm(_rv.ck);
+  if(chosen && b) try{ b.select(); }catch(e){}
+  _rv.ckHits=rvCkHits(chosen?'':v); _rv.ckSel=0; _rv.ckOpen=true; rvCkDDPaint(); }
+function rvCkListClose(){ _rv.ckOpen=false; const d=$('#rvCkDD'); if(d) d.classList.remove('open'); }
+function rvCkPick(i){ const n=(_rv.ckHits||[])[i]; if(!n) return; rvCkListClose(); rvSetCk(n);
+  const b=$('#rvCk'); if(b) b.value=_rv.ck; const x=$('#rvX'); if(x) x.focus(); }
+function rvCkKey(e){
+  const k=e.key;
+  if(k==='ArrowDown'||k==='ArrowUp'){ e.preventDefault();
+    if(!_rv.ckOpen){ rvCkListOpen(); return; }
+    const n=(_rv.ckHits||[]).length; if(!n) return;
+    _rv.ckSel=(_rv.ckSel+(k==='ArrowDown'?1:-1)+n)%n; rvCkDDPaint(); return; }
+  if(k==='Enter'||k==='Tab'){ if(_rv.ckOpen && (_rv.ckHits||[]).length){ e.preventDefault(); rvCkPick(_rv.ckSel); } return; }
+  if(k==='Escape'){ if(_rv.ckOpen){ e.preventDefault(); rvCkListClose(); } }
+}
+function rvCkBlur(){ setTimeout(()=>{ rvCkListClose();
+  const b=$('#rvCk'); if(!b) return;
+  const c=ckGet(b.value); if(c && norm(c.name)!==norm(_rv.ck)) rvSetCk(c.name); else if(!c) b.value=_rv.ck||'';
+}, 150); }
+function rvSetCk(n){ const c=ckGet(n); _rv.ck=c?c.name:String(n||'');
+  if(_rv.ck){ _rv.kind='c'; _rv.brand=''; _rv.own=true; const b=$('#rvBrand'); if(b) b.value=''; }
+  rvPaint(); }
+function rvAltHtml(side){
+  const R=_rv;
+  if(side==='c') return (R.kind!=='c' && R.ckGuess) ? `<button class="rvalt" onclick='rvSetCk(${jatt(R.ckGuess)})'>🍹 Is it the cocktail <b>${esc(R.ckGuess)}</b>?</button>` : '';
+  return (R.kind!=='b' && R.bGuess) ? `<button class="rvalt" onclick='rvSetBrand(${jatt(R.bGuess)})'>🥃 Or the brand <b>${esc(R.bGuess)}</b>?</button>` : '';
+}
 function rvHits(q){
   const toks=norm(q||'').split(' ').filter(Boolean);
   const all=tallyNamesSorted();
@@ -2397,11 +2484,23 @@ function rvBlur(){ setTimeout(()=>{ rvListClose();
 function rvExistingHtml(){
   const R=_rv;
   return `<div id="rvAuto">${rvAutoHtml()}</div>
-      <div class="field"><label>Map "${esc(R.name)}" to a brand in my Tally Sheet</label>
-        <input class="input rvsearch" id="rvBrand" autocomplete="off" spellcheck="false"
-          placeholder="Type any part of the name — ${fmt(tallyNamesSorted().length)} brands"
-          value="${esc(R.brand)}" oninput="rvType(this.value)" onfocus="rvListOpen()" onblur="rvBlur()" onkeydown="rvKey(event)">
-        <div class="rvdd" id="rvDD"></div></div>
+      <p class="rvq">What is <b>"${esc(R.name)}"</b> — a straight pour, or one of my cocktails?</p>
+      <div class="rvcols">
+        <div class="rvcol${R.kind==='b'?' on':''}" id="rvColB">
+          <div class="hd">🥃 Straight <span>my liquor brands · ${fmt(tallyNamesSorted().length)}</span></div>
+          <input class="input rvsearch" id="rvBrand" autocomplete="off" spellcheck="false" placeholder="Type any part of the name…"
+            value="${esc(R.brand)}" oninput="rvType(this.value)" onfocus="rvListOpen()" onblur="rvBlur()" onkeydown="rvKey(event)">
+          <div class="rvdd" id="rvDD"></div>
+          <div class="rvaltw" id="rvAltB">${rvAltHtml('b')}</div>
+        </div>
+        <div class="rvcol${R.kind==='c'?' on':''}" id="rvColC">
+          <div class="hd">🍹 Cocktail <span>my cocktail master · ${fmt(ckNamesSorted().length)}</span></div>
+          <input class="input rvsearch" id="rvCk" autocomplete="off" spellcheck="false" placeholder="Type any part of the cocktail…"
+            value="${esc(R.ck||'')}" oninput="rvCkType(this.value)" onfocus="rvCkListOpen()" onblur="rvCkBlur()" onkeydown="rvCkKey(event)">
+          <div class="rvdd" id="rvCkDD"></div>
+          <div class="rvaltw" id="rvAltC">${rvAltHtml('c')}</div>
+        </div>
+      </div>
       <div class="rvcands" id="rvCands">${rvCandsHtml()}</div>
       <div id="rvServe">${rvServeHtml()}</div>
       <div class="rvsum" id="rvSum">${rvSumHtml()}</div>`;
@@ -2414,7 +2513,7 @@ function openResolve(i){
   const brandOpts=tallyItems.map(t=>`<option>${t.name}</option>`).join('');
   modal('Resolve: '+name, `
     <div class="tabs" id="rvTabs">
-      <div class="tab active" data-rv="existing" onclick="rvTab('existing')">🔗 Map to brand</div>
+      <div class="tab active" data-rv="existing" onclick="rvTab('existing')">🔗 Map it</div>
       <div class="tab" data-rv="new" onclick="rvTab('new')">✨ New brand</div>
       <div class="tab" data-rv="cocktail" onclick="rvTab('cocktail')">🍹 New cocktail</div>
     </div>
@@ -2439,13 +2538,23 @@ function openResolve(i){
     </div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doResolve()">Resolve</button>`);
   _ckLines=[{spirit:'',ml:''}];
-  if(!_rv.brand) setTimeout(()=>{ const b=$('#rvBrand'); if(b){ b.focus(); rvListOpen(); } },30);
+  if(!_rv.brand && !_rv.ck) setTimeout(()=>{ const b=$('#rvBrand'); if(b){ b.focus(); rvListOpen(); } },30);
 }
 let _rvMode='existing';
 function rvTab(m){ _rvMode=m; ['existing','new','cocktail'].forEach(x=>{ $('#rv-'+x).style.display = x===m?'block':'none'; }); $$('[data-rv]').forEach(t=>t.classList.toggle('active', t.dataset.rv===m)); if(m==='cocktail') ckRenderLines(); }
 function rvCatDefault(){ const c=$('#rvNewCat').value; const d=CAT_DEFAULTS[c]; if(d) $('#rvNewMl').value=d.peg; }
 function doResolve(){
   if(_rvMode==='existing'){
+    if(_rv.kind==='c'){                                             // a cocktail link: the cocktail's own recipe drives the brand ml
+      const cb=$('#rvCk'), ct=cb?String(cb.value||'').trim():'';
+      const c=ckGet(ct)||ckGet(_rv.ck);
+      if(!c){ toast('Which cocktail?', ct?('No cocktail of yours is called "'+ct+'" — pick one from the list, or open 🍹 New cocktail'):'Pick the cocktail this POS name is','err'); return; }
+      const xb=$('#rvX'), x=xb?(+xb.value||1):(_rv.x||1);
+      const e={alias:_resolveName, canonical:c.name}; if(x>0 && Math.abs(x-1)>0.001) e.x=Math.round(x*100)/100;
+      cocktailAlias.push(e); bsv('cocktailAlias',cocktailAlias); invalidateCalcCache();
+      toast('Mapped',`"${_resolveName}" → 🍹 ${c.name}${x!==1?' · ×'+x:''}`,'ok');
+      closeModal(); route(); return;
+    }
     const sel=$('#rvBrand'), typed=sel?String(sel.value||'').trim():'';
     // the box holds free text now: it must name a real brand of theirs (empty falls back to the one picked)
     const bit=getTallyItem(typed) || (typed?null:getTallyItem(_rv.brand)), brand=bit?bit.name:'';
