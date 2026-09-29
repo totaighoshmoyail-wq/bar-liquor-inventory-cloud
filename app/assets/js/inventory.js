@@ -107,8 +107,33 @@ function excelDate(v){
   return s;
 }
 // aggregation by item name (Excel "*name*" contains-match)
-function receivedForItem(name){ const n=norm(name); return receivedStock.reduce((a,r)=> a+((norm(r.item).includes(n)||n.includes(norm(r.item)))?fnum(r.qty):0),0); }
-function issuedForItem(name){ const n=norm(name); return mrDetail.reduce((a,r)=> a+((norm(r.item).includes(n)||n.includes(norm(r.item)))?fnum(r.qty):0),0); }
+/* ---- the three per-item lookups, memoised (v2.68.0) --------------------------------
+   receivedForItem / issuedForItem / receiptExact each walked the WHOLE purchase or issue list
+   and called norm() twice per entry — for every row on the page. Measured on a client-sized
+   month (298 items · 330 brands · 150 purchases · 220 issues): lrTotals() alone 112 ms, the
+   Liquor Room 421 ms and the dashboard 397 ms to build, which is the lag they feel on every
+   click and every keystroke. The names are grouped ONCE per change and each item's answer is
+   remembered, so the arithmetic is identical and the work happens once instead of 600 times.
+   The cache is dropped by invalidateCalcCache(), which bsv() already calls on every save. */
+var _fiVer=0, _fiFp='', _fiRecv=null, _fiIss=null, _fiExact=null, _fiMemoR=null, _fiMemoI=null;
+function _fiFingerprint(){ return _fiVer+'|'+receivedStock.length+'|'+mrDetail.length+'|'+(period.from||'')+'|'+(period.to||''); }
+function _fiEnsure(){
+  const fp=_fiFingerprint(); if(_fiRecv && fp===_fiFp) return;
+  _fiFp=fp; _fiMemoR=Object.create(null); _fiMemoI=Object.create(null);
+  const group=list=>{ const m=Object.create(null);
+    for(let i=0;i<list.length;i++){ const r=list[i], k=norm(r.item); m[k]=(m[k]||0)+fnum(r.qty); } return m; };
+  _fiRecv=group(receivedStock); _fiIss=group(mrDetail);
+  _fiExact=Object.create(null); const f=period.from, t=period.to;
+  for(let i=0;i<mrDetail.length;i++){ const r=mrDetail[i], d=r.date||'';
+    if((f&&d<f)||(t&&d>t)) continue; const k=norm(r.item); _fiExact[k]=(_fiExact[k]||0)+fnum(r.qty); }
+}
+function _fiSum(src, memo, name){                     // Σ of every entry name that contains, or is contained by, this one
+  const n=norm(name); const v=memo[n]; if(v!==undefined) return v;
+  let t=0; for(const k in src){ if(k.indexOf(n)>=0 || n.indexOf(k)>=0) t+=src[k]; }
+  return (memo[n]=t);
+}
+function receivedForItem(name){ _fiEnsure(); return _fiSum(_fiRecv, _fiMemoR, name); }
+function issuedForItem(name){ _fiEnsure(); return _fiSum(_fiIss, _fiMemoI, name); }
 /* Liquor-Room totals in one place — bottles, ml and ₹ for Opening / Received / Issued / Closing.
    Same per-item formula the Liquor Room page uses (Opening + Received − Issued = Closing);
    ml = bottles × bottle size, ₹ = bottles × landing rate. Display only — no calculation changed. */
@@ -127,8 +152,7 @@ function lrTotals(){
 function receiptInPeriod(name){ const n=norm(name), f=period.from, t=period.to;
   return mrDetail.reduce((a,r)=>{ const m=(norm(r.item).includes(n)||n.includes(norm(r.item))); const d=r.date||''; return a+((m&&(!f||d>=f)&&(!t||d<=t))?fnum(r.qty):0); },0); }
 // Excel-faithful receipt: EXACT name match on the Raw Data full name within the period (SUMIFS on col A).
-function receiptExact(rawName){ if(!rawName) return 0; const n=norm(rawName), f=period.from, t=period.to;
-  return mrDetail.reduce((a,r)=>{ const d=r.date||''; return a+((norm(r.item)===n && (!f||d>=f)&&(!t||d<=t))?fnum(r.qty):0); },0); }
+function receiptExact(rawName){ if(!rawName) return 0; _fiEnsure(); return _fiExact[norm(rawName)]||0; }   // the period's issues, grouped once (v2.68.0)
 // best-effort SALE link to a bar-tie brand (from the Linking engine)
 function brandSaleList(){ const {cmlMap,smlMap}=calcGrandTotals();
   return tallyItems.map(t=>({n:norm(t.name), ml:getEffectiveCocktailMl(t,cmlMap)+getEffectiveStraightMl(t,smlMap)})).filter(x=>x.ml>0); }
@@ -2314,7 +2338,7 @@ VIEWS.barinv = () => {
       const chipBar=`<div class="chip-bar" style="margin-bottom:${lookB==='def'?'0':'12px'}"><span class="muted" style="font-size:11px;margin-right:4px">Category:</span>${catChips}</div>`;
       if(lookB==='def') return `<div class="card barinv bicomp royalcard">
         <div class="card-body" style="padding:8px 14px;border-bottom:1px solid var(--border)">${chipBar}</div>
-        <div class="table-wrap" style="max-height:560px;overflow-y:auto"><table class="tbl">
+        <div class="table-wrap" style="max-height:560px;overflow-y:auto"><table class="tbl bctbl">
           <thead><tr><th><input type="checkbox" id="biSelAll" class="selcb" title="Mark all shown" onchange="biSelAll(this.checked)"> Item</th><th class="right">Size</th><th class="right">Landing ₹</th><th class="right">Opening</th><th class="right">Receipt</th><th class="right">Closing</th>
             <th class="right">Consumption</th>
             <th class="right">Sale</th>
@@ -4739,3 +4763,7 @@ function _rawCatchRun(){
     finally{ if(_rawCatchPending && !document.querySelector('.cloudnew[data-kind="new"]')) setTimeout(_rawCatchRun, 300); } };   // a NEWER-DATA banner = not yet brought in → wait for the next check (a sign-in banner must not hold it back — v2.51.0)
   setTimeout(_rawCatchRun, 90000);
 }catch(e){} })();
+/* the lookup cache follows every save (v2.68.0): bsv() calls invalidateCalcCache() for every key,
+   and cloudRefreshState / the in-place editors call it too, so one wrapper covers them all. */
+if(typeof invalidateCalcCache==='function'){ const _ic0=invalidateCalcCache;
+  window.invalidateCalcCache=function(){ _fiVer++; return _ic0.apply(this,arguments); }; }

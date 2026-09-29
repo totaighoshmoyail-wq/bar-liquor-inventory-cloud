@@ -2053,3 +2053,21 @@ html{scroll-behavior:smooth}
 .rvrow{margin-bottom:7px}
 .rvdd .o{padding:5px 10px;font-size:12px}
 @media (max-width:640px){ .rvcols{grid-template-columns:1fr} }
+/* ---- Beverage Control · the two columns the sheet exists for (v2.68.0) ----
+   CLOSING is what they counted, SALE is what the POS says; everything else is working out.
+   Both are banded between gold hairlines and set heavier, so the eye lands on them first.
+   Scoped to .bctbl — .barinv is shared with the Liquor Alias ledger, whose columns differ. */
+.bctbl th:nth-child(6),.bctbl td:nth-child(6),.bctbl th:nth-child(8),.bctbl td:nth-child(8){
+  background:color-mix(in srgb,var(--gold) 7%,transparent);
+  box-shadow:inset 1px 0 0 color-mix(in srgb,var(--gold) 30%,transparent),inset -1px 0 0 color-mix(in srgb,var(--gold) 30%,transparent)}
+.bctbl thead th:nth-child(6),.bctbl thead th:nth-child(8){color:var(--gold);letter-spacing:.09em;font-weight:700}
+.bctbl tbody td:nth-child(6) .cell-input,.bctbl tbody td:nth-child(8){font-weight:700}
+.bctbl tbody td:nth-child(8){font-family:Georgia,"Times New Roman",serif;font-size:15px;color:var(--text)}
+.bctbl tfoot td:nth-child(6),.bctbl tfoot td:nth-child(8){background:color-mix(in srgb,var(--gold) 13%,transparent)}
+/* the sheet head as a gilded rule, and a faint zebra so a long row is easy to follow */
+.bctbl thead th{border-bottom:3px double color-mix(in srgb,var(--gold) 55%,transparent);
+  background:color-mix(in srgb,var(--gold) 6%,var(--bg-2));font-size:9.5px;letter-spacing:.07em;text-transform:uppercase}
+.bctbl tbody tr:nth-child(even):not(.grp-row):not(.bisub){background:color-mix(in srgb,var(--gold) 2.5%,transparent)}
+.bctbl tbody tr:hover:not(.grp-row){background:color-mix(in srgb,var(--gold) 8%,transparent)}
+.bctbl tbody td{border-bottom:1px solid color-mix(in srgb,var(--border-soft) 70%,transparent)}
+@media print{.bctbl th:nth-child(6),.bctbl td:nth-child(6),.bctbl th:nth-child(8),.bctbl td:nth-child(8){box-shadow:none;background:rgba(212,175,55,.10)}}

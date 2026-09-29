@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.67.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.68.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1074,7 +1074,7 @@ function getEffectiveCocktailMl(item, cmlMap){ const a=cmlMap[norm(item.name)]||
 function getEffectiveStraightMl(item, smlMap){ const a=smlMap[norm(item.name)]||0; return item.straightMl>0?item.straightMl:Math.round(a); }
 function getEffectivePosQty(item, posQtyMap){ return posQtyMap[norm(item.name)]||0; }
 let _gtCache=null, _gtKey=null;
-function invalidateCalcCache(){ _gtCache=null; _gtKey=null; }
+function invalidateCalcCache(){ _gtCache=null; _gtKey=null; _pqMap=null; }
 function calcGrandTotals(){
   const key=posData.length+':'+tallyItems.length+':'+cocktails.length+':'+aliasTable.length;
   if(_gtCache && _gtKey===key) return _gtCache;
@@ -1092,7 +1092,11 @@ const esc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(
 function errorRows(){ return posData.filter(p => !isKnownPosName(p.name)); }
 function aliasesForBrand(brandName){ const bn=norm(brandName); return aliasTable.filter(a=>norm(a.tallyItem)===bn); }
 // qty sold under one exact POS button name (for per-alias qty pills)
-function posQtyOfName(n){ const k=norm(n); return posData.reduce((s,p)=>s+(norm(p.name)===k?(+p.qty||0):0),0); }
+var _pqMap=null;                        // qty per POS button name, grouped once (v2.68.0) — the Liquor Alias page asked
+function posQtyOfName(n){               // this 968 times, each walking all 212 POS rows with a norm() apiece
+  if(!_pqMap){ _pqMap=Object.create(null);
+    for(let i=0;i<posData.length;i++){ const p=posData[i], k=norm(p.name); _pqMap[k]=(_pqMap[k]||0)+(+p.qty||0); } }
+  return _pqMap[norm(n)]||0; }
 
 /* ---------- generic per-page layout engine: def / twopane / accordion / cards / dense ---------- */
 let _lySel={}, _lyOpen={};
@@ -2270,6 +2274,21 @@ function rvMatch(name){                                     // -> {name, sure, a
   const pick=rvPrefer(q, r.all||[], r.name);
   return (pick===r.name) ? r : {name:pick, sure:false, all:r.all||[]};   // a promoted name is always amber — the person confirms
 }
+/* "SAMSARA GIN" is a GIN — the category should not open on WHISKY because that is the first one (v2.68.0) */
+const RV_CATMAP={WHISKY:'WHISKY',RUM:'RUM',VODKA:'VODKA',GIN:'GIN',BEER:'BEER',WINE:'WINE',BRANDY:'BRANDY',LIQ:'LIQUEUR'};
+function rvGuessCat(name){
+  const u=String(name||'').toUpperCase();
+  if(/\bBREEZER\b|\bALCOPOP/.test(u)) return 'ALCOPOPS';
+  if(/\bDRAUGHT\b|\bDRAFT\b|\bKEG\b/.test(u) || /\d{5}\s*ML\b/.test(u)) return 'DRAUGHT BEER';
+  if(/\bTEQUILA\b|\bMEZCAL\b|\bAGAVE\b/.test(u)) return 'TEQUILA';
+  if(/\bCIGARETTE\b|\bSODA\b|\bRED\s*BULL\b|\bWATER\b/.test(u)) return 'BEVERAGE & CIGARETTE';
+  let k=''; try{ k=bevKind(bevTokens(u))||''; }catch(e){}
+  const c=RV_CATMAP[k];
+  return (c && CATEGORIES.indexOf(c)>=0) ? c : '';
+}
+function rvNewCatSuggest(v){ const g=rvGuessCat(v); if(!g) return;
+  const s=$('#rvNewCat'); if(!s || s.dataset.touched) return;                  // a category they picked themselves stays
+  s.value=g; try{ rvCatDefault(); }catch(e){} }
 function rvIsPcs(brand){ const it=getTallyItem(brand); return !!(it && it.unit && String(it.unit).toLowerCase()!=='ml'); }
 function rvServeOf(name, brand){                            // one POS sale = how much, before the offer
   if(!brand) return 30;
@@ -2289,10 +2308,11 @@ function rvInit(name, qty){
   _rv={ name:name, qty:+qty||0, kind:kind, brand:brand, ck:(kind==='c'?ckGuess:''), cat:'',
         pcs:rvIsPcs(brand), base:rvServeOf(name,brand), x:rvOfferOf(name),
         sure:(kind==='c' ? !!(CK&&CK.whole) : !!M.sure), own:false, cands:(M.all||[]).slice(0,5),
-        bGuess:bGuess, ckGuess:ckGuess,
+        bGuess:bGuess, ckGuess:ckGuess, newCat:'',                      // filled just below, once _rv.cat is known
         q:'', hits:[], sel:0, open:false, ckHits:[], ckSel:0, ckOpen:false };
   const it=getTallyItem(brand);
   _rv.cat = it ? it.category : ((M.all&&M.all[0])?M.all[0].group:'');
+  _rv.newCat = rvGuessCat(name) || (CATEGORIES.indexOf(_rv.cat)>=0 ? _rv.cat : '');   // the name's own kind first
 }
 function rvSetBrand(b){ const it=getTallyItem(b);                     // a <select> hands back the option's text, which the
   _rv.brand=it?it.name:String(b||'');                                // browser collapses — snap it to the Tally spelling
@@ -2523,8 +2543,8 @@ function openResolve(i){
     </div>
     <div id="rv-new" style="display:none">
       <div class="form-grid">
-        <div class="field"><label>Brand Name</label><input class="input" id="rvNewName" value="${esc(rvCleanPos(name))}"></div>
-        <div class="field"><label>Category</label><select class="input" id="rvNewCat" onchange="rvCatDefault()">${CATEGORIES.map(c=>`<option ${norm(c)===norm(_rv.cat)?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="field"><label>Brand Name</label><input class="input" id="rvNewName" oninput="rvNewCatSuggest(this.value)" value="${esc(rvCleanPos(name))}"></div>
+        <div class="field"><label>Category <span class="mu">— read from the name</span></label><select class="input" id="rvNewCat" onchange="this.dataset.touched=1;rvCatDefault()">${CATEGORIES.map(c=>`<option ${norm(c)===norm(_rv.newCat)?'selected':''}>${c}</option>`).join('')}</select></div>
         <div class="field"><label>ML / unit (beer &amp; breezer = 1 piece)</label><input class="input" id="rvNewMl" type="number" value="30"></div>
         <div class="field"><label>× units per sale (offer "3 On 1" = 3)</label><input class="input" id="rvNewX" type="number" min="1" step="1" value="${_rv.x}"></div>
         <div class="field"><label>POS name (alias)</label><input class="input" id="rvNewAlias" value="${esc(name)}"></div>
