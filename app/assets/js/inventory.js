@@ -2004,7 +2004,7 @@ VIEWS.liquorroom = () => {
       lrRoyal=`<div class="card" style="margin-bottom:14px"><div class="card-body" style="text-align:center;border-bottom:1px solid var(--gold)">
           <div style="${SER};font-size:10px;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase">— ${esc(cfg.company||'Traffic Gastropub')} · Liquor Room Register —</div>
           <div style="${SER};font-size:26px;color:var(--text);margin-top:4px">₹ ${fmt(Math.round(tVal))}</div>
-          <div class="muted" style="font-size:11px"><strong class="gold">${fmt(tClose)} bots</strong> closing stock · ${period.from} → ${period.to}</div></div>
+          <div class="muted" style="font-size:11px"><strong class="gold">${fmt(tClose)} bots</strong> closing stock · every date</div></div>
         <div class="card-body" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
           <div style="flex:1.4;min-width:240px">${ledger}</div>
           <div style="width:150px;flex:none;text-align:center"><div style="width:110px;height:110px;margin:0 auto;position:relative"><canvas id="lrC4"></canvas></div></div></div></div>`;
@@ -2026,14 +2026,14 @@ VIEWS.liquorroom = () => {
     ['op','🏛️ Opening — none'],['rv','📦 Received — none'],['is','🍸 Issued — none'],['cl','♛ Closing — none']];
   const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
   const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
-  const tools=`${periodBar(true)}<span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
+  const tools=`${periodBar(true)}<span class="lrnote noprint" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">counts <strong>every date</strong> · the period is for Beverage Control &amp; reports</span><span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
       <div class="search lrq">🔎<input id="searchBox" placeholder="Search item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
       <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>`;
   const tl=`<div class="tl noprint">${headSel}${smallSel('Premium look','setLrLook(this.value)',LOOK_OPTS,look)}${layDrop('liquorroom')}</div>`;
   // ① Royal Ledger — the .bcledger title + .bclh grid of the Beverage Control head, five columns, the .lrflow ring
   const shareCell=(v,c,hi)=>{ const p=pctOf(v); return `<div class="s${hi?' hi':''}">${p.toFixed(1)}%<span class="bar ${c}"><i style="width:${Math.min(100,p).toFixed(1)}%"></i></span></div>`; };
   const ledgerHead=`<div class="card lrflow bcledger lrledger">
-      <div class="bh"><div class="t">Liquor Room Ledger</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued to bar <b>=</b> Closing</div><div class="p">${nInHand} items in hand · ${esc(period.from)} → ${esc(period.to)}</div>${tl}</div>
+      <div class="bh"><div class="t">Liquor Room Ledger</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued to bar <b>=</b> Closing</div><div class="p" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">${nInHand} items in hand · every date</div>${tl}</div>
       <div class="lrl-body">
         <div class="bclh lr5">
           <div class="h c">Column</div><div class="h">🏛️ Opening</div><div class="h">📦 Received</div><div class="h">🍸 Issued to bar</div><div class="h">♛ Closing stock</div>
@@ -2048,7 +2048,7 @@ VIEWS.liquorroom = () => {
   // ② Crown Seal — double frame, ribbon title, Opening + Received · seal · Issued = Closing, the controls in a gold band
   const sc=(cls,ico,label,btl,sgn,val,sub)=>`<div class="sc ${cls}"><div class="l">${ico} ${label}</div><div class="v">${sgn}${fmt(btl)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(val))}</div><div class="n">${sub}</div></div>`;
   const sealHead=`<div class="card lrflow lrseal"><i class="cd tl"></i><i class="cd tr"></i><i class="cd bl"></i><i class="cd br"></i>${tl}
-      <div class="rib"><span class="ln"></span><div class="c"><div class="t">❖ Liquor Room ❖</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${nInHand} items in hand · ${esc(period.from)} → ${esc(period.to)}</span></div></div><span class="ln r"></span></div>
+      <div class="rib"><span class="ln"></span><div class="c"><div class="t">❖ Liquor Room ❖</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">· ${nInHand} items in hand · every date</span></div></div><span class="ln r"></span></div>
       <div class="sg">
         ${sc('op','🏛️','Opening',tOpen,'',tValO,`${nOpen} items · ${per(tValO,tOpen)} / bottle`)}<div class="opr">+</div>
         ${sc('rv','📦','Received',tRecv,tRecv>0?'+':'',tValR,tRecv>0?`from Purchase · ${per(tValR,tRecv)} / bottle`:'nothing purchased in this period')}
@@ -2073,7 +2073,7 @@ VIEWS.liquorroom = () => {
         ${BLANK_OPTS.map(o=>`<option value="${o[0]}" ${lrBlank===o[0]?'selected':''}>${o[1]}</option>`).join('')}
       </select>${rdSelBarHtml()}</div>
     <div class="card lrflow">
-      <div class="lrf-head"><div class="t">Liquor Room</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p">· ${esc(period.from)} → ${esc(period.to)}</span></div></div>
+      <div class="lrf-head"><div class="t">Liquor Room</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">· every date</span></div></div>
       <div class="lrf-body">
         <div class="lrf-steps">
           <div class="st op"><div class="ic">🏛️</div><div class="l">Opening</div><div class="v">${fmt(tOpen)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(tValO))}</div></div>

@@ -1,1 +1,1 @@
-{"version":"2.71.0","date":"2026-09-30","notes":"Bar Stock Issue now counts the period you set — the same dates Beverage Control receipts them in — and Beverage Control checks the two totals against each other."}
+{"version":"2.72.0","date":"2026-10-01","notes":"The Liquor Room no longer prints a period it does not use — it counts every date (the whole month), and says so beside the period picker. Only Beverage Control and the Bar Stock Issue page follow the period dates."}
