@@ -1361,7 +1361,7 @@ VIEWS.mrdetail = () => {
   const nItems=new Set(mrDetail.map(r=>norm(r.item))).size;
   const mds=mrDetail.map(r=>r.date).filter(Boolean).sort(); const mspan=mds.length?`${mds[0]} → ${mds[mds.length-1]}`:'';
   const LT=lrTotals(), avail=LT.op+LT.rv, pctIs=avail>0?Math.min(100,Math.round(LT.is/avail*100)):0;
-  const avgIs=total>0?totalAmt/total:0;
+  const avgIs=total>0?totalAmt/total:0; const SRC=mrSrcCounts();
   return `
     <div class="page-head"><div><h1>Bar Stock Issue</h1><p>Liquor Room → Bar issues. Issue Slip: type the item, pick it, bottles, Enter — live stock beside it; the next line opens by itself.</p></div>
       <div class="page-actions">
@@ -1378,7 +1378,7 @@ VIEWS.mrdetail = () => {
           <div class="arr">›</div>
           <div class="st is"><div class="ic">🍸</div><div class="l">Bottles Issued</div><div class="v">−${fmt(total)}<small>btl</small></div><div class="m sub">out of ${fmt(avail)} available in Liquor Room</div></div>
           <div class="arr">=</div>
-          <div class="st cl"><div class="ic">♛</div><div class="l">Issue Amount</div><div class="v amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="m">avg ₹ ${fmt(Math.round(avgIs))} / bottle</div></div>
+          <div class="st cl"><div class="ic">♛</div><div class="l">Issue Amount</div><div class="v amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="m">avg ₹ ${fmt(Math.round(avgIs))} / bottle</div>${(SRC.b.n&&SRC.c.n)?`<div class="m sub">🧾 ₹ ${fmt(Math.round(SRC.b.a))} <span class="mu">+</span> 💵 ₹ ${fmt(Math.round(SRC.c.a))}</div>`:''}</div>
           <div class="arr">·</div>
           <div class="st td"><div class="ic">📅</div><div class="l">Today</div><div class="v">${fmt(tdQty)}<small>btl</small></div><div class="m sub">${tdRows.length?fmt(tdRows.length)+' issue'+(tdRows.length===1?'':'s')+' · '+esc(today):'nothing issued yet · '+esc(today)}</div></div>
         </div>
@@ -1391,7 +1391,7 @@ VIEWS.mrdetail = () => {
       <div class="flex gap-8 items-center" style="flex-wrap:wrap">${mrRegFilterHtml()}${layDrop('mrdetail')}${mrDetail.length?`<button class="btn btn-danger btn-sm" onclick="clearAllMr()">🗑 Clear All</button>`:''}</div></div>
       <div id="mrDupCard">${mrDupCardHtml()}</div>
       <div class="table-wrap" style="max-height:460px;overflow-y:auto"><table class="tbl">
-      <thead><tr><th style="width:96px">Date</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
+      <thead><tr><th style="width:96px">Date</th><th style="width:104px" title="Where this issue came from — click a chip to switch">Source</th><th style="width:150px">Group</th><th>Item</th><th class="right" style="width:84px">Issued</th><th class="right" style="width:104px">Amount ₹</th><th class="right nowrap" style="width:118px" title="Opening + Received − Issued, as it stands now">In Liquor Room</th><th style="width:46px"></th></tr></thead>
       <tbody id="mrRegBody">${body}</tbody>
       <tfoot id="mrRegFoot">${RG.foot}</tfoot>
       </table></div>${rawNamesDatalist()}</div>`;
@@ -1420,24 +1420,43 @@ function mrDupOn(date,item){ const d=String(date||''), k=norm(item); return mrDe
 function mrDupCardHtml(){ const D=mrDupInfo(); if(!D.n) return '';
   const col=D.nDup?'red':'amber';
   return `<div class="mrdup noprint" style="--c:var(--${col})"><span class="t">⚠ ${D.n} entr${D.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${D.nDup?D.nDup+' with the same date · item · bottles — entered twice? ✕ the extra one':''}${D.nDup&&D.nMaybe?' · ':''}${D.nMaybe?D.nMaybe+' with the same date · item but different bottles — check they are two real issues':''}.</span><button class="btn btn-sm" onclick="mrRegSet('dup', _mrf.dup?'':'1')">${_mrf.dup?'Show all':'Show them'}</button></div>`; }
-var _mrf={q:'', from:'', to:'', grp:'', dup:''};
-function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp); const out=[]; const D=_mrf.dup?mrDupInfo():null;
-  mrDetail.forEach((r,i)=>{ if(D && !D.info[i]) return; if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
+var _mrf={q:'', from:'', to:'', grp:'', dup:'', src:''};
+/* ---- where an issue came from (v2.70.0) — the Purchase page's v2.39.0 pattern on the issue side.
+   BEVCO is the norm, so every issue ever saved stays BEVCO and only 'cash' is written on the entry. */
+function mrSrc(r){ return (r&&r.src==='cash')?'cash':'bevco'; }
+function mrSrcChip(r,i,mini){ const cash=mrSrc(r)==='cash';   // mini = icon only, for the slip's narrow group cell
+  return `<span class="lrinv ${cash?'cash':'bev'} tog${mini?' mini':''}" title="${cash?'Cash issue':'BEVCO issue'} — click to switch" onclick="mrToggleSrc(${i})">${mini?(cash?'💵':'🧾'):(cash?'💵 CASH':'🧾 BEVCO')}</span>`; }
+function mrToggleSrc(i){ const r=mrDetail[i]; if(!r) return;
+  if(mrSrc(r)==='cash') delete r.src; else r.src='cash';
+  bsv('mr',mrDetail); routeQuiet();   // the head split, the register and the slip all follow; the scroll is kept (v2.49.0)
+  toast('Issue source', esc(r.item)+' → '+(mrSrc(r)==='cash'?'💵 Cash':'🧾 BEVCO'),'ok'); }
+function mrSrcCounts(){ const o={b:{n:0,q:0,a:0}, c:{n:0,q:0,a:0}};
+  mrDetail.forEach(r=>{ const t=(mrSrc(r)==='cash')?o.c:o.b; const q=fnum(r.qty); t.n++; t.q+=q; t.a+=q*landOf(r.item); });
+  return o; }
+var _msSrc='bevco';                                   // what the NEXT slip line is — BEVCO unless they switch
+function mrSetSrc(v){ _msSrc=(v==='cash')?'cash':'bevco';
+  $$('#msSrcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.s===_msSrc));
+  const i=$('#msItem'); if(i) i.focus({preventScroll:true}); }
+function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp), sf=_mrf.src; const out=[]; const D=_mrf.dup?mrDupInfo():null;
+  mrDetail.forEach((r,i)=>{ if(D && !D.info[i]) return; if(sf && mrSrc(r)!==sf) return;
+    if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
     const ex=findRaw(r.item); const grp=ex?(ex.group||''):(r.group||'');
     if(g && norm(grp)!==g) return;
     if(q && !(norm(r.item).includes(q) || norm(grp).includes(q) || String(r.date||'').includes(_mrf.q.trim()))) return;
     out.push(i); });
   return out; }
-function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp||_mrf.dup); }
+function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp||_mrf.dup||_mrf.src); }
 function mrRegHtml(){
   const _c={}; const lrNow=name=>{ if(_c[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _c[name]=op+rv-is; } return _c[name]; };
-  const idx=mrRegIdx(); let total=0, amt=0; const DUP=mrDupInfo();
+  const idx=mrRegIdx(); let total=0, amt=0; const DUP=mrDupInfo(); const sB={q:0,a:0}, sC={q:0,a:0};
   const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const dk=DUP.info[i];
     const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same date + same item + same bottles appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date + same item, different bottles — two real issues, or a slip">? same day</span>':''; const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
+    { const t=(mrSrc(r)==='cash')?sC:sB; t.q+=q; t.a+=a; }
     const cl=ok?lrNow(r.item):null;
     // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
-    return `<tr class="${ok?'':'row-alert'}${dk==='dup'?' rvdup':''}">
+    return `<tr class="${ok?'':'row-alert'}${mrSrc(r)==='cash'?' rvcash':''}${dk==='dup'?' rvdup':''}">
       <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
+      <td class="nowrap">${mrSrcChip(r,i)}</td>
       <td class="nowrap">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:redBadge()}${dupPill}</td>
       <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
       <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
@@ -1445,18 +1464,25 @@ function mrRegHtml(){
       <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
       <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('');
   const body=rows || (mrDetail.length
-    ? `<tr><td colspan="7" class="center muted" style="padding:20px">No issue matches this search — <a href="#" onclick="mrRegClear();return false" style="color:var(--gold)">clear the filters</a>.</td></tr>`
-    : '<tr><td colspan="7" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>');
+    ? `<tr><td colspan="8" class="center muted" style="padding:20px">No issue matches this search — <a href="#" onclick="mrRegClear();return false" style="color:var(--gold)">clear the filters</a>.</td></tr>`
+    : '<tr><td colspan="8" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>');
   const on=mrRegOn();
-  const foot=`<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="3" class="right"><strong>TOTAL${on?' (shown)':''}</strong>${on?`<span class="muted" style="font-weight:500;margin-left:6px;font-size:11px">${fmt(idx.length)} of ${fmt(mrDetail.length)} issues</span>`:''}</td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(amt))}</strong></td><td colspan="2"></td></tr>`;
+  const both=sB.q>0 && sC.q>0;                                   // both kinds on screen → name them before the grand total (v2.70.0)
+  const splitRow=(lbl,s)=>`<tr class="lrsub rvsplit"><td colspan="4" class="right"><strong>${lbl}</strong></td><td class="num"><strong class="lrsg minus">−${fmt(s.q)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(s.a))}</strong></td><td colspan="2"></td></tr>`;
+  const foot=(both?splitRow('🧾 BEVCO',sB)+splitRow('💵 Cash',sC):'')+`<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="4" class="right"><strong>${both?'GRAND TOTAL (BEVCO + Cash)':'TOTAL'+(on?' (shown)':'')}</strong>${on?`<span class="muted" style="font-weight:500;margin-left:6px;font-size:11px">${fmt(idx.length)} of ${fmt(mrDetail.length)} issues</span>`:''}</td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(amt))}</strong></td><td colspan="2"></td></tr>`;
   const count=on?`<b>${fmt(idx.length)}</b> of ${fmt(mrDetail.length)} · ${fmt(total)} btl · ₹ ${fmt(Math.round(amt))}`:`${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'}`;
   return {body, foot, count, idx, total, amt};
 }
 function mrRegFilterHtml(){
   const groups=[...new Set(mrDetail.map(r=>{ const ex=findRaw(r.item); return ex?(ex.group||''):(r.group||''); }).filter(Boolean))].sort();
+  const SC=mrSrcCounts();
   return `<div class="mrfilt noprint">
     <span class="lb" title="Issue date from → to">📅</span><input class="input" type="date" id="mrfFrom" value="${esc(_mrf.from)}" onchange="mrRegSet('from',this.value)"><span class="lb">→</span><input class="input" type="date" id="mrfTo" value="${esc(_mrf.to)}" onchange="mrRegSet('to',this.value)">
     <select class="input" id="mrfGrp" onchange="mrRegSet('grp',this.value)"><option value="">All groups</option>${groups.map(g=>`<option value="${esc(g)}" ${norm(g)===norm(_mrf.grp)?'selected':''}>${esc(g)}</option>`).join('')}</select>
+    <select class="input" id="mrfSrc" title="Show only BEVCO issues or only cash issues" onchange="mrRegSet('src',this.value)">
+      <option value="">All sources</option>
+      <option value="bevco" ${_mrf.src==='bevco'?'selected':''}>🧾 BEVCO (${fmt(SC.b.n)} · ₹ ${fmt(Math.round(SC.b.a))})</option>
+      <option value="cash" ${_mrf.src==='cash'?'selected':''}>💵 Cash (${fmt(SC.c.n)} · ₹ ${fmt(Math.round(SC.c.a))})</option></select>
     <input class="input q" id="mrfQ" placeholder="🔎 Search item / group / date…" value="${esc(_mrf.q)}" oninput="mrRegType(this.value)" onkeydown="if(event.key==='Escape'){this.value='';mrRegType('');}">
     <button class="btn btn-sm" id="mrfClear" onclick="mrRegClear()" title="Clear the search and filters" ${mrRegOn()?'':'style="display:none"'}>✕ Clear</button>
     <span class="muted n" id="mrfN">${mrRegHtml().count}</span>
@@ -1466,7 +1492,7 @@ function mrRegPaint(){ const R=mrRegHtml(); const b=$('#mrRegBody'), f=$('#mrReg
   if(b) b.innerHTML=R.body; if(f) f.innerHTML=R.foot; if(n) n.innerHTML=R.count; if(c) c.style.display=mrRegOn()?'':'none'; if(d) d.innerHTML=mrDupCardHtml(); }
 function mrRegType(v){ _mrf.q=v; mrRegPaint(); }
 function mrRegSet(k,v){ _mrf[k]=v||''; mrRegPaint(); }
-function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:'', dup:''}; ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
+function mrRegClear(){ _mrf={q:'', from:'', to:'', grp:'', dup:'', src:''}; { const s=$('#mrfSrc'); if(s) s.value=''; } ['mrfFrom','mrfTo','mrfQ'].forEach(id=>{ const e=$('#'+id); if(e) e.value=''; }); const g=$('#mrfGrp'); if(g) g.value=''; mrRegPaint(); const q=$('#mrfQ'); if(q) q.focus({preventScroll:true}); }
 function mrSetField(i,f,v){ const r=mrDetail[i]; if(!r) return;   // v2.48.3 — the register's date · item · qty edited in place
   if(f==='qty'){ const n=evalNum(v); if(n===''||isNaN(+n)||!(+n>0)){ toast('Qty?','Bottles issued must be more than 0 — ✕ removes the line','err'); route(); return; } r.qty=+n; }
   else if(f==='date'){ const nd=String(v||'').trim(); if(!nd){ route(); return; }
@@ -1524,7 +1550,7 @@ function mrSlipLinesHtml(){
   return show.map((x,k)=>{ const r=x.r, ok=inRaw(r.item), q=fnum(r.qty), amt=q*landOf(r.item); const cl=ok?_msStock(r.item).cl:null;
     return `<div class="c n ${x.i===_msLast?'new':''}">${all.length-k}</div>
       <div class="c dt ${x.i===_msLast?'new':''}"><input class="msin dt" type="date" value="${esc(r.date||'')}" title="Issue date — change it and the line moves to that date" onchange="mrSetField(${x.i},'date',this.value)"></div>
-      <div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
+      <div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${mrSrcChip(r,x.i,true)}${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
       <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−</span><input class="msin q ln" value="${esc(String(r.qty))}" title="Bottles issued — type to correct it (✕ removes the line)" onchange="mrSetField(${x.i},'qty',this.value)"></div>
       <div class="c r amt">${amt?'₹ '+fmt(Math.round(amt)):'<span class="mu">—</span>'}</div><div class="c x"><button class="btn rmx" onclick="delMr(${x.i})" title="Remove this issue">✕</button></div>`; }).join('')
     + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
@@ -1534,6 +1560,9 @@ function mrSlipHead(){ const d=_mqDate||period.from; const L=mrDetail.filter(r=>
 function mrFindPanel(){
   return `<div class="card bcledger mrslip noprint">
     <div class="bh"><div class="t">Issue Slip</div><div class="f">Liquor Room <b>→</b> Bar · type the item, pick it, bottles, <b>Enter</b> — the next line opens by itself</div>
+      <div class="sg"><label>Issued from</label><div class="seg" id="msSrcSeg">
+        <button type="button" data-s="bevco" class="${_msSrc==='bevco'?'on':''}" onclick="mrSetSrc('bevco')" title="The usual — stock that came in on a BEVCO invoice">🧾 BEVCO</button>
+        <button type="button" data-s="cash" class="${_msSrc==='cash'?'on':''}" onclick="mrSetSrc('cash')" title="Stock bought for cash">💵 Cash</button></div></div>
       <div class="dt"><label for="mqDate">Issue date</label><input class="input" type="date" id="mqDate" value="${esc(_mqDate||period.from)}" oninput="_mqDate=this.value" onchange="mrSlipDate(this.value)"></div>
       <div class="p" id="msHead">${mrSlipHead()}</div></div>
     <div class="msg">
@@ -1593,7 +1622,9 @@ function mrSlipAdd(force){
       `<button class="btn" id="mrDupNo" onclick="closeModal();mrSlipFocusQty()">Cancel — same entry</button><button class="btn btn-gold" onclick="closeModal();mrSlipAdd(true)">Yes, issue again</button>`);
     setTimeout(()=>{ const b=$('#mrDupNo'); if(b) b.focus(); },0); return; } }
   const left=_msStock(r.item).cl-q;
-  mrDetail.push({id:_msNewId(), date:d, group:r.group||'', item:String(r.item).toUpperCase(), qty:q});
+  const _e={id:_msNewId(), date:d, group:r.group||'', item:String(r.item).toUpperCase(), qty:q};
+  if(_msSrc==='cash') _e.src='cash';                    // BEVCO is the norm and is never written (v2.70.0)
+  mrDetail.push(_e);
   bsv('mr',mrDetail); _msLast=mrDetail.length-1; _ms={i:-1, q:'', sel:0, hits:[], qty:''};
   routeQuiet();   // the register, the head figures and the slip lines follow; the entry row comes back empty
   toast('Issued', r.item+' — '+fmt(q)+' → Bar · '+fmt(left)+' left in Liquor Room', left<0?'err':'ok');
@@ -3117,11 +3148,12 @@ function reportAoa(id){
       a.push([r.date,r.item,r.group||'',q,m||'',Math.round(v),r.inv?String(r.inv).split('/').slice(-3).join('/'):'',cash?'Cash':'BEVCO']); });
     if(cq&&bq){ a.push(['BEVCO TOTAL','','',bq,'',Math.round(bv),'','']); a.push(['CASH TOTAL','','',cq,'',Math.round(cv),'','']); }
     a.push([cq&&bq?'GRAND TOTAL':'TOTAL','','',tq,'',Math.round(tv),'','']); return a; }
-  if(id==='mrd'){ const a=meta(['Date','Item','Group','Qty Issued']);
-    let tq=0;
-    mrDetail.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ tq+=fnum(r.qty);
-      a.push([r.date,r.item,r.group||'',fnum(r.qty)]); });
-    a.push(['TOTAL','','',tq]); return a; }
+  if(id==='mrd'){ const a=meta(['Date','Source','Item','Group','Qty Issued']);
+    let tq=0, qb=0, qc=0;
+    mrDetail.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ const q=fnum(r.qty), cash=mrSrc(r)==='cash'; tq+=q; if(cash) qc+=q; else qb+=q;
+      a.push([r.date,cash?'CASH':'BEVCO',r.item,r.group||'',q]); });
+    if(qb>0 && qc>0){ a.push(['BEVCO TOTAL','','','',qb]); a.push(['CASH TOTAL','','','',qc]); }
+    a.push(['TOTAL','','','',tq]); return a; }
   if(id==='cksale'){ const a=meta(['Cocktail','Qty Sold','Total ml','% of ml']);
     const list=cocktailSales().sort((x,y)=>y.qty-x.qty); const tot=list.reduce((s,x)=>s+x.ml,0)||1; let tq=0,tm=0;
     list.forEach(x=>{ a.push([x.c.name,x.qty,Math.round(x.ml),(x.ml/tot*100).toFixed(1)+'%']); tq+=x.qty; tm+=x.ml; });
