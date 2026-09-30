@@ -1272,14 +1272,17 @@ function cashInvConfirm(force){
   if(!force && m.no){ const d=recvDupCheck(m.no, use.map(r=>r.item)); if(d.length){ confirmAsk(`Bill <strong>${esc(m.no)}</strong> already has <strong>${d.map(esc).join(', ')}</strong> in the register — adding again would be a <span style="color:var(--red)">double entry</span> (was this photo read before?). Add anyway?`, ()=>cashInvConfirm(true)); return; } }
   const date=m.date||new Date().toISOString().slice(0,10); let added=0, created=0, total=0;
   const missingCat=use.filter(r=>!findRawExact(r.item)&&!(r.grp||'').trim()); if(missingCat.length){ toast('Category?','Choose a category for the new item'+(missingCat.length>1?'s':'')+': '+missingCat.map(r=>r.item).join(', '),'err'); return; }
-  use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase(); rawData.push({item:nm, group:(r.grp||'').trim()||'(ungrouped)'}); rebuildRawIdx(); it=findRawExact(nm); created++; }
+  const _ciMade=[];
+  use.forEach(r=>{ let it=findRawExact(r.item); if(!it){ const nm=String(r.item).replace(/\s(\d{2,4})$/,' $1 ML').toUpperCase();
+      const mk=newItemEverywhere(nm, (r.grp||'').trim()||'(ungrouped)');   // Item Master · Liquor Room · Tally · Beverage Control (v2.74.0)
+      if(mk) _ciMade.push(mk); it=findRawExact(nm); created++; }
     const rate=+r.rate||(r.qty?Math.round(r.amt/r.qty*100)/100:0);
     const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date, item:it.item, qty:+r.qty, group:it.group||'', src:'cash', land:rate, mrp:rate};
     if(m.no) e.inv=String(m.no).trim(); if(m.shop) e.shop=String(m.shop).trim();
     const iv=invGet(it.item); if(iv.mrp==null||iv.mrp==='') invSet(it.item,'mrp',rate);
     receivedStock.push(e); added++; total+=(+r.qty)*rate; });
-  _recvRateDrop(); if(created) saveRaw(); bsv('recv',receivedStock); recvSrcF='all';
-  toast('Cash invoice added', added+' entr'+(added===1?'y':'ies')+' · ₹ '+fmt(Math.round(total))+(m.no?' · bill '+m.no:'')+(created?' · '+created+' new item'+(created===1?'':'s')+' in Item Master':''), 'ok');
+  _recvRateDrop(); const CIM=newItemCommit(_ciMade); bsv('recv',receivedStock); recvSrcF='all';
+  toast('Cash invoice added', added+' entr'+(added===1?'y':'ies')+' · ₹ '+fmt(Math.round(total))+(m.no?' · bill '+m.no:'')+(CIM.items?' · '+CIM.items+' new item'+(CIM.items===1?'':'s')+' in Item Master + Liquor Room'+(CIM.brands?' + Tally Sheet + Beverage Control':''):''), 'ok');
   c.sumN+=added; c.sumAmt+=total; c.done++;
   if(c.queue.length){ cashInvNext(); } else { cashInv=null; closeModal(); route(); if(c.total>1) toast('All photos done', c.total+' photos · '+c.sumN+' cash entr'+(c.sumN===1?'y':'ies')+' · ₹ '+fmt(Math.round(c.sumAmt)), 'ok'); }
 }
@@ -4555,6 +4558,41 @@ async function bevcoNext(){
 function bevcoFromPaste(){ const t=($('#bevPaste')&&$('#bevPaste').value)||''; closeModal();
   const inv=bevcoParse(t); if(!inv.items.length){ toast('No items found','Text did not match the BEVCO format','err'); return; } bevcoPreview(inv); }
 let _bevInv=null;
+/* ---- one new name lands on ALL FOUR pages (v2.74.0) --------------------------------------------
+   Client: "kono new name BEVCO diye add hobe ek sange Item Master, Liquor Room, Beverage Control &
+   Tally Sheet-e category-wise add hobe & add korbar somoy category jeno jigyasa kore & auto find kore."
+   Item Master and the Liquor Room share rawData; the Tally Sheet and Beverage Control share tallyItems.
+   Until now a BEVCO line only ever created the rawData entry, so the new product had no Beverage
+   Control row — and since v2.73.0 that also means its issues had nowhere to be received. The brand is
+   created in the same breath, with rawName = the item, so _receiptOwner() gives that row its bottles.
+   Makes nothing twice: an existing name on either side is left exactly as it is. */
+function tallyCatsList(){ const s=new Set(tallyItems.map(t=>String(t.category||'').trim()).filter(Boolean));
+  if(typeof CATEGORIES!=='undefined') CATEGORIES.forEach(c=>s.add(c));
+  return [...s].sort((a,b)=>a.localeCompare(b)); }
+function tallyCatOpts(sel){ const cs=tallyCatsList(); if(sel && cs.indexOf(sel)<0) cs.unshift(sel);
+  return cs.map(c=>`<option ${c===sel?'selected':''}>${esc(c)}</option>`).join(''); }
+/* the category this product belongs in, found for them — their own group first, then the name (v2.68.0 rvGuessCat) */
+function catFindFor(name, group){ try{ return _invCatFor(name, group); }catch(e){ return 'WHISKY'; } }
+function newItemEverywhere(name, group, cat){
+  const nm=String(name||'').trim(); if(!nm) return null;
+  let g=String(group||'').trim(); if(!g){ try{ g=bevcoGuessGroup(nm)||''; }catch(e){} } if(!g) g='BEVCO IMPORT';
+  const c=String(cat||'').trim()||catFindFor(nm, g);
+  const out={name:nm, group:g, cat:c, madeRaw:false, madeBrand:false};
+  if(!findRawExact(nm)){ rawData.push({item:nm, group:g}); rebuildRawIdx(); out.madeRaw=true; }
+  if(!getTallyItem(nm)){ _invAddBrand(nm, c); out.madeBrand=true; }
+  const k=norm(nm), iv=invData[k]||(invData[k]={});
+  if(iv.rawName==null||iv.rawName===''){ iv.rawName=nm; out.linked=true; }
+  return out;
+}
+/* save whatever a run of newItemEverywhere() touched */
+function newItemCommit(res){
+  const any=res.filter(Boolean);
+  if(any.some(r=>r.madeRaw)) saveRaw();
+  if(any.some(r=>r.madeBrand)){ bsv('tally',tallyItems); try{ rebuildIndexes(); }catch(e){} }
+  if(any.some(r=>r.linked)) bsv('inv',invData);
+  if(any.length){ try{ invalidateCalcCache(); }catch(e){} }
+  return {items:any.filter(r=>r.madeRaw).length, brands:any.filter(r=>r.madeBrand).length};
+}
 function bevcoPreview(inv){
   _bevInv=inv;
   const ok=(a,b)=>Math.abs(a-b)<0.06;
@@ -4586,14 +4624,18 @@ function bevcoPreview(inv){
     const pill=state==='new'?`<span class="pill red" id="bevSt${i}">＋ new item — rename / pick category</span>`:state==='coll'?`<span class="pill amber" id="bevSt${i}" title="Two products on one name — this line and: ${esc(others.join(' · '))}. Give one of them its own Item Master name${m&&m.alt?' · maybe: '+esc(m.alt):''}">? 2 lines → one name</span>`:state==='guess'?`<span class="pill amber" id="bevSt${i}" title="Best guess — please check${m&&m.alt?' · or: '+esc(m.alt):''}">? check</span>`:`<span class="pill green" id="bevSt${i}">✔ ${state==='learned'?'remembered':'matched'}</span>`;
     return `<tr><td style="font-size:11px">${esc(x.name)} ${pill}
         <div style="margin-top:3px;display:flex;gap:6px;align-items:center"><input class="cell-input bmap ${(state==='guess'||state==='coll')?'bmap-guess':state==='new'?'bmap-new':''}" style="text-align:left;flex:1" list="rawItems" id="bevMap${i}" value="${esc(state==='new'?clean:mapped)}" placeholder="↳ Item Master name (blank = new item: ${esc(clean)})" oninput="bevMapEdit(${i})"></div>
-        <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><span class="muted" style="font-size:10.5px">New in Item Master + Liquor Room under the name above · category</span>
-          <select class="input" id="bevGrp${i}" style="width:auto;padding:2px 6px;font-size:11px;margin-left:4px" onchange="bevGrpPick(${i})">${groupOpts(ggrp)}<option value="__new__">＋ New category…</option></select>
-          <input class="cell-input" id="bevGrpNew${i}" style="display:none;width:170px;text-align:left;margin-left:4px" placeholder="e.g. IMFL WHISKY 750 ML"></div>${priceBox}</td>
+        <div id="bevNew${i}" style="margin-top:3px;${state==='new'?'':'display:none'}"><div class="muted" style="font-size:10.5px">Added under the name above to <strong>Item Master · Liquor Room · Tally Sheet · Beverage Control</strong></div>
+          <div class="bevnw"><span class="l">Item Master group</span>
+          <select class="input" id="bevGrp${i}" onchange="bevGrpPick(${i})">${groupOpts(ggrp)}<option value="__new__">＋ New group…</option></select>
+          <input class="cell-input" id="bevGrpNew${i}" style="display:none" placeholder="e.g. IMFL WHISKY 750 ML">
+          <span class="l">Beverage Control category</span>
+          <select class="input cat" id="bevCat${i}" onchange="bevCatPick(${i})" title="Which category this brand sits in on the Tally Sheet and Beverage Control — found from the name and the group, change it if it is wrong">${tallyCatOpts(catFindFor(clean, ggrp))}<option value="__new__">＋ New category…</option></select>
+          <input class="cell-input" id="bevCatNew${i}" style="display:none" placeholder="e.g. BLENDED WHISKY"></div></div>${priceBox}</td>
       <td class="num">₹${fmt(x.mrp)}</td><td class="num"><input class="cell-input" style="width:44px" id="bevQty${i}" value="${x.bots}"></td>
       <td class="num muted" style="font-size:10.5px">${esc(x.caseBot)}</td><td class="num gold">₹${fmt(x.amount)}</td></tr>`; }).join('');
   const sum=[nSure?`<span style="color:var(--green)">${nSure} matched</span>`:'', nGuess?`<span style="color:var(--amber)">${nGuess} to check${nColl?' ('+nColl+' share one name)':''}</span>`:'', nNew?`<span style="color:var(--red)">${nNew} new → Item Master</span>`:''].filter(Boolean).join(' · ');
   modal('🧾 BEVCO Invoice — '+esc(inv.no||''),
-    `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the Item Master and the Liquor Room.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · new names → Item Master automatically · <strong>prices already set in Item Master are never changed by an invoice</strong>${nBlank?' · <span style="color:var(--amber)">'+nBlank+' item'+(nBlank>1?'s have':' has')+' no landing ₹ yet — set below</span>':''}</div>
+    `${nNew?`<div style="border:1px solid var(--red);background:var(--red-dim);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">⚠ ${nNew} new product${nNew>1?'s':''} on this invoice</strong> — not in your Item Master yet. Check the name (rename it the way you write it) and pick the category on the red line${nNew>1?'s':''} below; on confirm ${nNew>1?'they are':'it is'} added to the <strong>Item Master · Liquor Room · Tally Sheet · Beverage Control</strong> together.</div>`:''}<div class="muted" style="font-size:11.5px;margin-bottom:8px">Dated <strong>${esc(inv.date||'—')}</strong> · ${inv.items.length} items · ${sum}<br>On confirm: items → Purchase · new names → Item Master · Liquor Room · Tally Sheet · Beverage Control automatically · <strong>prices already set in Item Master are never changed by an invoice</strong>${nBlank?' · <span style="color:var(--amber)">'+nBlank+' item'+(nBlank>1?'s have':' has')+' no landing ₹ yet — set below</span>':''}</div>
      <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
        <thead><tr><th>Item (map to Item Master)</th><th class="right">MRP/Bot</th><th class="right">Bot.</th><th class="right">Case-Bot</th><th class="right">Amount</th></tr></thead>
        <tbody>${rows}
@@ -4613,12 +4655,26 @@ function bevcoPreview(inv){
     `<button class="btn" onclick="bevcoCancelAll()">Cancel${_bevQueue.length?' all':''}</button>${_bevQueue.length?`<button class="btn" onclick="closeModal();bevcoNext()" title="Leave this invoice out and go to the next">Skip →</button>`:''}<button class="btn btn-gold" onclick="bevcoConfirm()">✅ Add to Purchase · update prices${_bevQueue.length?' · next ('+_bevQueue.length+' more)':''}</button>${_bevQueue.length?`<button class="btn btn-gold" onclick="bevcoAddAll()" title="Confirm this and every queued invoice as shown — only an invoice with a “? check” line pauses for you">✅ Add all (${_bevQueue.length+1})</button>`:''}`);
 }
 // typing in a mapping box: blank → the NEW-item row (name + group) shows; a name → it hides
+/* the Beverage Control category re-guesses itself from the name + group, unless they picked one (v2.74.0) */
+function bevCatPick(i){ const s=$('#bevCat'+i), b=$('#bevCatNew'+i); if(!s) return;
+  s.dataset.touched='1';
+  const isNew=s.value==='__new__'; if(b){ b.style.display=isNew?'':'none'; if(isNew) b.focus(); } }
+function bevCatSuggest(i){ const s=$('#bevCat'+i); if(!s || s.dataset.touched) return;
+  const nm=(($('#bevMap'+i)||{}).value||'').trim(); if(!nm) return;
+  const g=bevGrpOf(i); const c=catFindFor(nm, g);
+  if(c && [].slice.call(s.options).some(o=>o.value===c)) s.value=c; }
+function bevGrpOf(i){ const g=$('#bevGrp'+i), gn=$('#bevGrpNew'+i);
+  return (g&&g.value==='__new__') ? ((gn&&gn.value.trim().toUpperCase())||'') : ((g&&g.value.trim())||''); }
+function bevCatOf(i, nm, grp){ const c=$('#bevCat'+i), cn=$('#bevCatNew'+i);
+  const v=(c&&c.value==='__new__') ? ((cn&&cn.value.trim().toUpperCase())||'') : ((c&&c.value.trim())||'');
+  return v||catFindFor(nm, grp); }
 function bevMapEdit(i){ const inp=$('#bevMap'+i), nw=$('#bevNew'+i), st=$('#bevSt'+i); if(!inp) return;
   const v=inp.value.trim(); const known=!!(v&&findRawExact(v)); const isNew=!known;   // blank or an unknown name = a new item under that name
   if(nw) nw.style.display=isNew?'':'none';
   inp.classList.toggle('bmap-new',isNew); if(known) inp.classList.remove('bmap-guess');
-  if(st){ if(known){ st.className='pill green'; st.textContent='✔ matched'; } else { st.className='pill red'; st.textContent='＋ new item — rename / pick category'; } } }
-function bevGrpPick(i){ const s=$('#bevGrp'+i), t=$('#bevGrpNew'+i); if(!s||!t) return; t.style.display=s.value==='__new__'?'':'none'; if(s.value==='__new__') t.focus(); }
+  if(st){ if(known){ st.className='pill green'; st.textContent='✔ matched'; } else { st.className='pill red'; st.textContent='＋ new item — rename / pick category'; } }
+  if(isNew) bevCatSuggest(i); }                                  // the category follows the name they type (v2.74.0)
+function bevGrpPick(i){ setTimeout(function(){ bevCatSuggest(i); },0); const s=$('#bevGrp'+i), t=$('#bevGrpNew'+i); if(!s||!t) return; t.style.display=s.value==='__new__'?'':'none'; if(s.value==='__new__') t.focus(); }
 // which Item Master entry a preview line lands on — exact name wins; a typed name that is a SURE fuzzy
 // match snaps to the house spelling; anything else becomes a NEW entry (the box empty → the clean BEVCO name)
 function bevcoResolve(x,i){
@@ -4635,15 +4691,15 @@ function bevcoConfirm(){
   // so Σ(qty × landing) === the invoice's grand Total (the true landed cost)
   const grand=inv.fees.total||inv.calc.total||0;
   const factor=(inv.calc.base>0 && grand>0) ? grand/inv.calc.base : 1;
-  let added=0, rawAdded=0; const newNames=[];
+  let added=0, rawAdded=0; const newNames=[]; const _bevMade=[];
   inv.items.forEach((x,i)=>{
     const R=bevcoResolve(x,i); const mapped=R.name;
     const qty=fnum(($('#bevQty'+i)&&$('#bevQty'+i).value)||x.bots)||x.bots;
     bevMap[norm(x.name)]=mapped;                       // remember this mapping for every future invoice
-    if(R.isNew){                                       // NEW item → Item Master (and therefore Liquor Room, MR search, Purchase matching) at once
-      const gsel=$('#bevGrp'+i), gnew=$('#bevGrpNew'+i);
-      const group=((gsel&&gsel.value==='__new__')?((gnew&&gnew.value.trim().toUpperCase())||bevcoGuessGroup(x.name)):((gsel&&gsel.value.trim())||bevcoGuessGroup(x.name)))||'BEVCO IMPORT';
-      rawData.push({item:mapped, group}); rebuildRawIdx(); rawAdded++; newNames.push(mapped); }
+    if(R.isNew){                                       // NEW item → Item Master · Liquor Room · Tally Sheet · Beverage Control, at once (v2.74.0)
+      const group=bevGrpOf(i)||bevcoGuessGroup(x.name)||'BEVCO IMPORT';
+      const made=newItemEverywhere(mapped, group, bevCatOf(i, mapped, group));
+      if(made){ _bevMade.push(made); if(made.madeRaw){ rawAdded++; newNames.push(mapped); } } }
     const g=findRawExact(mapped);
     const landE=Math.round(x.amount*factor/(x.bots||1)*10000)/10000;   // this line's landed rate, fee share included
     receivedStock.push({date:inv.date||new Date().toISOString().slice(0,10), item:mapped, qty:qty, group:g?g.group:'', inv:inv.no||'', land:landE, src:'bevco'});
@@ -4654,14 +4710,14 @@ function bevcoConfirm(){
     added++;
   });
   bsv('bevmap',bevMap);
-  if(rawAdded){ saveRaw(); }
+  const MADE=newItemCommit(_bevMade);            // Item Master + Tally Sheet saved together (v2.74.0)
   bsv('recv',receivedStock);
   invoices.unshift({no:inv.no,date:inv.date,ts:new Date().toLocaleString(),items:inv.items,fees:inv.fees,calc:inv.calc});
   if(invoices.length>100) invoices.length=100;
   bsv('invoices',invoices);
   if(_bevAll) _bevAllN++;
   closeModal(); route();
-  toast('Invoice added', added+' items → Purchase · landing ₹ + MRP updated everywhere'+(rawAdded?' · '+rawAdded+' NEW in Item Master + Liquor Room: '+newNames.slice(0,3).join(', ')+(newNames.length>3?' …':''):''),'ok');
+  toast('Invoice added', added+' items → Purchase · landing ₹ + MRP updated everywhere'+(MADE.items?' · '+MADE.items+' NEW in Item Master + Liquor Room'+(MADE.brands?' + '+MADE.brands+' on the Tally Sheet + Beverage Control':'')+': '+newNames.slice(0,3).join(', ')+(newNames.length>3?' …':''):''),'ok');
   if(_bevQueue.length||_bevAll) bevcoNext();           // straight on to the next invoice in the folder (Add all: an empty queue ends the run with its summary)
 }
 function bevcoList(){
@@ -4837,8 +4893,11 @@ function _invCatFor(name, group){
 function _invAddBrand(name, cat){
   if(getTallyItem(name)) return false;               // never a second row with the same name
   const c=cat||'WHISKY';
-  const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[c])||{unit:invUnit(c), peg:(invUnit(c)==='pcs'?1:30)};
-  tallyItems.push({name, category:c, posQty:0, unit:(d.unit||invUnit(c)), pegMl:(d.peg||(invUnit(c)==='pcs'?1:30)), cocktailMl:0, straightMl:0, bogo:0}); }
+  /* the UNIT follows the category, exactly as invUnit() decides it everywhere else — CAT_DEFAULTS
+     spells the pcs kinds 'Bottle'/'Pcs', and the company seeds all write 'pcs' (v2.74.0) */
+  const u=invUnit(c);
+  const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[c])||null;
+  tallyItems.push({name, category:c, posQty:0, unit:u, pegMl:((d&&d.peg)||(u==='pcs'?1:30)), cocktailMl:0, straightMl:0, bogo:0}); return true; }
 /* ---- Beverage Control rows + opening figures from the Traffic workbook (v2.42.0, all rows since v2.43.0) ----
    TRAFFIC_BAR = every brand row of the main sheet: a brand the Tally Sheet does not know is created in the mapped
    category (the workbook's own group → app category) so Beverage Control shows the same rows as the Excel page;
