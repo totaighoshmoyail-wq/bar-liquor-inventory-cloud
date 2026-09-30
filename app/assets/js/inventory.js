@@ -21,7 +21,14 @@ function _trafficInv(){ const o={};
   if(typeof TRAFFIC_BAR!=='undefined') TRAFFIC_BAR.forEach(x=>{ if(x.o==null) return; const k=norm(x.b); (o[k]=o[k]||{}).openBL=x.o; });
   if(typeof TRAFFIC_LR_OPEN!=='undefined')  TRAFFIC_LR_OPEN.forEach(x=>{ const k=norm(x.f); (o[k]=o[k]||{}).lrOpen=x.o; });
   return o; }
-const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN) ? (typeof CANTEEN_INV!=='undefined' ? CANTEEN_INV : {})
+// Canteen's opening/closing seed (v2.73.0) = the September-2026 main sheet (CANTEEN_BAR rows carrying o / cl),
+// laid over the older CANTEEN_INV (main-sheet col D + Liquor-Room col C) so nothing the July seed held is lost.
+function _canteenInv(){ const o=JSON.parse(JSON.stringify(typeof CANTEEN_INV!=='undefined'?CANTEEN_INV:{}));
+  if(typeof CANTEEN_BAR!=='undefined') CANTEEN_BAR.forEach(x=>{ const k=norm(x.b); const e=(o[k]=o[k]||{});
+    if(x.o!=null) e.openBL=x.o;                      // the September sheet is newer than CANTEEN_INV (July)
+    if(x.cl!=null) e.closeBL=x.cl; });
+  return o; }
+const _seedInv = (typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN) ? _canteenInv()
   : ((typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC) ? _trafficInv() : {});
 let invData       = bls('inv',  JSON.parse(JSON.stringify(_seedInv)));   // { norm(item): {sizeL, openBL, closeBL, lrOpen, saleOverride} }
 // heal: an existing-but-empty store must not mask the company's opening-balance seed
@@ -149,8 +156,33 @@ function lrTotals(){
   });
   return t;
 }
-function receiptInPeriod(name){ const n=norm(name), f=period.from, t=period.to;
-  return mrDetail.reduce((a,r)=>{ const m=(norm(r.item).includes(n)||n.includes(norm(r.item))); const d=r.date||''; return a+((m&&(!f||d>=f)&&(!t||d<=t))?fnum(r.qty):0); },0); }
+/* Who receives an issued item? (v2.73.0 — the client: "receiving o match koro issue sheet er sange")
+   A bottle must land on exactly ONE Beverage Control row, or the sheet's Receipt can never equal the
+   period's Bar Stock Issue. The owner of an item name is the brand whose RECEIVE NAME is that item
+   (the Excel's own col-A link); for a name nobody claims exactly, the brand whose own name
+   contains-matches it — the Excel's SUMIFS("*"&B&"*") — and, when several would, the most specific
+   (longest) of them, never all of them. Built once per tally / item-list / save. */
+var _rcOwn=null, _rcOwnKey='';
+function _receiptOwner(){
+  const key=_fiVer+'|'+tallyItems.length+'|'+rawData.length+'|'+mrDetail.length;
+  if(_rcOwn && _rcOwnKey===key) return _rcOwn;
+  const own=Object.create(null), loose=[];
+  tallyItems.forEach(t=>{ const rn=rawNameFor(t.name); const nb=norm(t.name);
+    if(rn){ const k=norm(rn); if(!own[k]) own[k]=nb; }          // two brands on one receive name: the first wins
+    else if(nb) loose.push(nb); });
+  const names=Object.create(null);
+  mrDetail.forEach(r=>{ names[norm(r.item)]=1; });
+  rawData.forEach(r=>{ names[norm(r.item)]=1; });
+  Object.keys(names).forEach(k=>{ if(!k || own[k]) return;
+    let best=''; for(let x=0;x<loose.length;x++){ const nb=loose[x];
+      if(k.indexOf(nb)<0 && nb.indexOf(k)<0) continue;
+      if(nb.length>best.length) best=nb; }
+    if(best) own[k]=best; });
+  _rcOwnKey=key; return (_rcOwn=own);
+}
+function receiptInPeriod(name){ const nb=norm(name), f=period.from, t=period.to, own=_receiptOwner();
+  return mrDetail.reduce((a,r)=>{ if(own[norm(r.item)]!==nb) return a;
+    const d=r.date||''; return a+(((!f||d>=f)&&(!t||d<=t))?fnum(r.qty):0); },0); }
 // Excel-faithful receipt: EXACT name match on the Raw Data full name within the period (SUMIFS on col A).
 function receiptExact(rawName){ if(!rawName) return 0; _fiEnsure(); return _fiExact[norm(rawName)]||0; }   // the period's issues, grouped once (v2.68.0)
 // best-effort SALE link to a bar-tie brand (from the Linking engine)
@@ -1351,7 +1383,7 @@ function mrImpConfirm(){
 let mrDraft=[{date:'', item:'', qty:''}];
 let mrVoiceLang='en-US', mrVoiceOn=false, mrVoiceHeard='', mrVoiceItem='', mrVoiceDate='', mrVoiceMsg='', mrVoiceSuggest=[], mrVoiceStep='item', _mrRec=null;
 VIEWS.mrdetail = () => {
-  const WIN=mrPeriodRows().map(i=>mrDetail[i]);          // the period's issues — the window Beverage Control receipts (v2.71.0)
+  const WIN=mrDetail;                                    // every issue — this page is period-free (v2.73.0)
   const total=WIN.reduce((a,r)=>a+fnum(r.qty),0);
   const totalAmt=WIN.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
   const RG=mrRegHtml(); const body=RG.body;   // rows of the register under the current search / filters (v2.49.1)
@@ -1370,10 +1402,9 @@ VIEWS.mrdetail = () => {
         <button class="btn btn-sm" onclick="openPhotoRecv()">📷 Photo</button>
         <button class="btn btn-sm" onclick="expReport('mrd','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('mrd')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
-    ${periodBar()}
     ${mrWinHtml()}
     <div class="card lrflow mrflow">
-      <div class="lrf-head"><div class="t">Bar Stock Issue</div><div class="f">Issue Amount <b>=</b> Bottles issued <b>×</b> Landing ₹/bottle <span class="p">· Liquor Room → Bar · ${_mrAll?'every date':esc(mrPeriodTxt())}${mspan?' · '+esc(mspan):''}</span></div></div>
+      <div class="lrf-head"><div class="t">Bar Stock Issue</div><div class="f">Issue Amount <b>=</b> Bottles issued <b>×</b> Landing ₹/bottle <span class="p">· Liquor Room → Bar · every date${mspan?' · '+esc(mspan):''}</span></div></div>
       <div class="lrf-body">
         <div class="lrf-steps">
           <div class="st"><div class="ic">📋</div><div class="l">Saved Issues</div><div class="v">${fmt(WIN.length)}<small>rows</small></div><div class="m sub">${fmt(nItems)} item${nItems===1?'':'s'}</div></div>
@@ -1413,7 +1444,7 @@ VIEWS.mrdetail = () => {
 /* same-date double entries (v2.49.2): the same item twice on one date — identical bottles = almost surely entered twice
    (dup, red); different bottles = two issues or a slip (maybe, amber). Flagged in the register, counted in a card, and the
    slip asks before issuing an item a second time on the same date. */
-function mrDupInfo(){ const by={}; mrDetail.forEach((r,i)=>{ if(!mrInPeriod(r)) return; const k=String(r.date||'')+'\x01'+norm(r.item); (by[k]=by[k]||[]).push(i); });
+function mrDupInfo(){ const by={}; mrDetail.forEach((r,i)=>{ const k=String(r.date||'')+'\x01'+norm(r.item); (by[k]=by[k]||[]).push(i); });
   const info={}, groups=[];
   Object.values(by).forEach(ix=>{ if(ix.length<2) return; const qs=new Set(ix.map(i=>String(fnum(mrDetail[i].qty)))); const kind=qs.size===1?'dup':'maybe';
     ix.forEach(i=>{ info[i]=kind; }); groups.push({ix, kind, date:mrDetail[ix[0]].date, item:mrDetail[ix[0]].item}); });
@@ -1422,26 +1453,16 @@ function mrDupOn(date,item){ const d=String(date||''), k=norm(item); return mrDe
 function mrDupCardHtml(){ const D=mrDupInfo(); if(!D.n) return '';
   const col=D.nDup?'red':'amber';
   return `<div class="mrdup noprint" style="--c:var(--${col})"><span class="t">⚠ ${D.n} entr${D.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${D.nDup?D.nDup+' with the same date · item · bottles — entered twice? ✕ the extra one':''}${D.nDup&&D.nMaybe?' · ':''}${D.nMaybe?D.nMaybe+' with the same date · item but different bottles — check they are two real issues':''}.</span><button class="btn btn-sm" onclick="mrRegSet('dup', _mrf.dup?'':'1')">${_mrf.dup?'Show all':'Show them'}</button></div>`; }
-/* ---- the PERIOD is this page's window (v2.71.0) ------------------------------------------------
-   Client: "ami ja date theke start & end korbo sei date-er issue count hobe Beverage Control-er
-   receipt-e … Bar Stock Issue-e oi date-er ja issue ache, Beverage Control-e sei item-er total
-   receive sei-i hobe." Beverage Control's Receipt has ALWAYS been the issues inside
-   period.from..period.to (receiptExact) — but this page carried a period bar and then counted every
-   issue ever saved, so the two pages could never be compared and the picker looked broken.
-   One test now, character for character the one receiptExact uses, plus a visible "every date"
-   switch so nothing is ever hidden in silence. */
-var _mrAll=false;                                           // true = ignore the period, show every date
-function mrInPeriod(r){ if(_mrAll) return true; const d=String((r&&r.date)||''), f=period.from, t=period.to;
-  return !((f&&d<f)||(t&&d>t)); }                           // = receiptExact's test (a blank date is outside)
-function mrPeriodRows(){ const o=[]; for(let i=0;i<mrDetail.length;i++) if(mrInPeriod(mrDetail[i])) o.push(i); return o; }
+var _mrf={q:'', from:'', to:'', grp:'', dup:'', src:''};   // the Issue Register's own search + filters
+/* ---- this page counts EVERY date — the period belongs to Beverage Control (v2.73.0) ----------
+   v2.71.0 made the period this page's window so the two pages could be tied together; the client
+   then fixed the rule the other way: "Beverage Control-e date change korle Bar Issue-r date change
+   hobe na — Bar Issue-te start month theke end month-er total issue dekhabe." So the Bar Stock
+   Issue page is period-free again, exactly like the Liquor Room, and only Beverage Control's
+   Receipt reads period.from..period.to. Do not reopen: the client has now stated it twice. */
 function mrPeriodTxt(){ return (period.from||'…')+' → '+(period.to||'…'); }
-function mrOutCount(){ const f=period.from, t=period.to; let n=0;
-  mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) n++; }); return n; }
-function mrSetAll(v){ _mrAll=!!v; route(); }                // the head cards move too, so render the page once
-function mrWinHtml(){ const out=mrOutCount();
-  if(_mrAll) return `<div class="mrdup mrwin noprint" style="--c:var(--amber)"><span class="t">📅 Every date</span><span class="muted">All ${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'} — Beverage Control only ever receipts <strong>${esc(mrPeriodTxt())}</strong>.</span><button class="btn btn-sm" onclick="mrSetAll(false)">Back to the period</button></div>`;
-  return `<div class="mrdup mrwin noprint" style="--c:var(--gold)"><span class="t">📅 ${esc(mrPeriodTxt())}</span><span class="muted">Every figure on this page counts the issues inside the period above — the same window Beverage Control receipts them in.${out?` <strong>${fmt(out)}</strong> issue${out===1?'':'s'} sit outside it.`:''}</span>${out?`<button class="btn btn-sm" onclick="mrSetAll(true)">Show every date</button>`:''}</div>`; }
-var _mrf={q:'', from:'', to:'', grp:'', dup:'', src:''};
+const MR_NOTE='title="Bar Stock Issue shows every issue you have typed — the whole month. The period is Beverage Control\'s: it decides which dates that sheet receipts, and it never changes anything here."';
+function mrWinHtml(){ return `<div class="mrdup mrwin noprint" style="--c:var(--gold)" ${MR_NOTE}><span class="t">📅 Every date</span><span class="muted">This page shows <strong>every issue</strong> you have typed — the whole month. The period on <strong>Beverage Control</strong> (${esc(mrPeriodTxt())}) only decides which dates that sheet receipts; it changes nothing here.</span></div>`; }
 /* ---- where an issue came from (v2.70.0) — the Purchase page's v2.39.0 pattern on the issue side.
    BEVCO is the norm, so every issue ever saved stays BEVCO and only 'cash' is written on the entry. */
 function mrSrc(r){ return (r&&r.src==='cash')?'cash':'bevco'; }
@@ -1452,14 +1473,14 @@ function mrToggleSrc(i){ const r=mrDetail[i]; if(!r) return;
   bsv('mr',mrDetail); routeQuiet();   // the head split, the register and the slip all follow; the scroll is kept (v2.49.0)
   toast('Issue source', esc(r.item)+' → '+(mrSrc(r)==='cash'?'💵 Cash':'🧾 BEVCO'),'ok'); }
 function mrSrcCounts(){ const o={b:{n:0,q:0,a:0}, c:{n:0,q:0,a:0}};
-  mrDetail.forEach(r=>{ if(!mrInPeriod(r)) return; const t=(mrSrc(r)==='cash')?o.c:o.b; const q=fnum(r.qty); t.n++; t.q+=q; t.a+=q*landOf(r.item); });
+  mrDetail.forEach(r=>{ const t=(mrSrc(r)==='cash')?o.c:o.b; const q=fnum(r.qty); t.n++; t.q+=q; t.a+=q*landOf(r.item); });
   return o; }
 var _msSrc='bevco';                                   // what the NEXT slip line is — BEVCO unless they switch
 function mrSetSrc(v){ _msSrc=(v==='cash')?'cash':'bevco';
   $$('#msSrcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.s===_msSrc));
   const i=$('#msItem'); if(i) i.focus({preventScroll:true}); }
 function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp), sf=_mrf.src; const out=[]; const D=_mrf.dup?mrDupInfo():null;
-  mrDetail.forEach((r,i)=>{ if(!mrInPeriod(r)) return; if(D && !D.info[i]) return; if(sf && mrSrc(r)!==sf) return;
+  mrDetail.forEach((r,i)=>{ if(D && !D.info[i]) return; if(sf && mrSrc(r)!==sf) return;
     if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
     const ex=findRaw(r.item); const grp=ex?(ex.group||''):(r.group||'');
     if(g && norm(grp)!==g) return;
@@ -1469,7 +1490,7 @@ function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp), sf=_mrf.src; const 
 function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp||_mrf.dup||_mrf.src); }
 function mrRegHtml(){
   const _c={}; const lrNow=name=>{ if(_c[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _c[name]=op+rv-is; } return _c[name]; };
-  const idx=mrRegIdx(); const NW=mrPeriodRows().length; let total=0, amt=0; const DUP=mrDupInfo(); const sB={q:0,a:0}, sC={q:0,a:0};
+  const idx=mrRegIdx(); const NW=mrDetail.length; let total=0, amt=0; const DUP=mrDupInfo(); const sB={q:0,a:0}, sC={q:0,a:0};
   const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const dk=DUP.info[i];
     const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same date + same item + same bottles appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date + same item, different bottles — two real issues, or a slip">? same day</span>':''; const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
     { const t=(mrSrc(r)==='cash')?sC:sB; t.q+=q; t.a+=a; }
@@ -1486,8 +1507,6 @@ function mrRegHtml(){
       <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('');
   const body=rows || (NW
     ? `<tr><td colspan="8" class="center muted" style="padding:20px">No issue matches this search — <a href="#" onclick="mrRegClear();return false" style="color:var(--gold)">clear the filters</a>.</td></tr>`
-    : mrDetail.length
-    ? `<tr><td colspan="8" class="center muted" style="padding:20px">No issue in <strong>${esc(mrPeriodTxt())}</strong> — ${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'} sit outside these dates. <a href="#" onclick="mrSetAll(true);return false" style="color:var(--gold)">Show every date</a>.</td></tr>`
     : '<tr><td colspan="8" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>');
   const on=mrRegOn();
   const both=sB.q>0 && sC.q>0;                                   // both kinds on screen → name them before the grand total (v2.70.0)
@@ -1579,9 +1598,7 @@ function mrSlipLinesHtml(){
     + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
 }
 function mrSlipHead(){ const d=_mqDate||period.from; const L=mrDetail.filter(r=>r.date===d); const q=L.reduce((a,r)=>a+fnum(r.qty),0), amt=L.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
-  const out=!_mrAll && ((period.from&&d<period.from)||(period.to&&d>period.to));   // v2.71.0 — a line dated outside the period is not counted above
-  const tail=out?` · <span style="color:var(--amber)">outside ${esc(mrPeriodTxt())}</span>`:'';
-  return (L.length?`${fmt(L.length)} line${L.length===1?'':'s'} · ${fmt(q)} btl · ₹ ${fmt(Math.round(amt))}`:'no line on this date yet')+tail; }
+  return L.length?`${fmt(L.length)} line${L.length===1?'':'s'} · ${fmt(q)} btl · ₹ ${fmt(Math.round(amt))}`:'no line on this date yet'; }
 function mrFindPanel(){
   return `<div class="card bcledger mrslip noprint">
     <div class="bh"><div class="t">Issue Slip</div><div class="f">Liquor Room <b>→</b> Bar · type the item, pick it, bottles, <b>Enter</b> — the next line opens by itself</div>
@@ -2137,7 +2154,8 @@ function barRow(t){
   const { cmlMap, smlMap } = calcGrandTotals(); // (cheap, cached)
   const name=t.name, cat=t.category, u=invUnit(cat), iv=invGet(name);
   const rname=rawNameFor(name);                                   // Raw Data full name (Excel col A)
-  const recBtl = rname ? receiptExact(rname) : receiptInPeriod(name); // exact when mapped, else best-effort
+  const _own=_receiptOwner();                                        // one owner per issued item (v2.73.0)
+  const recBtl = rname ? (_own[norm(rname)]===norm(name) ? receiptExact(rname) : 0) : receiptInPeriod(name);
   const sale=Math.round(getEffectiveCocktailMl(t,cmlMap)+getEffectiveStraightMl(t,smlMap));
   let consAuto;
   if(u==='pcs'){ consAuto=fnum(iv.openBL)+recBtl-fnum(iv.closeBL); }
@@ -3201,7 +3219,7 @@ function reportAoa(id){
     a.push([cq&&bq?'GRAND TOTAL':'TOTAL','','',tq,'',Math.round(tv),'','']); return a; }
   if(id==='mrd'){ const a=meta(['Date','Source','Item','Group','Qty Issued']);
     let tq=0, qb=0, qc=0;
-    mrDetail.filter(mrInPeriod).sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ const q=fnum(r.qty), cash=mrSrc(r)==='cash'; tq+=q; if(cash) qc+=q; else qb+=q;
+    mrDetail.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ const q=fnum(r.qty), cash=mrSrc(r)==='cash'; tq+=q; if(cash) qc+=q; else qb+=q;
       a.push([r.date,cash?'CASH':'BEVCO',r.item,r.group||'',q]); });
     if(qb>0 && qc>0){ a.push(['BEVCO TOTAL','','','',qb]); a.push(['CASH TOTAL','','','',qc]); }
     a.push(['TOTAL','','','',tq]); return a; }
@@ -3340,13 +3358,25 @@ document.addEventListener('keydown', function(e){
   const el=e.target;
   if(!(el instanceof HTMLInputElement)) return;
   if(!(el.classList.contains('cell-input')||el.classList.contains('lcin'))) return;   // .lcin = the Landing / Lifting sheets (v2.57.0)
+  /* TAB walks the SHEET, not the browser's tab order (v2.73.0 — client: "all key & up down tab key").
+     Native Tab lands on the row's tick box and its ✕ button, which makes a sheet impossible to type across.
+     Skipped when the field's own handler already acted (the Issue Slip saves on Tab, v2.48.2). */
+  if(e.key==='Tab' && !e.defaultPrevented){
+    const tb=el.closest('table'); if(!tb) return;
+    const cells=Array.from(tb.querySelectorAll('input.cell-input,input.lcin'));
+    const ix=cells.indexOf(el); if(ix<0) return;
+    const nx=cells[ix+(e.shiftKey?-1:1)]; if(!nx) return;
+    e.preventDefault(); nx.focus({preventScroll:true}); if(nx.select) nx.select();
+    nx.scrollIntoView({block:'nearest',behavior:'smooth'}); return; }
   const k=(e.key==='Enter')?'ArrowDown':e.key;      // Enter = commit + move down, Excel-style
   if(k!=='ArrowUp' && k!=='ArrowDown' && k!=='ArrowLeft' && k!=='ArrowRight') return;
   const len=(el.value||'').length;
   let ss=null, se=null; try{ ss=el.selectionStart; se=el.selectionEnd; }catch(err){}
   if(k==='ArrowLeft'  && ss!=null && ss>0) return;      // still editing inside the text
   if(k==='ArrowRight' && se!=null && se<len) return;
-  if(el.getAttribute('list') && e.key!=='Enter') return;          // a datalist box keeps its own ↑↓ for the suggestions
+  // a datalist box keeps its own ↑↓ for the suggestions — except on the Beverage Control sheet, where the
+  // receive-name box is the FIRST cell of every row and the client walks the sheet with the arrows (v2.73.0)
+  if(el.getAttribute('list') && e.key!=='Enter' && !el.closest('.bctbl')) return;
   const grid=el.closest('.lfg');
   if(grid){ const cells=Array.from(grid.querySelectorAll('#lfLines > div'));
     const cell=el.closest('#lfLines > div'); const ix=cells.indexOf(cell); if(ix<0) return;
@@ -4788,32 +4818,72 @@ function rawSeedCatchUp(){
   localStorage.setItem(MK, String(S.v));
   return {added, renamed:renames, removed, kept:keep.length, keptData, fresh:false};
 }
+/* A brand row created by a catch-up. The category is the workbook's own group when the app knows it
+   (Canteen keeps the Excel group names as categories), else a guess from the name (v2.73.0). */
+function _invCatFor(name, group){
+  const known=c=>!!c && (tallyItems.some(t=>t.category===c) || (typeof CATEGORIES!=='undefined'&&CATEGORIES.includes(c)));
+  if(known(group)) return group;
+  let g=String(group||'').toUpperCase();
+  if(/^IMFL BEER|^BEER|BEER \d/.test(g)) return known('BEER')?'BEER':'BEER';
+  if(/DRA+UGHT/.test(g)) return 'DRAUGHT BEER';
+  if(/BREEEZER|BREEZER|ALCOPOP/.test(g)) return known('LAB')?'LAB':'ALCOPOPS';
+  if(/WINE/.test(g)) return known('RED WINE')?'RED WINE':'WINE';
+  try{ if(typeof rvGuessCat==='function'){ const c=rvGuessCat(name); if(c) return c; } }catch(e){}
+  const t=String(name||'').toUpperCase();
+  if(/VODKA/.test(t)) return 'VODKA'; if(/\bGIN\b/.test(t)) return 'GIN'; if(/\bRUM\b/.test(t)) return 'RUM';
+  if(/TEQUILA/.test(t)) return 'TEQUILA'; if(/BRANDY|COGNAC/.test(t)) return known('BRANDY / COGNAC')?'BRANDY / COGNAC':'BRANDY';
+  if(/BEER|LAGER/.test(t)) return 'BEER';
+  return known('WHISKY')?'WHISKY':'WHISKY'; }
+function _invAddBrand(name, cat){
+  if(getTallyItem(name)) return false;               // never a second row with the same name
+  const c=cat||'WHISKY';
+  const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[c])||{unit:invUnit(c), peg:(invUnit(c)==='pcs'?1:30)};
+  tallyItems.push({name, category:c, posQty:0, unit:(d.unit||invUnit(c)), pegMl:(d.peg||(invUnit(c)==='pcs'?1:30)), cocktailMl:0, straightMl:0, bogo:0}); }
 /* ---- Beverage Control rows + opening figures from the Traffic workbook (v2.42.0, all rows since v2.43.0) ----
    TRAFFIC_BAR = every brand row of the main sheet: a brand the Tally Sheet does not know is created in the mapped
    category (the workbook's own group → app category) so Beverage Control shows the same rows as the Excel page;
    a row with `o` (OPENING BAL) → invData[brand].openBL; TRAFFIC_LR_OPEN (Liquor Room OPENING QTY) → invData[item].lrOpen.
    Openings fill BLANKS only — a figure the client has typed is never overwritten (counted as kept).
    Once per TRAFFIC_INV_V per company (CO_PREFIX+'invv'); a Start-Fresh company gets its figures back this way too. */
+function _invSeedPlan(){                                     // which workbook this company follows (v2.73.0)
+  if(typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN)
+    return (typeof CANTEEN_INV_V!=='undefined') ? {v:CANTEEN_INV_V, bar:(typeof CANTEEN_BAR!=='undefined'?CANTEEN_BAR:[]), lr:[], fillAll:true,
+      prev:(typeof CANTEEN_INV!=='undefined'?CANTEEN_INV:{})} : null;   // what the OLD seed put there
+  if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC)
+    return (typeof TRAFFIC_INV_V!=='undefined') ? {v:TRAFFIC_INV_V, bar:(typeof TRAFFIC_BAR!=='undefined'?TRAFFIC_BAR:[]), lr:(typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]), fillAll:false} : null;
+  return null; }
 function invSeedCatchUp(){
-  if(typeof CO_IS_TRAFFIC==='undefined' || !CO_IS_TRAFFIC || typeof TRAFFIC_INV_V==='undefined') return null;
+  const P=_invSeedPlan(); if(!P) return null;
   const MK=CO_PREFIX+'invv';
-  if(localStorage.getItem(MK)===String(TRAFFIC_INV_V)) return null;
+  if(localStorage.getItem(MK)===String(P.v)) return null;
   const blank=v=>v==null||v==='';
   let bar=0, lr=0, keptBar=0, keptLr=0; const brandsAdded=[];
-  (typeof TRAFFIC_BAR!=='undefined'?TRAFFIC_BAR:[]).forEach(x=>{
-    if(!getTallyItem(x.b)){ const cat=(typeof CATEGORIES!=='undefined'&&CATEGORIES.includes(x.c))?x.c:'WHISKY'; const d=(typeof CAT_DEFAULTS!=='undefined'&&CAT_DEFAULTS[cat])||{unit:'ml',peg:30};
-      tallyItems.push({name:x.b, category:cat, posQty:0, unit:d.unit, pegMl:d.peg||30, cocktailMl:0, straightMl:0, bogo:0}); brandsAdded.push(x.b); }
-    if(x.o==null) return;
+  let cls=0, keptCl=0;
+  P.bar.forEach(x=>{
+    if(!getTallyItem(x.b)) { _invAddBrand(x.b, x.c); brandsAdded.push(x.b); }
     const k=norm(x.b); const iv=invData[k]||(invData[k]={});
-    if(blank(iv.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; });
-  (typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]).forEach(x=>{
+    const was=(P.prev&&P.prev[k])||{};                 // a value still equal to the OLD seed was never typed
+    const free=(cur,old)=>blank(cur)||(old!=null&&String(cur)===String(old));
+    if(x.o!=null){ if(free(iv.openBL, was.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; }
+    if(x.cl!=null){ if(free(iv.closeBL, was.closeBL)){ iv.closeBL=x.cl; cls++; } else keptCl++; } });
+  /* every Item Master name needs a row, or its issues have nowhere to be received (v2.73.0) */
+  if(P.fillAll){ const claimed={}; tallyItems.forEach(t=>{ claimed[norm(rawNameFor(t.name)||t.name)]=1; });
+    rawData.forEach(r=>{ const k=norm(r.item); if(claimed[k]) return; claimed[k]=1;
+      const have=getTallyItem(r.item);
+      if(have){ /* the brand is already there under this very name, pointed at something else —
+                   repoint it here when what it points at is not one of their items anyway */
+        const rn=rawNameFor(have.name); if(rn && !findRawExact(rn)){ const hk=norm(have.name); const hv=invData[hk]||(invData[hk]={}); hv.rawName=r.item; }
+        return; }
+      _invAddBrand(r.item, _invCatFor(r.item, r.group)); brandsAdded.push(r.item);
+      const iv=invData[k]||(invData[k]={}); if(blank(iv.rawName)) iv.rawName=r.item; }); }
+  P.lr.forEach(x=>{
     const k=norm(x.f); const iv=invData[k]||(invData[k]={});
     if(blank(iv.lrOpen)){ iv.lrOpen=x.o; lr++; } else keptLr++; });
   const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
-  if(bar||lr) w('inv', invData);
+  if(bar||cls||lr||brandsAdded.length) w('inv', invData);
   if(brandsAdded.length){ w('tally', tallyItems); try{ rebuildIndexes(); }catch(e){} try{ invalidateCalcCache(); }catch(e){} }
-  localStorage.setItem(MK, String(TRAFFIC_INV_V));
-  return {bar, lr, keptBar, keptLr, brandsAdded};
+  localStorage.setItem(MK, String(P.v));
+  return {bar, cls, lr, keptBar, keptCl, keptLr, brandsAdded};
 }
 /* When to run them. A device that was away (the PC closed overnight) would otherwise migrate its STALE copy at
    load, mark rawdata2/inv/bevmap dirty, and its next merge push would lay that stale copy over what the other
@@ -4823,7 +4893,7 @@ function invSeedCatchUp(){
    runs at once. Safety net: 90 s (offline, or the check never answers). */
 var _rawCatchPending=false;
 function _rawCatchDue(){ try{ const S=_rawSeedV(); if(S && localStorage.getItem(CO_PREFIX+'rawv')!==String(S.v)) return true;
-  if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC && typeof TRAFFIC_INV_V!=='undefined' && localStorage.getItem(CO_PREFIX+'invv')!==String(TRAFFIC_INV_V)) return true; }catch(e){} return false; }
+  const P=_invSeedPlan(); if(P && localStorage.getItem(CO_PREFIX+'invv')!==String(P.v)) return true; }catch(e){} return false; }
 function _rawCatchRun(){
   if(!_rawCatchPending) return; _rawCatchPending=false;
   let R=null, I=null; try{ R=rawSeedCatchUp(); }catch(e){} try{ I=invSeedCatchUp(); }catch(e){}

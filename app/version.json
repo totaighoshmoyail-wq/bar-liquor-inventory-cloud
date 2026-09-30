@@ -1,1 +1,1 @@
-{"version":"2.72.0","date":"2026-10-01","notes":"The Liquor Room no longer prints a period it does not use — it counts every date (the whole month), and says so beside the period picker. Only Beverage Control and the Bar Stock Issue page follow the period dates."}
+{"version":"2.73.0","date":"2026-10-01","notes":"The Canteen September workbook now fills the Tally Sheet and Beverage Control: every brand row, opening and closing. Receipt equals the period’s Bar Stock Issue exactly. Bar Stock Issue shows every date again — only Beverage Control follows the period."}
