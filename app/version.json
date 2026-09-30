@@ -1,1 +1,1 @@
-{"version":"2.70.0","date":"2026-09-30","notes":"Bar Stock Issue now records where the stock came from: 🧾 BEVCO (the default) or 💵 Cash. Pick it once on the Issue Slip and every line follows; the Issue Register shows a chip you can click to switch, a source filter, cash rows highlighted, and BEVCO / Cash totals above the grand total."}
+{"version":"2.71.0","date":"2026-09-30","notes":"Bar Stock Issue now counts the period you set — the same dates Beverage Control receipts them in — and Beverage Control checks the two totals against each other."}

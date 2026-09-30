@@ -1351,15 +1351,16 @@ function mrImpConfirm(){
 let mrDraft=[{date:'', item:'', qty:''}];
 let mrVoiceLang='en-US', mrVoiceOn=false, mrVoiceHeard='', mrVoiceItem='', mrVoiceDate='', mrVoiceMsg='', mrVoiceSuggest=[], mrVoiceStep='item', _mrRec=null;
 VIEWS.mrdetail = () => {
-  const total=mrDetail.reduce((a,r)=>a+fnum(r.qty),0);
-  const totalAmt=mrDetail.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
+  const WIN=mrPeriodRows().map(i=>mrDetail[i]);          // the period's issues — the window Beverage Control receipts (v2.71.0)
+  const total=WIN.reduce((a,r)=>a+fnum(r.qty),0);
+  const totalAmt=WIN.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
   const RG=mrRegHtml(); const body=RG.body;   // rows of the register under the current search / filters (v2.49.1)
   // royal head figures (v2.32.0) — the same totals the old stat strip showed, plus today's issues and the
   // issued-of-available share (Liquor Room Opening + Received) that the Crown Gauge look already uses
   const today=new Date().toISOString().slice(0,10);
   const tdRows=mrDetail.filter(r=>r.date===today), tdQty=tdRows.reduce((a,r)=>a+fnum(r.qty),0);
-  const nItems=new Set(mrDetail.map(r=>norm(r.item))).size;
-  const mds=mrDetail.map(r=>r.date).filter(Boolean).sort(); const mspan=mds.length?`${mds[0]} → ${mds[mds.length-1]}`:'';
+  const nItems=new Set(WIN.map(r=>norm(r.item))).size;
+  const mds=WIN.map(r=>r.date).filter(Boolean).sort(); const mspan=mds.length?`${mds[0]} → ${mds[mds.length-1]}`:'';
   const LT=lrTotals(), avail=LT.op+LT.rv, pctIs=avail>0?Math.min(100,Math.round(LT.is/avail*100)):0;
   const avgIs=total>0?totalAmt/total:0; const SRC=mrSrcCounts();
   return `
@@ -1370,11 +1371,12 @@ VIEWS.mrdetail = () => {
         <button class="btn btn-sm" onclick="expReport('mrd','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('mrd')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button></div></div>
     ${periodBar()}
+    ${mrWinHtml()}
     <div class="card lrflow mrflow">
-      <div class="lrf-head"><div class="t">Bar Stock Issue</div><div class="f">Issue Amount <b>=</b> Bottles issued <b>×</b> Landing ₹/bottle <span class="p">· Liquor Room → Bar${mspan?' · '+esc(mspan):''}</span></div></div>
+      <div class="lrf-head"><div class="t">Bar Stock Issue</div><div class="f">Issue Amount <b>=</b> Bottles issued <b>×</b> Landing ₹/bottle <span class="p">· Liquor Room → Bar · ${_mrAll?'every date':esc(mrPeriodTxt())}${mspan?' · '+esc(mspan):''}</span></div></div>
       <div class="lrf-body">
         <div class="lrf-steps">
-          <div class="st"><div class="ic">📋</div><div class="l">Saved Issues</div><div class="v">${fmt(mrDetail.length)}<small>rows</small></div><div class="m sub">${fmt(nItems)} item${nItems===1?'':'s'}</div></div>
+          <div class="st"><div class="ic">📋</div><div class="l">Saved Issues</div><div class="v">${fmt(WIN.length)}<small>rows</small></div><div class="m sub">${fmt(nItems)} item${nItems===1?'':'s'}</div></div>
           <div class="arr">›</div>
           <div class="st is"><div class="ic">🍸</div><div class="l">Bottles Issued</div><div class="v">−${fmt(total)}<small>btl</small></div><div class="m sub">out of ${fmt(avail)} available in Liquor Room</div></div>
           <div class="arr">=</div>
@@ -1411,7 +1413,7 @@ VIEWS.mrdetail = () => {
 /* same-date double entries (v2.49.2): the same item twice on one date — identical bottles = almost surely entered twice
    (dup, red); different bottles = two issues or a slip (maybe, amber). Flagged in the register, counted in a card, and the
    slip asks before issuing an item a second time on the same date. */
-function mrDupInfo(){ const by={}; mrDetail.forEach((r,i)=>{ const k=String(r.date||'')+'\x01'+norm(r.item); (by[k]=by[k]||[]).push(i); });
+function mrDupInfo(){ const by={}; mrDetail.forEach((r,i)=>{ if(!mrInPeriod(r)) return; const k=String(r.date||'')+'\x01'+norm(r.item); (by[k]=by[k]||[]).push(i); });
   const info={}, groups=[];
   Object.values(by).forEach(ix=>{ if(ix.length<2) return; const qs=new Set(ix.map(i=>String(fnum(mrDetail[i].qty)))); const kind=qs.size===1?'dup':'maybe';
     ix.forEach(i=>{ info[i]=kind; }); groups.push({ix, kind, date:mrDetail[ix[0]].date, item:mrDetail[ix[0]].item}); });
@@ -1420,6 +1422,25 @@ function mrDupOn(date,item){ const d=String(date||''), k=norm(item); return mrDe
 function mrDupCardHtml(){ const D=mrDupInfo(); if(!D.n) return '';
   const col=D.nDup?'red':'amber';
   return `<div class="mrdup noprint" style="--c:var(--${col})"><span class="t">⚠ ${D.n} entr${D.n===1?'y looks':'ies look'} like double entries</span><span class="muted">${D.nDup?D.nDup+' with the same date · item · bottles — entered twice? ✕ the extra one':''}${D.nDup&&D.nMaybe?' · ':''}${D.nMaybe?D.nMaybe+' with the same date · item but different bottles — check they are two real issues':''}.</span><button class="btn btn-sm" onclick="mrRegSet('dup', _mrf.dup?'':'1')">${_mrf.dup?'Show all':'Show them'}</button></div>`; }
+/* ---- the PERIOD is this page's window (v2.71.0) ------------------------------------------------
+   Client: "ami ja date theke start & end korbo sei date-er issue count hobe Beverage Control-er
+   receipt-e … Bar Stock Issue-e oi date-er ja issue ache, Beverage Control-e sei item-er total
+   receive sei-i hobe." Beverage Control's Receipt has ALWAYS been the issues inside
+   period.from..period.to (receiptExact) — but this page carried a period bar and then counted every
+   issue ever saved, so the two pages could never be compared and the picker looked broken.
+   One test now, character for character the one receiptExact uses, plus a visible "every date"
+   switch so nothing is ever hidden in silence. */
+var _mrAll=false;                                           // true = ignore the period, show every date
+function mrInPeriod(r){ if(_mrAll) return true; const d=String((r&&r.date)||''), f=period.from, t=period.to;
+  return !((f&&d<f)||(t&&d>t)); }                           // = receiptExact's test (a blank date is outside)
+function mrPeriodRows(){ const o=[]; for(let i=0;i<mrDetail.length;i++) if(mrInPeriod(mrDetail[i])) o.push(i); return o; }
+function mrPeriodTxt(){ return (period.from||'…')+' → '+(period.to||'…'); }
+function mrOutCount(){ const f=period.from, t=period.to; let n=0;
+  mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) n++; }); return n; }
+function mrSetAll(v){ _mrAll=!!v; route(); }                // the head cards move too, so render the page once
+function mrWinHtml(){ const out=mrOutCount();
+  if(_mrAll) return `<div class="mrdup mrwin noprint" style="--c:var(--amber)"><span class="t">📅 Every date</span><span class="muted">All ${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'} — Beverage Control only ever receipts <strong>${esc(mrPeriodTxt())}</strong>.</span><button class="btn btn-sm" onclick="mrSetAll(false)">Back to the period</button></div>`;
+  return `<div class="mrdup mrwin noprint" style="--c:var(--gold)"><span class="t">📅 ${esc(mrPeriodTxt())}</span><span class="muted">Every figure on this page counts the issues inside the period above — the same window Beverage Control receipts them in.${out?` <strong>${fmt(out)}</strong> issue${out===1?'':'s'} sit outside it.`:''}</span>${out?`<button class="btn btn-sm" onclick="mrSetAll(true)">Show every date</button>`:''}</div>`; }
 var _mrf={q:'', from:'', to:'', grp:'', dup:'', src:''};
 /* ---- where an issue came from (v2.70.0) — the Purchase page's v2.39.0 pattern on the issue side.
    BEVCO is the norm, so every issue ever saved stays BEVCO and only 'cash' is written on the entry. */
@@ -1431,14 +1452,14 @@ function mrToggleSrc(i){ const r=mrDetail[i]; if(!r) return;
   bsv('mr',mrDetail); routeQuiet();   // the head split, the register and the slip all follow; the scroll is kept (v2.49.0)
   toast('Issue source', esc(r.item)+' → '+(mrSrc(r)==='cash'?'💵 Cash':'🧾 BEVCO'),'ok'); }
 function mrSrcCounts(){ const o={b:{n:0,q:0,a:0}, c:{n:0,q:0,a:0}};
-  mrDetail.forEach(r=>{ const t=(mrSrc(r)==='cash')?o.c:o.b; const q=fnum(r.qty); t.n++; t.q+=q; t.a+=q*landOf(r.item); });
+  mrDetail.forEach(r=>{ if(!mrInPeriod(r)) return; const t=(mrSrc(r)==='cash')?o.c:o.b; const q=fnum(r.qty); t.n++; t.q+=q; t.a+=q*landOf(r.item); });
   return o; }
 var _msSrc='bevco';                                   // what the NEXT slip line is — BEVCO unless they switch
 function mrSetSrc(v){ _msSrc=(v==='cash')?'cash':'bevco';
   $$('#msSrcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.s===_msSrc));
   const i=$('#msItem'); if(i) i.focus({preventScroll:true}); }
 function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp), sf=_mrf.src; const out=[]; const D=_mrf.dup?mrDupInfo():null;
-  mrDetail.forEach((r,i)=>{ if(D && !D.info[i]) return; if(sf && mrSrc(r)!==sf) return;
+  mrDetail.forEach((r,i)=>{ if(!mrInPeriod(r)) return; if(D && !D.info[i]) return; if(sf && mrSrc(r)!==sf) return;
     if(_mrf.from && (r.date||'')<_mrf.from) return; if(_mrf.to && (r.date||'')>_mrf.to) return;
     const ex=findRaw(r.item); const grp=ex?(ex.group||''):(r.group||'');
     if(g && norm(grp)!==g) return;
@@ -1448,7 +1469,7 @@ function mrRegIdx(){ const q=norm(_mrf.q), g=norm(_mrf.grp), sf=_mrf.src; const 
 function mrRegOn(){ return !!(_mrf.q.trim()||_mrf.from||_mrf.to||_mrf.grp||_mrf.dup||_mrf.src); }
 function mrRegHtml(){
   const _c={}; const lrNow=name=>{ if(_c[name]==null){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); _c[name]=op+rv-is; } return _c[name]; };
-  const idx=mrRegIdx(); let total=0, amt=0; const DUP=mrDupInfo(); const sB={q:0,a:0}, sC={q:0,a:0};
+  const idx=mrRegIdx(); const NW=mrPeriodRows().length; let total=0, amt=0; const DUP=mrDupInfo(); const sB={q:0,a:0}, sC={q:0,a:0};
   const rows=idx.map(i=>{ const r=mrDetail[i]; const ok=inRaw(r.item); const dk=DUP.info[i];
     const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same date + same item + same bottles appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date + same item, different bottles — two real issues, or a slip">? same day</span>':''; const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
     { const t=(mrSrc(r)==='cash')?sC:sB; t.q+=q; t.a+=a; }
@@ -1463,14 +1484,16 @@ function mrRegHtml(){
       <td class="num"><span class="lrval">${a?('₹ '+fmt(Math.round(a))):'<span class="muted">—</span>'}</span></td>
       <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
       <td class="right"><button class="btn btn-danger btn-sm" onclick="delMr(${i})">✕</button></td></tr>`; }).join('');
-  const body=rows || (mrDetail.length
+  const body=rows || (NW
     ? `<tr><td colspan="8" class="center muted" style="padding:20px">No issue matches this search — <a href="#" onclick="mrRegClear();return false" style="color:var(--gold)">clear the filters</a>.</td></tr>`
+    : mrDetail.length
+    ? `<tr><td colspan="8" class="center muted" style="padding:20px">No issue in <strong>${esc(mrPeriodTxt())}</strong> — ${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'} sit outside these dates. <a href="#" onclick="mrSetAll(true);return false" style="color:var(--gold)">Show every date</a>.</td></tr>`
     : '<tr><td colspan="8" class="center muted" style="padding:20px">No issues yet — search an item above and press Enter.</td></tr>');
   const on=mrRegOn();
   const both=sB.q>0 && sC.q>0;                                   // both kinds on screen → name them before the grand total (v2.70.0)
   const splitRow=(lbl,s)=>`<tr class="lrsub rvsplit"><td colspan="4" class="right"><strong>${lbl}</strong></td><td class="num"><strong class="lrsg minus">−${fmt(s.q)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(s.a))}</strong></td><td colspan="2"></td></tr>`;
-  const foot=(both?splitRow('🧾 BEVCO',sB)+splitRow('💵 Cash',sC):'')+`<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="4" class="right"><strong>${both?'GRAND TOTAL (BEVCO + Cash)':'TOTAL'+(on?' (shown)':'')}</strong>${on?`<span class="muted" style="font-weight:500;margin-left:6px;font-size:11px">${fmt(idx.length)} of ${fmt(mrDetail.length)} issues</span>`:''}</td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(amt))}</strong></td><td colspan="2"></td></tr>`;
-  const count=on?`<b>${fmt(idx.length)}</b> of ${fmt(mrDetail.length)} · ${fmt(total)} btl · ₹ ${fmt(Math.round(amt))}`:`${fmt(mrDetail.length)} issue${mrDetail.length===1?'':'s'}`;
+  const foot=(both?splitRow('🧾 BEVCO',sB)+splitRow('💵 Cash',sC):'')+`<tr class="lrsub" style="position:sticky;bottom:0"><td colspan="4" class="right"><strong>${both?'GRAND TOTAL (BEVCO + Cash)':'TOTAL'+(on?' (shown)':'')}</strong>${on?`<span class="muted" style="font-weight:500;margin-left:6px;font-size:11px">${fmt(idx.length)} of ${fmt(NW)} issues</span>`:''}</td><td class="num"><strong class="lrsg ${total>0?'minus':'zero'}">${total>0?'−':''}${fmt(total)}</strong></td><td class="num"><strong class="lrval">₹ ${fmt(Math.round(amt))}</strong></td><td colspan="2"></td></tr>`;
+  const count=on?`<b>${fmt(idx.length)}</b> of ${fmt(NW)} · ${fmt(total)} btl · ₹ ${fmt(Math.round(amt))}`:`${fmt(NW)} issue${NW===1?'':'s'}`;
   return {body, foot, count, idx, total, amt};
 }
 function mrRegFilterHtml(){
@@ -1556,7 +1579,9 @@ function mrSlipLinesHtml(){
     + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
 }
 function mrSlipHead(){ const d=_mqDate||period.from; const L=mrDetail.filter(r=>r.date===d); const q=L.reduce((a,r)=>a+fnum(r.qty),0), amt=L.reduce((a,r)=>a+fnum(r.qty)*landOf(r.item),0);
-  return L.length?`${fmt(L.length)} line${L.length===1?'':'s'} · ${fmt(q)} btl · ₹ ${fmt(Math.round(amt))}`:'no line on this date yet'; }
+  const out=!_mrAll && ((period.from&&d<period.from)||(period.to&&d>period.to));   // v2.71.0 — a line dated outside the period is not counted above
+  const tail=out?` · <span style="color:var(--amber)">outside ${esc(mrPeriodTxt())}</span>`:'';
+  return (L.length?`${fmt(L.length)} line${L.length===1?'':'s'} · ${fmt(q)} btl · ₹ ${fmt(Math.round(amt))}`:'no line on this date yet')+tail; }
 function mrFindPanel(){
   return `<div class="card bcledger mrslip noprint">
     <div class="bh"><div class="t">Issue Slip</div><div class="f">Liquor Room <b>→</b> Bar · type the item, pick it, bottles, <b>Enter</b> — the next line opens by itself</div>
@@ -1578,7 +1603,7 @@ function mrFindPanel(){
       <div id="msLines" style="display:contents">${mrSlipLinesHtml()}</div>
     </div></div>`;
 }
-function mrSlipDate(v){ if(!v) return; _mqDate=v; const l=$('#msLines'), h=$('#msHead'); if(l) l.innerHTML=mrSlipLinesHtml(); if(h) h.textContent=mrSlipHead(); }
+function mrSlipDate(v){ if(!v) return; _mqDate=v; const l=$('#msLines'), h=$('#msHead'); if(l) l.innerHTML=mrSlipLinesHtml(); if(h) h.innerHTML=mrSlipHead(); }   // innerHTML: mrSlipHead() carries the amber 'outside the period' mark (v2.71.0)
 function mrSlipType(v){ _ms.q=v; _ms.i=-1; _ms.hits=_msHits(v); _ms.sel=0; mrSlipDD(); mrSlipLive(); }
 function mrSlipDD(){ const d=$('#msDD'); if(!d) return;
   if(!_ms.hits.length){ d.innerHTML=_ms.q.trim()?`<div class="none">No Item Master entry matches “${esc(_ms.q)}” — add it in Item Master first.</div>`:''; d.classList.toggle('open', !!_ms.q.trim()); return; }
@@ -2174,6 +2199,31 @@ function biRowHtml(t){
     <td class="num" title="variance amount = variance qty in bottles × Landing ₹"><strong style="color:${vcol};font-size:12.5px">${Math.round(A.varv)?('₹ '+fmt(Math.round(A.varv))):'—'}</strong></td></tr>`;
 }
 // royal-look dashboard data over ACTIVE items (same activity rule as the sheet)
+/* ---- Receipt <-> Bar Stock Issue, the same dates (v2.71.0) -------------------------------------
+   Receipt already reads ONLY the issues inside period.from..period.to (receiptExact). What it can
+   not show is a bottle issued on an Item Master name that NO brand row on this sheet points at —
+   that bottle has nowhere to land. So the two totals are compared on the page and any difference is
+   named instead of disappearing. Nothing here changes a figure; it only reports. */
+function bcRecvAudit(){
+  const f=period.from, t=period.to; let n=0, q=0; const claim=Object.create(null), lost=Object.create(null);
+  tallyItems.forEach(x=>{ claim[norm(rawNameFor(x.name)||x.name)]=1; });
+  mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) return;
+    const v=fnum(r.qty); n++; q+=v; if(!claim[norm(r.item)]) lost[r.item]=(lost[r.item]||0)+v; });
+  let got=0; tallyItems.forEach(x=>{ got+=barRow(x).recBtl; });
+  return {n, q, got, lost, gap:Math.round((q-got)*1000)/1000};
+}
+function bcRecvGapModal(){
+  const A=bcRecvAudit(); const names=Object.keys(A.lost).sort((a,b)=>A.lost[b]-A.lost[a]);
+  const lostQ=names.reduce((s,k)=>s+A.lost[k],0);
+  modal('📅 Receipt · '+esc(period.from)+' → '+esc(period.to), `
+    <p style="font-size:12px;margin:0 0 8px">Bar Stock Issue holds <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> bottle${A.q===1?'':'s'} in these dates. This sheet receipts <strong class="gold">${fmt(A.got)}</strong>.</p>
+    ${names.length?`<p class="muted" style="font-size:11.5px;margin:0 0 6px">These item names have no row on this sheet, so their bottles cannot appear here. Add the brand in the Tally Sheet, or point an existing brand's <em>receive name</em> at the item.</p>
+    <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead><tr><th>Item issued</th><th class="right" style="width:90px">Bottles</th></tr></thead>
+    <tbody>${names.map(k=>`<tr><td>${esc(k)}</td><td class="num"><strong>${fmt(A.lost[k])}</strong></td></tr>`).join('')}</tbody>
+    <tfoot><tr class="lrsub"><td class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(lostQ)}</strong></td></tr></tfoot></table></div>`
+    :`<p class="muted" style="font-size:11.5px">Every issued item has a row here, so the difference comes from a brand whose <em>receive name</em> is not set: its receipt is then matched on the brand name instead of exactly, which can pick a name up twice or miss one. Set the receive name on the Beverage Control row to make it exact.</p>`}`,
+    `<button class="btn" onclick="closeModal()">Close</button><button class="btn btn-gold" onclick="closeModal();location.hash='#mrdetail'">🔁 Open Bar Stock Issue</button>`);
+}
 function biRoyalData(){
   const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},plus:0,minus:0,
     // quantities behind the ₹ (v2.43.0, display only): ml-unit items in ml (kegs in ml too), pcs-unit items in pcs
@@ -2348,7 +2398,8 @@ VIEWS.barinv = () => {
         <input class="input" type="date" id="biFrom" value="${period.from}" style="width:auto" onchange="setBarPeriod()">
         <span class="gold">→</span>
         <input class="input" type="date" id="biTo" value="${period.to}" style="width:auto" onchange="setBarPeriod()">
-        <span class="muted" style="font-size:9.5px">Receipt = MR issues within these dates</span>
+        ${(()=>{ const A=bcRecvAudit(); const ok=Math.abs(A.gap)<0.001;   // v2.71.0 — say what Receipt is, and prove it
+          return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`}`; })()}
       </div>
       <div class="flex items-center" style="gap:6px;flex-wrap:wrap">
         <button class="btn btn-sm btn-gold" onclick="openBevClone()" title="Create / delete clone pages">📑 Page Clone${bevPages.length?' ('+bevPages.length+')':''}</button>
@@ -3150,7 +3201,7 @@ function reportAoa(id){
     a.push([cq&&bq?'GRAND TOTAL':'TOTAL','','',tq,'',Math.round(tv),'','']); return a; }
   if(id==='mrd'){ const a=meta(['Date','Source','Item','Group','Qty Issued']);
     let tq=0, qb=0, qc=0;
-    mrDetail.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ const q=fnum(r.qty), cash=mrSrc(r)==='cash'; tq+=q; if(cash) qc+=q; else qb+=q;
+    mrDetail.filter(mrInPeriod).sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(r=>{ const q=fnum(r.qty), cash=mrSrc(r)==='cash'; tq+=q; if(cash) qc+=q; else qb+=q;
       a.push([r.date,cash?'CASH':'BEVCO',r.item,r.group||'',q]); });
     if(qb>0 && qc>0){ a.push(['BEVCO TOTAL','','','',qb]); a.push(['CASH TOTAL','','','',qc]); }
     a.push(['TOTAL','','','',tq]); return a; }

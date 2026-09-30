@@ -2083,3 +2083,10 @@ html{scroll-behavior:smooth}
 .msg .c.g{display:flex;align-items:center;gap:5px;min-width:0}
 .msg .c.g .pill{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .lrinv.mini{padding:1px 5px;font-size:11px;line-height:1.5;flex:0 0 auto}
+
+/* ---- Bar Stock Issue · the period window strip (v2.71.0) -------------------------------------
+   Same bar as .mrdup, but it stands on its own under the period picker instead of inside a card,
+   so it needs its own frame. --c is set inline: gold while the period rules, amber on "every date". */
+.mrwin{border:1px solid color-mix(in srgb,var(--c) 34%,var(--border));border-radius:10px;margin:0 0 8px;padding:6px 14px}
+.mrwin .t{white-space:nowrap}
+.mrwin .muted{flex:1 1 220px;min-width:0;font-size:11.5px}
