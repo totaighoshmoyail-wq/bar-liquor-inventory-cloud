@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.68.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.69.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -282,16 +282,22 @@ function _cloudParseArr(s){ try{ const v=JSON.parse(s||'[]'); return Array.isArr
 /* identity of one entry — content based, since rows carry no id (an invoice-register row has its number) */
 function _cloudEntryKey(e){ if(!e||typeof e!=='object') return String(e); if(e.no!=null) return 'no:'+String(e.no); if(e.id) return 'id:'+String(e.id);   // manual purchases carry an id (v2.39.0) — two identical cash buys are two entries
   return [e.date,e.item,e.group,e.qty,e.inv,(e.land!=null&&e.land!=='')?Math.round(+e.land*100)/100:'',e.src||''].map(x=>x==null?'':String(x)).join(''); }   // + landed rate, so a corrected rate travels as replace-not-ignore (v2.35.2)
+/* v2.69.0: an entry with no id is keyed by its CONTENTS, so two issues of the same item, same
+   qty, same day had the same key and the merge collapsed them into one — a line vanished on
+   every sync. Repeats of a key are now numbered per list, so N identical entries stay N. */
+function _cloudKeyer(listKey){ const seen={};
+  return e=>{ const k=_cloudKeyOf(listKey||'', e); const n=(seen[k]=(seen[k]||0)+1); return n>1?(k+'\u0002'+n):k; }; }
 function cloudMergeList(serverStr, baseStr, mineStr, listKey){
-  const kf=e=>_cloudKeyOf(listKey||'', e);
   const server=_cloudParseArr(serverStr), base=_cloudParseArr(baseStr), mine=_cloudParseArr(mineStr);
-  const B={}, M={}; base.forEach(e=>{ B[kf(e)]=JSON.stringify(e); }); mine.forEach(e=>{ M[kf(e)]={e, j:JSON.stringify(e)}; });
+  const kB=_cloudKeyer(listKey), kM=_cloudKeyer(listKey), kS=_cloudKeyer(listKey);
+  const B={}, M={}; base.forEach(e=>{ B[kB(e)]=JSON.stringify(e); }); mine.forEach(e=>{ M[kM(e)]={e, j:JSON.stringify(e)}; });
   const out=[], seen={};
-  server.forEach(e=>{ const k=kf(e); if(seen[k]) return; seen[k]=1;
+  server.forEach(e=>{ const k=kS(e); if(seen[k]) return; seen[k]=1;
     if(k in B && !(k in M)) return;                       // I removed it since the base → stays removed
     if(k in M && M[k].j!==B[k]){ out.push(M[k].e); return; }   // I changed it (or added it and they have one too) → mine
     out.push(e); });                                       // untouched by me → theirs (with any change they made)
-  mine.forEach(e=>{ const k=kf(e); if(seen[k]) return; seen[k]=1; if(k in B) return; out.push(e); });   // my additions
+  const kM2=_cloudKeyer(listKey);
+  mine.forEach(e=>{ const k=kM2(e); if(seen[k]) return; seen[k]=1; if(k in B) return; out.push(e); });   // my additions
   return JSON.stringify(out);
 }
 function cloudMergeObj(serverStr, baseStr, mineStr){   // {key: value} objects (inv per item, bevmap per BEVCO name): three-way per key
@@ -324,6 +330,22 @@ function _cloudReloadWhenIdle(changedKeys){
 // force=true (Settings → "Replace the cloud copy") skips the merge: this device's copy becomes the cloud's,
 // whatever the cloud holds — the way out when the cloud copy is an old or empty one
 var _cloudPushing=false, _cloudPushAgain=false;
+/* v2.69.0 — THE LOST SAVE. A push snapshots localStorage, then spends a few hundred ms on the
+   network, then writes its own payload back into localStorage and clears the dirty flag. Anything
+   saved in that window was therefore (1) not in the payload, (2) overwritten locally by it, and
+   (3) no longer marked dirty — so an Issue Slip line typed while a push was in the air disappeared
+   from the screen, the device and the cloud by itself. Every save now carries a sequence number;
+   a push only clears what it actually carried, MERGES the rest instead of overwriting it, and asks
+   for another push. */
+var _cloudMarkSeq=0, _cloudMarkLog={};
+function _cloudLateKeys(seq0){ const s={}; Object.keys(_cloudMarkLog).forEach(k=>{ if(_cloudMarkLog[k]>seq0) s[k]=1; }); return s; }
+function _cloudPushMeta(stamp, seq0){
+  const late=(_cloudMarkSeq!==seq0);                                   // saved while this push was in the air
+  const dk=late ? (((_cloudMeta().dirtyKeys)||[]).slice()) : [];
+  try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:late, dirtyKeys:dk})); }catch(e){}
+  if(late) _cloudPushAgain=true;                                       // it goes up on the very next push
+  return late;
+}
 async function cloudPush(silent, force){   // v2.50.0: never two pushes at once — the second waits and runs once after the first
   if(_cloudPushing){ _cloudPushAgain=true; return false; }
   _cloudPushing=true;
@@ -339,6 +361,7 @@ async function _cloudPushCore(silent, force){
     else if(cloudLive()) { try{ cloudSignBanner(); }catch(e){} }     // automatic push blocked — the person must know (v2.34.0)
     return false; }
   const co=(coList().find(c=>c.id===ACTIVE_CO)||{}).name||ACTIVE_CO;
+  const seq0=_cloudMarkSeq;                      // anything saved after this line is NOT in this push (v2.69.0)
   const keys={}; _coSubKeys().forEach(sub=>{ keys[sub]=localStorage.getItem(CO_PREFIX+sub); });
   /* A key that was never edited is still sitting on its seed defaults — it exists in
      memory but not in storage, so it used to be left out of the push and the console
@@ -384,8 +407,15 @@ async function _cloudPushCore(silent, force){
           const back=await p.json().catch(()=>[]);
           if(!back.length) continue;                 // the row moved under us — loop and merge onto the newer copy
           /* their sheets come down to this device now: untouched keys wholesale, merged lists as merged */
-          stale=_cloudApplyLocal(payload, null);   // the keys that changed on this device
-          try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false, dirtyKeys:[]})); }catch(e){}
+          const late=_cloudLateKeys(seq0);
+          stale=_cloudApplyLocal(payload, late);   // the keys that changed on this device — a key saved mid-push is NOT overwritten
+          Object.keys(late).forEach(k=>{           // it is MERGED instead, so both sides keep everything (v2.69.0)
+            const now=localStorage.getItem(CO_PREFIX+k); let v;
+            if(CLOUD_LISTKEYS[k]) v=cloudMergeList(payload[k], baseSnap[k], now, k);
+            else if(CLOUD_OBJKEYS[k]) v=cloudMergeObj(payload[k], baseSnap[k], now);
+            else return;                            // a whole key: this device's newer copy stands and goes up next push
+            if(v!=null && v!==now){ try{ localStorage.setItem(CO_PREFIX+k, v); }catch(e){} stale=(stale||[]).concat([k]); } });
+          _cloudPushMeta(stamp, seq0);
           _cloudBaseSave(payload);
           mergedNote=' · merged with the other side\'s changes';
           done=true; break;
@@ -394,7 +424,7 @@ async function _cloudPushCore(silent, force){
       const r=await fetch(_cloudBase(),{method:'POST',headers:{..._cloudWriteHead(),'Prefer':'resolution=merge-duplicates'},
         body:JSON.stringify([{id:ACTIVE_CO, co:co, data:payload, updated_at:stamp}])});
       if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+(t?' · '+t.slice(0,120):'')); }
-      try{ localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:stamp, cloudAt:stamp, dirty:false, dirtyKeys:[]})); }catch(e){}
+      _cloudPushMeta(stamp, seq0);
       _cloudBaseSave(payload);
       done=true;
     }
@@ -505,6 +535,7 @@ function cloudMark(k){
   if(!cloudOn()) return;
   { const m=_cloudMeta(); const dk=Array.isArray(m.dirtyKeys)?m.dirtyKeys.slice():[]; if(dk.indexOf(k)<0) dk.push(k);
     _cloudSetMeta({dirty:true, dirtyKeys:dk}); }        // survives a reload; the key list is what lets a push MERGE (v2.34.0)
+  _cloudMarkSeq++; _cloudMarkLog[k]=_cloudMarkSeq;    // when this key was last saved (v2.69.0)
   try{ sbFill(); }catch(e){}
   if(!cloudLive()) return;
   if(_cloudTimer) clearTimeout(_cloudTimer);
@@ -617,12 +648,14 @@ function cloudBannerHide(){ const b=document.getElementById('cloudNew'); if(b) b
 async function cloudPullNow(){ cloudBannerHide(); try{ await cloudPull(); }catch(e){} }
 /* the safe path: nothing of ours is waiting, so take the cloud copy without a dialog */
 async function cloudPullAuto(){
+  const seq0=_cloudMarkSeq;                       // a save made while the pull is in the air must not be replaced (v2.69.0)
   try{
     await cloudEnsureSession();
     const r=await fetch(_cloudBase()+'?id=eq.'+encodeURIComponent(ACTIVE_CO)+'&select=co,data,updated_at',{headers:_cloudHead()});
     if(!r.ok) return false;
     const j=await r.json().catch(()=>[]); const row=(j||[])[0];
     if(!row||!row.data) return false;
+    if(_cloudMarkSeq!==seq0) return false;          // typed while this pull was fetching — push that first (v2.69.0)
     const before={}; _coSubKeys().forEach(sub=>{ before[sub]=localStorage.getItem(CO_PREFIX+sub); localStorage.removeItem(CO_PREFIX+sub); });
     Object.keys(row.data).forEach(sub=>localStorage.setItem(CO_PREFIX+sub, row.data[sub]));
     localStorage.setItem(CO_PREFIX+'cloudmeta', JSON.stringify({push:row.updated_at, cloudAt:row.updated_at, dirty:false, dirtyKeys:[]}));
