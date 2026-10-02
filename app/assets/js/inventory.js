@@ -1392,8 +1392,7 @@ VIEWS.mrdetail = () => {
   const RG=mrRegHtml(); const body=RG.body;   // rows of the register under the current search / filters (v2.49.1)
   // royal head figures (v2.32.0) — the same totals the old stat strip showed, plus today's issues and the
   // issued-of-available share (Liquor Room Opening + Received) that the Crown Gauge look already uses
-  const today=new Date().toISOString().slice(0,10);
-  const tdRows=mrDetail.filter(r=>r.date===today), tdQty=tdRows.reduce((a,r)=>a+fnum(r.qty),0);
+  const NEG=mrNegTotal();                                // issued past the stock (v2.75.0)
   const nItems=new Set(WIN.map(r=>norm(r.item))).size;
   const mds=WIN.map(r=>r.date).filter(Boolean).sort(); const mspan=mds.length?`${mds[0]} → ${mds[mds.length-1]}`:'';
   const LT=lrTotals(), avail=LT.op+LT.rv, pctIs=avail>0?Math.min(100,Math.round(LT.is/avail*100)):0;
@@ -1416,7 +1415,7 @@ VIEWS.mrdetail = () => {
           <div class="arr">=</div>
           <div class="st cl"><div class="ic">♛</div><div class="l">Issue Amount</div><div class="v amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="m">avg ₹ ${fmt(Math.round(avgIs))} / bottle</div>${(SRC.b.n&&SRC.c.n)?`<div class="m sub">🧾 ₹ ${fmt(Math.round(SRC.b.a))} <span class="mu">+</span> 💵 ₹ ${fmt(Math.round(SRC.c.a))}</div>`:''}</div>
           <div class="arr">·</div>
-          <div class="st td"><div class="ic">📅</div><div class="l">Today</div><div class="v">${fmt(tdQty)}<small>btl</small></div><div class="m sub">${tdRows.length?fmt(tdRows.length)+' issue'+(tdRows.length===1?'':'s')+' · '+esc(today):'nothing issued yet · '+esc(today)}</div></div>
+          <div class="st ng${NEG.n?' on':''}"${NEG.n?' onclick="mrNegModal()" title="Click to see every item that has been issued past its stock"':''}><div class="ic">${NEG.n?'⚠️':'✅'}</div><div class="l">Negative Stock</div><div class="v">${NEG.n?'−'+fmt(NEG.short):'0'}<small>btl</small></div><div class="m sub">${NEG.n?fmt(NEG.n)+' item'+(NEG.n===1?'':'s')+' issued past the stock':'nothing issued past its stock'}</div>${NEG.n?`<div class="m nm" title="${esc(NEG.list.map(x=>x.item+' '+x.cl).join(' · '))}">${NEG.list.slice(0,3).map(x=>esc(x.item)+' <b>'+fmt(x.cl)+'</b>').join(' · ')}${NEG.n>3?` · +${fmt(NEG.n-3)} more`:''}</div>`:''}</div>
         </div>
         <div class="lrf-ring"><div class="ring" style="--pct:${pctIs}"><div class="in"><div class="k">Issued to Bar</div><div class="amt">₹ ${fmt(Math.round(totalAmt))}</div><div class="k2">${fmt(total)} bottles · ${fmt(nItems)} item${nItems===1?'':'s'}</div><div class="k3">${pctIs}% of liquor room</div></div></div></div>
       </div>
@@ -1583,6 +1582,49 @@ function mrHitsHtml(){
    (plus an id, like manual purchases) and re-renders quietly, so the empty entry row is simply there again. */
 var _ms={i:-1, q:'', sel:0, hits:[], qty:''};   // the live row: picked rawData index · typed text · dropdown highlight · matches · typed qty (kept across a quiet re-render)
 var _msLast=-1;                            // index of the line just saved — flashed green once
+/* ---- what has been issued past the stock (v2.75.0) ---------------------------------------------
+   Client: "today issue remove kore add koro negative stock issue & negative issue items name."
+   The Today card said nothing they could act on; what they want to see is every item the bar has
+   taken MORE of than the Liquor Room holds. Same arithmetic as the Issue Slip's live figure —
+   _msStock() = lrOpen + received − issued — so nothing new is computed, only collected.
+   Issued names that are not in the Item Master are included: they go negative first of all. */
+function mrNegItems(){
+  const seen=Object.create(null), out=[];
+  const look=(name, group)=>{ const k=norm(name); if(!k || seen[k]) return; seen[k]=1;
+    const s=_msStock(name); if(!(s.cl<0)) return;
+    out.push({item:name, group:group||'', op:s.op, rv:s.rv, is:s.is, cl:s.cl, short:-s.cl}); };
+  mrDetail.forEach(r=>{ const ex=findRawExact(r.item); look(ex?ex.item:r.item, ex?(ex.group||''):(r.group||'')); });
+  rawData.forEach(r=>look(r.item, r.group));
+  out.sort((a,b)=>b.short-a.short || String(a.item).localeCompare(String(b.item)));
+  return out;
+}
+function mrNegTotal(){ const L=mrNegItems(); return {n:L.length, short:L.reduce((a,x)=>a+x.short,0), list:L}; }
+function mrNegModal(){
+  const L=mrNegItems();
+  if(!L.length){ toast('All clear','No item has been issued past its Liquor Room stock','ok'); return; }
+  const short=L.reduce((a,x)=>a+x.short,0);
+  const rows=L.map((x,i)=>`<tr>
+      <td class="num muted">${i+1}</td>
+      <td class="lrname">${esc(x.item)}${findRawExact(x.item)?'':' '+redBadge()}</td>
+      <td>${x.group?`<span class="pill gray">${esc(x.group)}</span>`:'<span class="muted">—</span>'}</td>
+      <td class="num">${fmt(x.op)}</td>
+      <td class="num">${x.rv?('+'+fmt(x.rv)):'<span class="muted">0</span>'}</td>
+      <td class="num"><span class="lrsg minus">−</span>${fmt(x.is)}</td>
+      <td class="num"><strong class="lrclose neg">${fmt(x.cl)}</strong></td>
+      <td class="right"><button class="btn btn-sm" title="Show this item's issues in the register below" onclick="mrNegFind('${esc(String(x.item).replace(/'/g,"\\'"))}')">🔎</button></td></tr>`).join('');
+  modal('⚠ Issued past the stock — '+fmt(L.length)+' item'+(L.length===1?'':'s'),
+    `<p style="font-size:12px;margin:0 0 8px">These items have been issued to the bar in greater quantity than the Liquor Room holds — together <strong style="color:var(--red)">${fmt(short)}</strong> bottle${short===1?'':'s'} short. Closing = Opening + Received − Issued.</p>
+     <p class="muted" style="font-size:11.5px;margin:0 0 8px">A red name is not in the Item Master at all, so it has no opening and no purchase to draw on. Fix either side: correct the issue in the register, or add the missing purchase / opening stock.</p>
+     <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="tbl">
+       <thead><tr><th style="width:34px">#</th><th>Item</th><th style="width:150px">Group</th><th class="right" style="width:78px">Opening</th><th class="right" style="width:84px">Received</th><th class="right" style="width:78px">Issued</th><th class="right" style="width:86px">Closing</th><th style="width:46px"></th></tr></thead>
+       <tbody>${rows}</tbody>
+       <tfoot><tr class="lrsub"><td colspan="6" class="right"><strong>TOTAL SHORT</strong></td><td class="num"><strong class="lrclose neg">−${fmt(short)}</strong></td><td></td></tr></tfoot>
+     </table></div>`,
+    `<button class="btn" onclick="closeModal()">Close</button>`);
+  { const bs=$$('.modal-back'); const bx=bs.length&&bs[bs.length-1].querySelector('.modal'); if(bx) bx.classList.add('xwide'); }
+}
+function mrNegFind(name){ closeModal(); _mrf.q=String(name||''); location.hash='#mrdetail'; route();
+  const b=$('#mrfQ'); if(b){ b.value=_mrf.q; b.focus({preventScroll:true}); } }
 function _msStock(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op, rv, is, cl:op+rv-is}; }
 function _msHits(q){ q=norm(q); if(!q) return []; const starts=[], incl=[];
   rawData.forEach((r,i)=>{ const n=norm(r.item); if(n.startsWith(q)) starts.push(i); else if(n.includes(q)||norm(r.group||'').includes(q)) incl.push(i); });

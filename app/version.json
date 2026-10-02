@@ -1,1 +1,1 @@
-{"version":"2.74.0","date":"2026-10-01","notes":"A new BEVCO or cash-invoice product is now added to the Item Master, the Liquor Room, the Tally Sheet and Beverage Control together — and the preview asks for its Beverage Control category, already filled in from the name and the group."}
+{"version":"2.75.0","date":"2026-10-02","notes":"Bar Stock Issue: the Today card is replaced by Negative Stock — how many bottles have been issued past what the Liquor Room holds, the item names on the card, and the full list with Opening / Received / Issued / Closing one click away."}
