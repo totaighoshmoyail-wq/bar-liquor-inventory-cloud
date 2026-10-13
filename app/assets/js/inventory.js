@@ -2983,7 +2983,15 @@ const LF_CASE={'BEER':24,'ALCOPOPS':24,'DRAUGHT BEER':1};      // the client's r
 function lfPerCat(cat){ const c=String(cat||'').toUpperCase().trim(); return LF_CASE[c]!=null?LF_CASE[c]:12; }
 function lfPer(r){ const v=+(r&&r.cs); return (isFinite(v)&&v>0)?v:lfPerCat(r&&r.cat); }   // a line may carry its own pack size
 function lfCases(r){ const p=lfPer(r); return p>0?Math.round((+r.qty||0)/p*100)/100:0; }
-function lfAmt(r){ const q=+r.qty||0, l=(r.land==null?0:+r.land||0); return q*l; }
+function lfGross(r){ const q=+r.qty||0, l=(r.land==null?0:+r.land||0); return q*l; }
+function lfDisc(r){ const g=lfGross(r);                // a line's discount — ₹ typed, or "5%" of qty × landing
+  const d=(r.dcp!=null)?g*(+r.dcp||0)/100:(+r.dc||0); return Math.min(Math.max(d,0),g); }
+function lfAmt(r){ return lfGross(r)-lfDisc(r); }
+function lfDiscTxt(r){ return r.dcp!=null?lcE(r.dcp)+'%':lcE(r.dc); }
+function lfDiscParse(v){ const raw=String(v==null?'':v).trim().replace(/₹/g,''); if(!raw) return {};
+  const pc=/%$/.test(raw), n=+evalNum(raw.replace(/%$/,'').trim());
+  if(!isFinite(n)||n<=0) return {};
+  return pc?{dcp:Math.round(Math.min(n,100)*100)/100}:{dc:Math.round(n*100)/100}; }
 function lfByCat(){                                     // what the lifting is made of, biggest ₹ first
   const m={};
   liftData.forEach(r=>{ const c=(r.cat||'').trim()||'— no category';
@@ -3016,9 +3024,9 @@ function lfPieDraw(){                                   // redrawn on render, re
       return ' ₹ '+lcF(c.parsed)+'  ·  '+(c.parsed/t*100).toFixed(1)+'%'; }}}}}});
   CHARTS.push(_lfPie);
 }
-function lfTot(list){ const L=list||liftData; let q=0,a=0,miss=0,cs=0;
-  L.forEach(r=>{ q+=(+r.qty||0); a+=lfAmt(r); cs+=lfCases(r); if(r.land==null) miss++; });
-  return {n:L.length, q, a, miss, cs:Math.round(cs*100)/100}; }
+function lfTot(list){ const L=list||liftData; let q=0,a=0,d=0,miss=0,cs=0;
+  L.forEach(r=>{ q+=(+r.qty||0); a+=lfAmt(r); d+=lfDisc(r); cs+=lfCases(r); if(r.land==null) miss++; });
+  return {n:L.length, q, a, d, miss, cs:Math.round(cs*100)/100}; }
 function lfRows(){ const q=norm(iq.lf||'');
   return liftData.map((r,i)=>({i,r})).filter(x=> !q || norm(x.r.item).includes(q) || norm(x.r.cat||'').includes(q)); }
 
@@ -3047,7 +3055,8 @@ function lfLive(){ const r=lfPicked(), set=(id,h)=>{ const e=$(id); if(e) e.inne
   const land=(r&&r.l!=null)?r.l:null;
   set('#lfLand', land==null?'<span class="mu">—</span>':`<b>₹ ${lcF(land)}</b>`);
   const q=+evalNum(String(_lf.qty||'').trim())||0;
-  set('#lfAmt', (land!=null&&q>0)?`<b class="tot">₹ ${lcF(land*q)}</b>`:'<span class="mu">—</span>');
+  const dd=lfDiscParse(_lf.dc), dv=(land!=null&&q>0)?lfDisc(Object.assign({qty:q,land:land},dd)):0;
+  set('#lfAmt', (land!=null&&q>0)?`<b class="tot">₹ ${lcF(land*q-dv)}</b>`:'<span class="mu">—</span>');
   const pe=$('#lfPer'); if(pe && !_lf.perT && pe.value!==String(lfPerCat(r&&r.c))) pe.value=lfPerCat(r&&r.c); }
 function lfQtyType(v){ _lf.qty=v; const c=$('#lfCase');
   if(c){ const p=lfPerNow(), q=+evalNum(String(v||'').trim());
@@ -3082,6 +3091,7 @@ function lfAdd(){
   const row={ id:'lf'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), item:nm,
     cat:p?(p.c||''):'', z:p?(p.z||null):null, land:(p&&p.l!=null)?p.l:null, qty:Math.round(q*1000)/1000 };
   { const pn=lfPerNow(); if(pn>0 && pn!==lfPerCat(row.cat)) row.cs=pn; }       // a pack size typed by hand travels with the line
+  Object.assign(row, lfDiscParse(_lf.dc));                                       // the discount typed in the entry row
   liftData.push(row); lfSave(); _lfLast=row.id;
   _lf={i:-1,q:'',qty:'',hits:[],sel:0,per:(_lf.perT?_lf.per:''),perT:_lf.perT,cs:''};   // a typed pack size stays for the next line
   routeQuiet();
@@ -3097,6 +3107,7 @@ function lfSetField(i,f,v){
     if(p){ r.cat=p.c||''; r.z=p.z||null; r.land=(p.l!=null?p.l:null); }
     lfSave(); routeQuiet(); return; }
   if(f==='cat'){ r.cat=String(v||'').trim().toUpperCase(); lfSave(); return; }   // nothing to work out again
+  if(f==='disc'){ delete r.dc; delete r.dcp; Object.assign(r, lfDiscParse(v)); lfSave(); lfPaint(i); return; }   // ₹ or "5%"
   const raw=String(v==null?'':v).trim(), n=(raw===''?null:+evalNum(raw));
   const val=(n==null||!isFinite(n))?null:Math.round(n*10000)/10000;
   if(f==='per'){ if(val==null||val<=0) delete r.cs; else r.cs=Math.round(val*1000)/1000;   // bottles in one case — the bottles stay, the case count follows
@@ -3109,6 +3120,7 @@ function lfSetField(i,f,v){
 function lfPaintTot(){                                   // grand total + head, in place (v2.57.0)
   const T=lfTot(), set=(id,h)=>{ const e=document.getElementById(id); if(e) e.innerHTML=h; };
   set('lfGTq', '<b>'+fmt(T.q)+'</b>'); set('lfGTcs', '<b>'+lcF(T.cs)+'</b>'); set('lfGTa', '₹ '+lcF(Math.round(T.a)));
+  set('lfGTd', T.d?'− ₹ '+lcF(Math.round(T.d)):'');
   set('lfGTavg', T.q?'₹ '+lcF(Math.round(T.a/T.q)):'');
   set('lfHN', fmt(T.n)+'<small>items</small>'); set('lfHQ', lcF(T.cs)+'<small>cases · '+fmt(T.q)+' btl</small>');
   set('lfHAvg', '₹ '+lcF(T.q?Math.round(T.a/T.q):0)+'<small>per bottle</small>');
@@ -3119,7 +3131,7 @@ function lfPaintTot(){                                   // grand total + head, 
 function lfPaint(i){ const r=liftData[i]; if(!r) return;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e && e.value!==v) e.value=v; };
   set('lf_qty_'+i, lcE(r.qty)); set('lf_case_'+i, lcE(lfCases(r)));
-  set('lf_per_'+i, lcE(lfPer(r)));
+  set('lf_per_'+i, lcE(lfPer(r))); set('lf_disc_'+i, lfDiscTxt(r));
   const a=document.getElementById('lf_amt_'+i);
   if(a) a.innerHTML=(r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(lfAmt(r)));
   lfPaintTot(); }
@@ -3133,9 +3145,9 @@ function lfClearAll(){ const T=lfTot();
 function _lfAoa(){
   const T=lfTot();
   const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Esteemed Lifting Calculation' ], [ 'Date', new Date().toISOString().slice(0,10) ], [],
-    ['#','Item','Category','Size ml','Landing ₹','Case','Per case','Qty','Amount ₹']];
-  liftData.forEach((r,i)=>a.push([i+1, r.item, r.cat||'', r.z==null?'':r.z, r.land==null?'':r.land, lfCases(r), lfPer(r), r.qty, Math.round(lfAmt(r)*100)/100]));
-  a.push(['','GRAND TOTAL ESTEEMED','','','', T.cs, '', T.q, Math.round(T.a*100)/100]);
+    ['#','Item','Category','Size ml','Landing ₹','Case','Per case','Qty','Discount ₹','Amount ₹']];
+  liftData.forEach((r,i)=>a.push([i+1, r.item, r.cat||'', r.z==null?'':r.z, r.land==null?'':r.land, lfCases(r), lfPer(r), r.qty, Math.round(lfDisc(r)*100)/100, Math.round(lfAmt(r)*100)/100]));
+  a.push(['','GRAND TOTAL ESTEEMED','','','', T.cs, '', T.q, Math.round(T.d*100)/100, Math.round(T.a*100)/100]);
   return a; }
 
 VIEWS.lifting = () => {
@@ -3155,6 +3167,7 @@ VIEWS.lifting = () => {
       <div class="r${r.id===_lfLast?' new':''}">${cell(i,'land','lcr land',' placeholder="₹" title="From the Landing Cost File — type another figure for this order only"')}</div>
       <div class="r cs${r.id===_lfLast?' new':''}"><span class="mul">×</span><input class="lcin per" id="lf_per_${i}" value="${esc(lcE(lfPer(r)))}" title="Bottles in one case — type your own (24, 12, 6 …). The bottles stay as they are and the case count follows; type the cases again to re-fill." onchange="lfSetField(${i},'per',this.value)"><input class="lcin lcr case" id="lf_case_${i}" value="${esc(lcE(lfCases(r)))}" title="Cases — beer &amp; breezer 24 a case, liquor 12, a keg 1" onchange="lfSetField(${i},'case',this.value)"></div>
       <div class="r${r.id===_lfLast?' new':''}"><input class="lcin lcr qty" id="lf_qty_${i}" value="${esc(lcE(r.qty))}" title="Bottles" onchange="lfSetField(${i},'qty',this.value)"></div>
+      <div class="r${r.id===_lfLast?' new':''}"><input class="lcin lcr disc" id="lf_disc_${i}" value="${esc(lfDiscTxt(r))}" placeholder="—" title="Discount on this line — type ₹ (500) or a percent (5%)" onchange="lfSetField(${i},'disc',this.value)"></div>
       <div class="r amt${r.id===_lfLast?' new':''}" id="lf_amt_${i}">${r.land==null?'<span class="mu">no price</span>':'₹ '+lcF(amt)}</div>
       <div class="x${r.id===_lfLast?' new':''}"><button class="btn rmx" onclick="lfDel(${i})" title="Take this line off">✕</button></div>`; }).join('')
    || `<div class="empty">${liftData.length?'No line matches “'+esc(iq.lf||'')+'”':'Nothing on the lifting yet — search an item below and press Enter.'}</div>`;
@@ -3165,7 +3178,7 @@ VIEWS.lifting = () => {
         <button class="btn btn-sm" onclick="printSheet('lifting')" title="Clean print — Save as PDF from the dialog">🖨 Print</button>
         ${liftData.length?`<button class="btn btn-sm" style="color:var(--red)" onclick="lfClearAll()" title="Empty the lifting">🗑️ Clear all</button>`:''}</div></div>
     <div class="card bcledger lchead">
-      <div class="bh"><div class="t">Esteemed Lifting Calculation</div><div class="f">Amount <b>=</b> Qty <b>×</b> Landing ₹ <span class="muted">· the landing price comes from the Landing Cost File</span></div>
+      <div class="bh"><div class="t">Esteemed Lifting Calculation</div><div class="f">Amount <b>=</b> Qty <b>×</b> Landing ₹ <b>−</b> Discount <span class="muted">· the landing price comes from the Landing Cost File</span></div>
         <div class="p">${fmt(T.n)} lines · ${lcF(T.cs)} cases · ${fmt(T.q)} bottles</div></div>
       <div class="bclh lr5">
         <div class="h c">Column</div><div class="h">Lines</div><div class="h">Cases · Bottles</div><div class="h">Average ₹ / bottle</div><div class="h">Grand Total Esteemed</div>
@@ -3183,7 +3196,7 @@ VIEWS.lifting = () => {
         <div class="p">${iq.lf?fmt(rows.length)+' of '+fmt(T.n)+' shown · ₹ '+lcF(Math.round(TS.a)):fmt(T.n)+' lines'}</div></div>
       <div class="lfg">
         <div class="h c">#</div><div class="h">Item</div><div class="h">Category</div><div class="h r">Size</div>
-        <div class="h r">Landing ₹</div><div class="h r" title="Beer &amp; breezer 24 bottles a case · liquor 12 · a keg 1">Case</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h c"></div>
+        <div class="h r">Landing ₹</div><div class="h r" title="Beer &amp; breezer 24 bottles a case · liquor 12 · a keg 1">Case</div><div class="h r">Qty</div><div class="h r" title="₹ or % — taken off qty × landing">Discount</div><div class="h r">Amount ₹</div><div class="h c"></div>
         <div id="lfLines" style="display:contents">${lines}</div>
         <div class="lv n">→</div>
         <div class="lv it"><input class="msin" id="lfItem" autocomplete="off" placeholder="Search an item from the Landing Cost File…" value="${esc(_lf.q||'')}" oninput="lfType(this.value)" onkeydown="lfItemKey(event)" onblur="lfBlur()"><div class="msdd" id="lfDD"></div></div>
@@ -3192,10 +3205,12 @@ VIEWS.lifting = () => {
         <div class="lv r ld" id="lfLand"><span class="mu">—</span></div>
         <div class="lv r cs"><span class="mul">×</span><input class="msin per" id="lfPer" value="${esc(_lf.per||String(lfPerCat(lfPicked()&&lfPicked().c)))}" oninput="lfPerType(this.value)" onkeydown="lfCaseKey(event)" title="Bottles in one case — beer &amp; breezer 24, liquor 12, a keg 1. Type your own for this item."><input class="msin q cse" id="lfCase" placeholder="case" value="${esc(_lf.cs||'')}" oninput="lfCaseType(this.value);_lf.cs=this.value" onkeydown="lfCaseKey(event)" title="Type the cases — the bottles fill themselves"></div>
         <div class="lv r"><input class="msin q" id="lfQty" type="number" min="0" step="1" placeholder="0" value="${esc(_lf.qty||'')}" oninput="lfQtyType(this.value)" onkeydown="lfQtyKey(event)"></div>
+        <div class="lv r"><input class="msin q dsc" id="lfDisc" placeholder="₹ / %" value="${esc(_lf.dc||'')}" oninput="_lf.dc=this.value;lfLive()" onkeydown="lfCaseKey(event)" title="Discount — type ₹ (500) or a percent (5%)"></div>
         <div class="lv r am" id="lfAmt"><span class="mu">—</span></div>
         <div class="lv x"><button class="btn btn-gold" onclick="lfAdd()" title="Add this item — the next line opens by itself">＋</button></div>
         <div class="gt c">Σ</div><div class="gt">GRAND TOTAL ESTEEMED</div><div class="gt"></div><div class="gt"></div>
         <div class="gt r" id="lfGTavg">${T.q?'₹ '+lcF(Math.round(T.a/T.q)):''}</div><div class="gt r" id="lfGTcs"><b>${lcF(T.cs)}</b></div><div class="gt r" id="lfGTq"><b>${fmt(T.q)}</b></div>
+        <div class="gt r dsc" id="lfGTd">${T.d?'− ₹ '+lcF(Math.round(T.d)):''}</div>
         <div class="gt r tot" id="lfGTa">₹ ${lcF(Math.round(T.a))}</div><div class="gt"></div>
       </div>
       <datalist id="lfItemsDL">${landingData.slice(0,600).map(r=>`<option value="${esc(r.f)}">`).join('')}</datalist>
@@ -3425,11 +3440,12 @@ document.addEventListener('keydown', function(e){
   const grid=el.closest('.lfg');
   if(grid){ const cells=Array.from(grid.querySelectorAll('#lfLines > div'));
     const cell=el.closest('#lfLines > div'); const ix=cells.indexOf(cell); if(ix<0) return;
-    let ni=(k==='ArrowDown')?ix+9:(k==='ArrowUp')?ix-9:(k==='ArrowRight')?ix+1:ix-1;   // 9 cells a line
+    let ni=(k==='ArrowDown')?ix+10:(k==='ArrowUp')?ix-10:(k==='ArrowRight')?ix+1:ix-1;   // 10 cells a line (Discount added, v2.76.0)
     let t=null;
     while(ni>=0 && ni<cells.length){ const inp=cells[ni].querySelector('input.lcin'); if(inp){ t=inp; break; }
-      if(k==='ArrowDown') ni+=9; else if(k==='ArrowUp') ni-=9; else if(k==='ArrowRight') ni++; else ni--; }
-    if(!t && k==='ArrowDown'){ const c=ix%9; t=(c<=2)?$('#lfItem'):(c===5?$('#lfCase'):$('#lfQty')); }   // the last line → the live entry row
+      if(k==='ArrowDown') ni+=10; else if(k==='ArrowUp') ni-=10; else if(k==='ArrowRight') ni++; else ni--; }
+    if(!t && k==='ArrowDown'){ const c=ix%10;                                   // the last line → the live entry row
+      t=(c<=2)?$('#lfItem'):(c===5?$('#lfCase'):(c===7?$('#lfDisc'):$('#lfQty'))); }
     if(!t) return;
     e.preventDefault(); const keep=cells.indexOf(t.closest('#lfLines > div'));
     el.blur();

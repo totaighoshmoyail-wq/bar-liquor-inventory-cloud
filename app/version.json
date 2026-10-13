@@ -1,1 +1,1 @@
-{"version":"2.75.0","date":"2026-10-02","notes":"Bar Stock Issue: the Today card is replaced by Negative Stock — how many bottles have been issued past what the Liquor Room holds, the item names on the card, and the full list with Opening / Received / Issued / Closing one click away."}
+{"version":"2.76.0","date":"2026-10-13","notes":"Esteemed Lifting Calculation: a Discount column before Amount — type a rupee figure (500) or a percentage (5%) on any line; the amount, the grand total and the category share follow at once, and the discount prints and exports with the sheet."}
