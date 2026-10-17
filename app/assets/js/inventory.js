@@ -2208,7 +2208,12 @@ function barRow(t){
   // Consumption & Variance auto-calc, but a manual value (override) wins when entered.
   const consOver=(iv.consOverride!=null&&iv.consOverride!=='')?iv.consOverride:null;
   const cons=consOver!=null?fnum(consOver):consAuto;
-  const varAuto=cons-sale;
+  /* VARIANCE = Sale − Consumption (v2.80.0, the client's own rule, stated with their own example:
+     opening 1 btl + receipt 1 btl − closing 1 btl = 700 ml consumed against a 900 ml sale, so the bar
+     sold 200 ml MORE than the stock that moved = a PLUS, in green). Their Excel's VARIANCE column is
+     the other way round (G*1000 − INT(H)) — same figure, opposite sign; everything downstream reads
+     this one line, so the ₹, the colours and the + are all consistent with it. */
+  const varAuto=sale-cons;
   const varOver=(iv.varOverride!=null&&iv.varOverride!=='')?iv.varOverride:null;
   const varv=varOver!=null?fnum(varOver):varAuto;
   // Variance broken into full bottles + loose ml (magnitudes; sign shown by colour). pcs → count only.
@@ -2258,7 +2263,7 @@ function biRowHtml(t){
     <td class="num"><input class="cell-input cbox" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);route()">${amtLine(A.close)}</td>
     <td class="num"><input class="cell-input cv" style="color:${R.consOver!=null?'var(--gold)':'inherit'}" value="${R.consOver!=null?R.consOver:''}" placeholder="${fmt(R.consAuto)}" title="auto = Opening + Receipt − Closing · type a value to override (e.g. Draught keg)" onchange="invSetTNum(${idx},'consOverride',this.value);route()">${amtLine(A.cons)}</td>
     <td class="num gold">${fmt(R.sale)}${amtLine(A.sale)}</td>
-    <td class="num"><input class="cell-input cv vcell" style="color:${vcol};background:${vbg}" value="${R.varOver!=null?R.varOver:''}" placeholder="${R.varAuto>0?'+':''}${fmt(R.varAuto)}" title="auto = Consumption − Sale · type a value to override (${u==='pcs'?'pcs':'ml'})" onchange="invSetTNum(${idx},'varOverride',this.value);route()">${varSub}</td>
+    <td class="num"><input class="cell-input cv vcell" style="color:${vcol};background:${vbg}" value="${R.varOver!=null?R.varOver:''}" placeholder="${R.varAuto>0?'+':''}${fmt(R.varAuto)}" title="auto = Sale − Consumption · + = sold more than the stock that moved · type a value to override (${u==='pcs'?'pcs':'ml'})" onchange="invSetTNum(${idx},'varOverride',this.value);route()">${varSub}</td>
     <td class="num" title="variance amount = variance qty in bottles × Landing ₹"><strong style="color:${vcol};font-size:12.5px">${Math.round(A.varv)?('₹ '+fmt(Math.round(A.varv))):'—'}</strong></td></tr>`;
 }
 // royal-look dashboard data over ACTIVE items (same activity rule as the sheet)
@@ -2323,7 +2328,7 @@ function biFindInner(){
   return show.length
     ? `<div class="card-body" style="padding:0;border-top:1px solid var(--border)">
         <div class="table-wrap bizoom" style="max-height:460px;overflow:auto"><table class="tbl">
-        <thead><tr><th>Item</th><th class="right">Size</th><th class="right">Landing ₹</th><th class="right">Opening</th><th class="right">Receipt</th><th class="right">Closing</th><th class="right">Consumption</th><th class="right">Sale</th><th class="right">Variance</th><th class="right">Variance ₹</th></tr></thead>
+        <thead><tr><th>Item</th><th class="right">Size</th><th class="right">Landing ₹</th><th class="right">Opening</th><th class="right">Receipt</th><th class="right">Closing</th><th class="right">Consumption</th><th class="right">Sale</th><th class="right" title="Sale − Consumption · + green = sold more than the stock that moved · − red = stock gone with no sale">Variance</th><th class="right" title="variance qty in bottles × Landing ₹">Variance ₹</th></tr></thead>
         <tbody>${show.map(t=>biRowHtml(t)).join('')}</tbody></table></div>
         ${matches.length>show.length?`<div class="muted center" style="font-size:12px;padding:8px">+ ${matches.length-show.length} more</div>`:''}</div>`
     : `<div class="card-body" style="padding:0;border-top:1px solid var(--border)">
@@ -2536,7 +2541,7 @@ function bevXlResult(S){
     <div class="k k3" style="margin-top:6px">
       ${line('Receipt (Bar Stock Issue)', money(D?D.tot.rec:0), '', 'the period on this page')}
       ${line('Consumption', money(D?D.tot.cons:0), '', 'opening + receipt − closing')}
-      ${line('Variance', (D&&D.tot.varv>0?'+ ':'')+money(D?D.tot.varv:0), sign(D?D.tot.varv:0), (D&&D.tot.sale>0)?'consumption − sale':'no POS sale in this period yet')}
+      ${line('Variance', (D&&D.tot.varv>0?'+ ':'')+money(D?D.tot.varv:0), sign(D?D.tot.varv:0), (D&&D.tot.sale>0)?'sale − consumption':'no POS sale in this period yet')}
     </div>
     <div class="n">${moved>=0
       ? `Stock value went <strong class="up">UP by ${money(moved)}</strong> over the month — the closing is worth more than the opening.`
@@ -2591,10 +2596,10 @@ VIEWS.barinv = () => {
   const BCOLS=[['open','Opening'],['rec','Receipt'],['close','Closing'],['cons','Consumption'],['sale','Sale'],['varv','Variance']];
   const bcSign=(f,v)=>f==='varv'?(v>=0?' vp':' vn'):'';
   const bcPlus=(f,v)=>(f==='varv'&&v>0)?'+':'';
-  const bcHint={cons:'opening + receipt − closing', sale:noSale?'no POS sale in this period yet':'from the POS sheet', varv:'consumption − sale'};
+  const bcHint={cons:'opening + receipt − closing', sale:noSale?'no POS sale in this period yet':'from the POS sheet', varv:'sale − consumption'};
   const bcCell=(cls,f,v,unit)=>`<div class="${cls}${bcSign(f,v)}">${bcPlus(f,v)}${fmt(Math.round(v))}<small>${unit}</small></div>`;
   const bcHead=`<div class="card bcledger">
-      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption <b>−</b> Sale <b>=</b> Variance</div><div class="p">${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
+      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f" title="Sale − Consumption: + (green) = sold more than the stock that moved · − (red) = stock gone with no sale">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption · Sale <b>−</b> Consumption <b>=</b> Variance</div><div class="p">${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
       <div class="bclh">
         <div class="h c">Column</div>${BCOLS.map(([f,l])=>`<div class="h">${l}</div>`).join('')}
         <div class="k">Landing ₹</div>${BCOLS.map(([f])=>`<div class="rs${bcSign(f,D.tot[f])}">₹ ${R0(D.tot[f])}</div>`).join('')}
@@ -2708,8 +2713,8 @@ VIEWS.barinv = () => {
           <thead><tr><th><input type="checkbox" id="biSelAll" class="selcb" title="Mark all shown" onchange="biSelAll(this.checked)"> Item</th><th class="right">Size</th><th class="right">Landing ₹</th><th class="right">Opening</th><th class="right">Receipt</th><th class="right">Closing</th>
             <th class="right">Consumption</th>
             <th class="right">Sale</th>
-            <th class="right">Variance</th>
-            <th class="right">Variance ₹</th></tr></thead>
+            <th class="right" title="Sale − Consumption · + green = sold more than the stock that moved · − red = stock gone with no sale">Variance</th>
+            <th class="right" title="variance qty in bottles × Landing ₹ · + green = money gained">Variance ₹</th></tr></thead>
           <tbody>${body}</tbody>
         </table></div></div>`;
       // card looks — every number from the SAME barRow/biAmt engine; Opening/Closing stay editable

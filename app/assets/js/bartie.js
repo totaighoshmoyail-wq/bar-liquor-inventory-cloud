@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.79.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.80.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -3472,7 +3472,7 @@ const HELP_EN=[
  ['📦 Purchase','Purchases into the liquor room. Excel upload auto-reads Date · Item · Qty; 🧾 BEVCO invoice sets Landing ₹ automatically.'],
  ['🔁 Bar Stock Issue','Dated issues from liquor room → bar. Search an item, type the qty, press Enter — or import from Excel / paste / photo. Receipt in Beverage Control = these issues within the period.'],
  ['🏬 Liquor Room','Opening + Received − Issued = Closing, with ₹ value and group totals.'],
- ['🍾 Beverage Control','The main bar sheet: Opening + Receipt − Closing = Consumption; Consumption − Sale = Variance — in qty and ₹. Search & Add any item; full-page clones from 📑 Page Clone.'],
+ ['🍾 Beverage Control','The main bar sheet: Opening + Receipt − Closing = Consumption; Sale − Consumption = Variance (+ green = sold more than the stock that moved) — in qty and ₹. Search & Add any item; full-page clones from 📑 Page Clone.'],
  ['📑 All Reports','9 professional reports with %-wise pies. Print gives the complete clean report — every row, no browser junk.'],
  ['🏢 Companies','🏢 in the top bar (or the login page) — switch or add companies. Each company keeps fully separate data; formulas are shared.'],
  ['☁️ Cloud Sync','Optional free cloud copy (Supabase). Settings → Cloud Sync: Push saves this company to the cloud, Pull loads it on any device, Auto-push saves 1 min after every change.'],
@@ -3491,7 +3491,7 @@ const HELP_BN=[
  ['📦 Purchase','Liquor room-এ কেনা মাল। Excel আপলোডে Date · Item · Qty নিজে থেকে পড়ে; 🧾 BEVCO invoice দিলে Landing ₹ নিজে থেকেই বসে যায়।'],
  ['🔁 Bar Stock Issue','Liquor room → bar-এ তারিখসহ issue। item সার্চ করে qty লিখে Enter — অথবা Excel / পেস্ট / ফটো থেকে import। Beverage Control-এর Receipt = period-এর মধ্যের এই issue-গুলো।'],
  ['🏬 Liquor Room','Opening + Received − Issued = Closing, ₹ মূল্য আর group-ওয়াইজ মোট সহ।'],
- ['🍾 Beverage Control','মূল বার শীট: Opening + Receipt − Closing = Consumption; Consumption − Sale = Variance — qty আর ₹ দুটোতেই। Search & Add দিয়ে যেকোনো item; 📑 Page Clone দিয়ে পুরো পেজের কপি।'],
+ ['🍾 Beverage Control','মূল বার শীট: Opening + Receipt − Closing = Consumption; Sale − Consumption = Variance (+ সবুজ = যত stock নড়েছে তার চেয়ে বেশি বিক্রি) — qty আর ₹ দুটোতেই। Search & Add দিয়ে যেকোনো item; 📑 Page Clone দিয়ে পুরো পেজের কপি।'],
  ['📑 All Reports','%-ওয়াইজ পাই সহ ৯টা professional report। Print করলে সম্পূর্ণ পরিষ্কার report — সব সারি, browser-এর আবর্জনা ছাড়া।'],
  ['🏢 Companies','উপরের বারে 🏢 (বা login পেজে) — company বদল/যোগ। প্রতিটা company-র ডেটা সম্পূর্ণ আলাদা; formula সবার এক।'],
  ['☁️ Cloud Sync','ঐচ্ছিক ফ্রি ক্লাউড কপি (Supabase)। Settings → Cloud Sync: Push = এই company ক্লাউডে সেভ, Pull = যেকোনো device-এ ফিরিয়ে আনা, Auto-push = প্রতিটা বদলের ১ মিনিট পরে নিজে থেকেই সেভ।'],
