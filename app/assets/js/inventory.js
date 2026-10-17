@@ -3228,6 +3228,10 @@ AFTER.lifting = () => { try{ lfPieDraw(); }catch(e){}
   if(b && (!document.activeElement || document.activeElement===document.body) && window.scrollY<80) b.focus(); };
 
 const REPORTS=[
+  {id:'allone',  name:'All in One Report',              ico:'🗂️',
+    pack:['bev','lroom','recv','mrd','cksale','stsale','top15ck','top15st','catbreak']},
+  {id:'monthend',name:'Month End Report',               ico:'📅',
+    pack:['recv','lroom','bev']},
   {id:'bev',     name:'Beverage Control Report',        ico:'🍾'},
   {id:'lroom',   name:'Liquor Room Report',             ico:'🏬'},
   {id:'recv',    name:'Purchase Report',          ico:'📦'},
@@ -3253,6 +3257,12 @@ function _rptName(id){ const r=REPORTS.find(x=>x.id===id); if(r) return r.name;
 function reportAoa(id){
   if(id==='landing') return _lcAoa();   // its own page, not a report card (v2.52.0)
   if(id==='lifting') return _lfAoa();   // the BEVCO lifting order sheet (v2.56.0)
+  const _pk=rptPack(id);                // a PACK carries several reports under one name (v2.77.0)
+  if(_pk){ const a=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — '+_rptName(id) ],
+      [ 'Period', period.from+' to '+period.to ], [ 'Reports', _pk.map(x=>_rptName(x)).join(' · ') ]];
+    _pk.forEach((sid,k)=>{ a.push([]); a.push([ (k+1)+'. '+_rptName(sid) ]);
+      reportAoa(sid).slice(3).forEach(r=>a.push(r)); });   // each one without its own 3 meta lines
+    return a; }
   const meta=(cols)=>[[ (cfg.company||'TRAFFIC GASTROPUB')+' — '+_rptName(id) ],
     [ 'Period', period.from+' to '+period.to ], [], cols];
   if(id==='bev'){ const a=meta(['Item','Category','Unit','Opening','Receipt','Closing','Consumption','Sale','Variance','Sale ₹','Var ₹']);
@@ -3323,29 +3333,71 @@ function _lcAoa(){
     lcPegVal(r)==null?'':Math.round(lcPegVal(r)*100)/100]); });
   return a;
 }
-function expReport(id,kind){ const aoa=reportAoa(id); const base=id+'_'+period.from+'_'+period.to;
+function expReport(id,kind){ const pk=rptPack(id); const base=id+'_'+period.from+'_'+period.to;
+  if(pk && kind!=='csv'){                                     // a pack → one workbook, one SHEET per report
+    if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page','err'); return; }
+    const wb=XLSX.utils.book_new(), used={};
+    pk.forEach(sid=>{ let nm=_rptName(sid).replace(/[\\\/\?\*\[\]:]/g,' ').slice(0,28).trim()||sid;
+      if(used[nm]) nm=(nm+' '+(++used[nm])).slice(0,31); else used[nm]=1;
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(reportAoa(sid)), nm); });
+    XLSX.writeFile(wb, base+'.xlsx'); toast('Exported',_rptName(id)+' → '+pk.length+' sheets','ok'); return; }
+  const aoa=reportAoa(id);
   if(kind==='csv'){ _dlBlob(base+'.csv', _aoaCSV(aoa), 'text/csv;charset=utf-8'); toast('Exported',id+' → CSV','ok'); return; }
   if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page','err'); return; }
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,_rptName(id).slice(0,28));
   XLSX.writeFile(wb, base+'.xlsx'); toast('Exported',id+' → Excel','ok'); }
+/* ---- Reports page — ONE LIST, one report open at a time (v2.77.0) --------
+   The client's own layout: the reports sit one under another; clicking a name
+   opens it and closes the one before. Only the OPEN report's figures are built,
+   so the page costs one report instead of eleven. Two of the entries are PACKS
+   (All in One · Month End) — several reports carried under one name.           */
+const RPT_NUMFROM={bev:3,lroom:2,recv:3,mrd:3,cksale:1,stsale:2,top15ck:2,top15st:3,catbreak:1};
+var _rptOpen='';                                            // '' = every one closed (session only, never stored)
+function rptPack(id){ const r=REPORTS.find(x=>x.id===id); return (r&&r.pack&&r.pack.length)?r.pack:null; }
+function rptIco(id){ const r=REPORTS.find(x=>x.id===id); return r?r.ico:'📄'; }
+function rptIsTot(r){ return /TOTAL/i.test(String(r[0]||''))||(!String(r[0]||'').trim()&&/^(GRAND\s+)?TOTAL/i.test(String(r[1]||''))); }
+function rptTable(id){                                      // one plain report → {n, html}
+  const aoa=reportAoa(id), cols=aoa[3]||[], data=aoa.slice(4);
+  const nf=RPT_NUMFROM[id]!=null?RPT_NUMFROM[id]:2;
+  const head='<tr>'+cols.map(c=>`<th>${esc(String(c))}</th>`).join('')+'</tr>';
+  const body=data.map(row=> row.length===1
+      ? `<tr class="grp-row"><td colspan="${cols.length||1}">${esc(String(row[0]))}</td></tr>`
+      : `<tr${rptIsTot(row)?' class="rpttot"':''}>`+row.map((c,i)=>`<td class="${i>=nf?'num':''}">${esc(String(c==null?'':c))}</td>`).join('')+'</tr>').join('')
+    || `<tr><td colspan="${cols.length||1}" class="center muted" style="padding:12px">No data for this period</td></tr>`;
+  return { n:data.length, html:`<div class="table-wrap"><table class="tbl"><thead>${head}</thead><tbody>${body}</tbody></table></div>` };
+}
+function rptBody(id){                                       // a pack prints each report under its own ribbon
+  const pk=rptPack(id); if(!pk) return rptTable(id);
+  let n=0; const html=pk.map((sid,k)=>{ const T=rptTable(sid); n+=T.n;
+    return `<div class="rptsec"><div class="rptsech"><span class="k">${k+1}</span>${rptIco(sid)} ${esc(_rptName(sid))}<span class="rn">${T.n} rows</span></div>${T.html}</div>`; }).join('');
+  return { n, html };
+}
+function rptToggle(id){ _rptOpen=(_rptOpen===id?'':id); routeQuiet();
+  if(_rptOpen) setTimeout(()=>{ const el=$('#rpt_'+id); if(el) try{ el.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} },40); }
+function rptPrint(id){ const pk=rptPack(id);
+  if(!pk){ printSheet(id); return; }                        // one sheet, the Crown Certificate look
+  _printWin(pk.map(sid=>({id:sid,name:_rptName(sid),aoa:reportAoa(sid)})), period.from+'_'+period.to, _rptName(id).toUpperCase()); }
+function rptRowHtml(r){
+  const open=_rptOpen===r.id, pk=rptPack(r.id), B=open?rptBody(r.id):null;
+  const sub=open ? (pk?`${pk.length} reports · ${fmt(B.n)} rows in all`:`${fmt(B.n)} rows · A-Z all items`)
+                 : (pk?esc(pk.map(x=>_rptName(x)).join(' · ')):'Click to open');
+  return `<div class="card rptitem${open?' on':' cl'}" id="rpt_${r.id}">
+    <div class="card-head rpthd" role="button" tabindex="0" onclick="rptToggle('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();rptToggle('${r.id}')}">
+      <div class="rl"><span class="ch">${open?'▾':'▸'}</span><div style="min-width:0"><h3>${r.ico} ${esc(r.name)}</h3><p>${sub}</p></div></div>
+      <div class="flex gap-8" onclick="event.stopPropagation()">
+        <button class="btn btn-sm" onclick="expReport('${r.id}','xlsx')">📊 Excel</button>
+        <button class="btn btn-sm" onclick="expReport('${r.id}','csv')">⤓ CSV</button>
+        <button class="btn btn-sm" onclick="rptPrint('${r.id}')">🖨 Print</button></div></div>
+    ${open?B.html:''}</div>`;
+}
 VIEWS.reports = () => {
   const {totalC,totalS}=calcGrandTotals(); const sales=totalC+totalS;
   let consTot=0,varTot=0; tallyItems.forEach(t=>{ const R=barRow(t);
     if(R.iv.openBL!=null||R.iv.closeBL!=null||R.sale>0||R.recBtl>0){ consTot+=R.cons; varTot+=R.varv; } });
   const D=biRoyalData();
   const SER="font-family:Georgia,'Times New Roman',serif";
-  const NUMFROM={bev:3,lroom:2,recv:3,mrd:3,cksale:1,stsale:2,top15ck:2,top15st:3,catbreak:1};
-  const cards=REPORTS.map(r=>{ const aoa=reportAoa(r.id); const cols=aoa[3]||[]; const data=aoa.slice(4);
-    const nf=NUMFROM[r.id]!=null?NUMFROM[r.id]:2;
-    const head='<tr>'+cols.map(c=>`<th>${esc(String(c))}</th>`).join('')+'</tr>';
-    const body=data.map(row=> row.length===1
-        ? `<tr class="grp-row"><td colspan="${cols.length||1}">${esc(String(row[0]))}</td></tr>`
-        : `<tr${String(row[0])==='TOTAL'?' style="background:var(--gold-dim);font-weight:700"':''}>`+row.map((c,i)=>`<td class="${i>=nf?'num':''}">${esc(String(c==null?'':c))}</td>`).join('')+'</tr>').join('')
-      || `<tr><td colspan="${cols.length||1}" class="center muted" style="padding:12px">No data for this period</td></tr>`;
-    return `<div class="card"><div class="card-head" style="padding:9px 14px"><div><h3 style="font-size:13.5px">${r.ico} ${r.name}</h3><p style="font-size:10.5px">${data.length} rows · A-Z all items</p></div>
-        <div class="flex gap-8"><button class="btn btn-sm" onclick="expReport('${r.id}','xlsx')">📊 Excel</button><button class="btn btn-sm" onclick="expReport('${r.id}','csv')">⤓ CSV</button></div></div>
-      <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead>${head}</thead><tbody>${body}</tbody></table></div></div>`; }).join('');
+  const cards=REPORTS.map(rptRowHtml).join('');
   // ---- chart data + %-wise legends (so the pies are readable) ----
   const GOLDS=['#d8bd7f','#b89a5c','#8a6d3b','#6b5836','#5c4a28','#4a3a22','#3a2f1c','#2a2620'];
   const dot=c=>`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin-right:5px"></span>`;
@@ -3383,7 +3435,8 @@ VIEWS.reports = () => {
       <div class="card" style="flex:1.1;min-width:240px"><div class="card-head" style="padding:8px 12px"><h3 style="${SER};color:var(--gold);font-size:12.5px">🏆 Top sale value — ₹</h3></div>
         <div class="card-body" style="padding:8px"><div style="height:128px;position:relative"><canvas id="rpC4"></canvas></div></div></div>
     </div>
-    <div class="grid-2" style="gap:8px">${cards}</div>
+    <div class="rpthint noprint">Reports open <b>one at a time</b> — click a name to open it. <b>🗂️ All in One</b> holds every report together; <b>📅 Month End</b> holds Purchase, Liquor Room and Beverage Control.</div>
+    <div class="rptlist">${cards}</div>
     </div>`;
 };
 AFTER.reports = () => {

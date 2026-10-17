@@ -2114,3 +2114,41 @@ html{scroll-behavior:smooth}
 .lrf-steps .st.ng .m.nm b{color:var(--red);font-weight:700}
 .modal .lrclose.neg{color:var(--red)}
 .modal.xwide .lrname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
+
+/* ---- Reports — one list, one report open at a time (v2.77.0) ---- */
+.rpthint{font-size:11px;color:var(--text-muted);margin:0 0 8px;padding:6px 11px;border-radius:8px;
+  border:1px dashed color-mix(in srgb,var(--gold) 30%,transparent);background:color-mix(in srgb,var(--gold) 4%,transparent)}
+.rpthint b{color:var(--gold);font-weight:600}
+.rptlist{display:flex;flex-direction:column;gap:7px}
+.rptc .rptitem{margin:0}
+.rptc .rptitem .rpthd{padding:8px 12px;gap:10px;align-items:center;cursor:pointer;user-select:none}
+.rptc .rptitem .rpthd:hover{background:color-mix(in srgb,var(--gold) 5%,transparent)}
+.rptc .rptitem .rpthd:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.rptc .rptitem.cl .rpthd{border-bottom:0}
+.rptc .rptitem .rpthd .rl{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+.rptc .rptitem .rpthd .ch{flex:none;width:13px;text-align:center;font-size:12.5px;line-height:1;color:var(--gold)}
+.rptc .rptitem .rpthd h3{font-size:13px;margin:0}
+.rptc .rptitem .rpthd p{font-size:10.5px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rptc .rptitem.on{border-color:color-mix(in srgb,var(--gold) 55%,transparent)}
+.rptc .rptitem.on .rpthd{background:color-mix(in srgb,var(--gold) 7%,transparent)}
+.rptc .rptitem.on .rpthd h3{color:var(--gold)}
+.rptc .rptitem>.table-wrap{max-height:460px;overflow:auto}
+.rptc .rptsec{border-top:1px solid var(--border-soft)}
+.rptc .rptsec:first-child{border-top:0}
+.rptc .rptsec .rptsech{display:flex;align-items:center;gap:8px;padding:6px 12px;letter-spacing:.06em;
+  font-family:Georgia,'Times New Roman',serif;font-size:11.5px;color:var(--gold);
+  background:color-mix(in srgb,var(--gold) 4%,transparent);border-bottom:1px solid var(--gold-dim)}
+.rptc .rptsec .rptsech .k{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+  border-radius:50%;border:1px solid color-mix(in srgb,var(--gold) 45%,transparent);font-size:9px}
+.rptc .rptsec .rptsech .rn{margin-left:auto;font-family:'Inter',sans-serif;font-size:9.5px;letter-spacing:0;color:var(--text-muted)}
+.rptc .rptsec .table-wrap{max-height:300px;overflow:auto}
+.rptc .tbl tr.rpttot td{background:var(--gold-dim);font-weight:700}
+@media print{
+  .rptc .rpthint{display:none !important}
+  .rptc .rptlist{display:block !important}
+  .rptc .rptitem.cl{display:none !important}          /* print the report that is open */
+  .rptc .rptitem .rpthd .ch{display:none !important}
+  .rptc .rptitem>.table-wrap,.rptc .rptsec .table-wrap{max-height:none !important;overflow:visible !important}
+  .rptc .rptsec .rptsech{color:#7a5c00 !important;background:#f4efe3 !important;border-bottom:1px solid #c9a45f !important}
+  .rptc .tbl tr.rpttot td{background:#f0e6cf !important}
+}
