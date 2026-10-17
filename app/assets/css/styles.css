@@ -2181,3 +2181,10 @@ html{scroll-behavior:smooth}
   border:1px solid var(--gold-dim);background:color-mix(in srgb,var(--gold) 5%,transparent)}
 .bevxl .n .up{color:var(--green)} .bevxl .n .dn{color:var(--red)}
 @media (max-width:760px){ .bevxl .k,.bevxl .k.k3{grid-template-columns:repeat(2,1fr)} }
+
+/* ---- the "matched to your sheet" note + report (v2.79.0) ---- */
+.invfixnote{display:inline-flex;align-items:center;gap:3px;margin-left:4px}
+.invfixnote .btn{border-color:color-mix(in srgb,var(--gold) 55%,transparent);color:var(--gold)}
+.invfixnote .btn.x{padding:0 6px;opacity:.6;border-color:var(--border)}
+.invfixnote .btn.x:hover{opacity:1}
+.bevxl.invfix .k .c .v{font-size:15.5px}

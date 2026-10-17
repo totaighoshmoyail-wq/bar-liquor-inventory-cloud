@@ -2682,6 +2682,7 @@ VIEWS.barinv = () => {
         <input class="input" type="date" id="biTo" value="${period.to}" style="width:auto" onchange="setBarPeriod()">
         ${(()=>{ const A=bcRecvAudit(); const ok=Math.abs(A.gap)<0.001;   // v2.71.0 — say what Receipt is, and prove it
           return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`}`; })()}
+        ${invFixNoteHtml()}
       </div>
       <div class="flex items-center" style="gap:6px;flex-wrap:wrap">
         <button class="btn btn-sm btn-gold" onclick="openBevClone()" title="Create / delete clone pages">📑 Page Clone${bevPages.length?' ('+bevPages.length+')':''}</button>
@@ -5237,7 +5238,7 @@ function _invAddBrand(name, cat){
    Once per TRAFFIC_INV_V per company (CO_PREFIX+'invv'); a Start-Fresh company gets its figures back this way too. */
 function _invSeedPlan(){                                     // which workbook this company follows (v2.73.0)
   if(typeof CO_IS_CANTEEN!=='undefined' && CO_IS_CANTEEN)
-    return (typeof CANTEEN_INV_V!=='undefined') ? {v:CANTEEN_INV_V, bar:(typeof CANTEEN_BAR!=='undefined'?CANTEEN_BAR:[]), lr:[], fillAll:true,
+    return (typeof CANTEEN_INV_V!=='undefined') ? {v:CANTEEN_INV_V, bar:(typeof CANTEEN_BAR!=='undefined'?CANTEEN_BAR:[]), lr:[], fillAll:true, exact:true,   // the workbook IS the figure (v2.79.0)
       prev:(typeof CANTEEN_INV!=='undefined'?CANTEEN_INV:{})} : null;   // what the OLD seed put there
   if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC)
     return (typeof TRAFFIC_INV_V!=='undefined') ? {v:TRAFFIC_INV_V, bar:(typeof TRAFFIC_BAR!=='undefined'?TRAFFIC_BAR:[]), lr:(typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]), fillAll:false} : null;
@@ -5247,15 +5248,52 @@ function invSeedCatchUp(){
   const MK=CO_PREFIX+'invv';
   if(localStorage.getItem(MK)===String(P.v)) return null;
   const blank=v=>v==null||v==='';
+  const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
   let bar=0, lr=0, keptBar=0, keptLr=0; const brandsAdded=[];
-  let cls=0, keptCl=0;
-  P.bar.forEach(x=>{
-    if(!getTallyItem(x.b)) { _invAddBrand(x.b, x.c); brandsAdded.push(x.b); }
-    const k=norm(x.b); const iv=invData[k]||(invData[k]={});
-    const was=(P.prev&&P.prev[k])||{};                 // a value still equal to the OLD seed was never typed
-    const free=(cur,old)=>blank(cur)||(old!=null&&String(cur)===String(old));
-    if(x.o!=null){ if(free(iv.openBL, was.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; }
-    if(x.cl!=null){ if(free(iv.closeBL, was.closeBL)){ iv.closeBL=x.cl; cls++; } else keptCl++; } });
+  let cls=0, keptCl=0; let REP=null;
+
+  /* ---- EXACT (v2.79.0): the workbook IS the figure, brand by brand ----------------
+     The client asked twice for the app to match their sheet, item by item. So every brand the
+     sheet lists takes the sheet's OPENING BAL and CLOSING BAL, and a figure the app holds where
+     the sheet is BLANK is cleared. A brand the sheet does not list is left alone — the sheet says
+     nothing about it — but it is reported by name so the ∑ can still be explained. The whole
+     previous `inv` is kept under `invbak` first, so this is never one-way.                       */
+  if(P.exact){
+    try{ localStorage.setItem(CO_PREFIX+'invbak', JSON.stringify({at:new Date().toISOString(), v:P.v, inv:invData})); }catch(e){}
+    const rows=[], onSheet={}; let same=0, sumO=0, sumC=0;
+    P.bar.forEach(x=>{
+      if(!getTallyItem(x.b)){ _invAddBrand(x.b, x.c); brandsAdded.push(x.b); }
+      const k=norm(x.b); onSheet[k]=1; const iv=invData[k]||(invData[k]={});
+      const wasO=blank(iv.openBL)?'':iv.openBL, wasC=blank(iv.closeBL)?'':iv.closeBL;
+      const nowO=(x.o==null?'':x.o), nowC=(x.cl==null?'':x.cl);
+      const dO=String(wasO)!==String(nowO), dC=String(wasC)!==String(nowC);
+      if(dO) iv.openBL=nowO;
+      if(dC) iv.closeBL=nowC;
+      if(dO||dC) rows.push({b:x.b, c:x.c, wasO:wasO, nowO:nowO, wasC:wasC, nowC:nowC, dO:dO, dC:dC});
+      else same++;
+      if(nowO!=='') sumO+=(+nowO||0);
+      if(nowC!=='') sumC+=(+nowC||0);
+    });
+    bar=rows.filter(r=>r.dO&&r.nowO!=='').length;  cls=rows.filter(r=>r.dC&&r.nowC!=='').length;
+    const clrO=rows.filter(r=>r.dO&&r.nowO==='').length, clrC=rows.filter(r=>r.dC&&r.nowC==='').length;
+    /* brands the sheet never mentions that still carry a figure — named, never touched */
+    const outside=[];
+    tallyItems.forEach(t=>{ const k=norm(t.name); if(onSheet[k]) return; const iv=invData[k]; if(!iv) return;
+      const o=blank(iv.openBL)?'':iv.openBL, c=blank(iv.closeBL)?'':iv.closeBL;
+      if(o!==''||c!=='') outside.push({b:t.name, o:o, c:c}); });
+    REP={at:Date.now(), v:P.v, n:P.bar.length, same:same, rows:rows, added:brandsAdded.slice(),
+         outside:outside, setO:bar, setC:cls, clrO:clrO, clrC:clrC,
+         sumO:Math.round(sumO*1000)/1000, sumC:Math.round(sumC*1000)/1000};
+    try{ localStorage.setItem(CO_PREFIX+'invfix', JSON.stringify(REP)); }catch(e){}
+  } else {
+    P.bar.forEach(x=>{
+      if(!getTallyItem(x.b)) { _invAddBrand(x.b, x.c); brandsAdded.push(x.b); }
+      const k=norm(x.b); const iv=invData[k]||(invData[k]={});
+      const was=(P.prev&&P.prev[k])||{};                 // a value still equal to the OLD seed was never typed
+      const free=(cur,old)=>blank(cur)||(old!=null&&String(cur)===String(old));
+      if(x.o!=null){ if(free(iv.openBL, was.openBL)){ iv.openBL=x.o; bar++; } else keptBar++; }
+      if(x.cl!=null){ if(free(iv.closeBL, was.closeBL)){ iv.closeBL=x.cl; cls++; } else keptCl++; } });
+  }
   /* every Item Master name needs a row, or its issues have nowhere to be received (v2.73.0) */
   if(P.fillAll){ const claimed={}; tallyItems.forEach(t=>{ claimed[norm(rawNameFor(t.name)||t.name)]=1; });
     rawData.forEach(r=>{ const k=norm(r.item); if(claimed[k]) return; claimed[k]=1;
@@ -5269,11 +5307,73 @@ function invSeedCatchUp(){
   P.lr.forEach(x=>{
     const k=norm(x.f); const iv=invData[k]||(invData[k]={});
     if(blank(iv.lrOpen)){ iv.lrOpen=x.o; lr++; } else keptLr++; });
-  const w=(k,v)=>{ try{ localStorage.setItem(CO_PREFIX+k, JSON.stringify(v)); }catch(e){} try{ cloudMark(k); }catch(e){} };
-  if(bar||cls||lr||brandsAdded.length) w('inv', invData);
-  if(brandsAdded.length){ w('tally', tallyItems); try{ rebuildIndexes(); }catch(e){} try{ invalidateCalcCache(); }catch(e){} }
+  if(bar||cls||lr||brandsAdded.length||(REP&&REP.rows.length)) w('inv', invData);
+  if(brandsAdded.length){ w('tally', tallyItems); try{ rebuildIndexes(); }catch(e){} }
+  try{ invalidateCalcCache(); }catch(e){}
   localStorage.setItem(MK, String(P.v));
-  return {bar, cls, lr, keptBar, keptCl, keptLr, brandsAdded};
+  return {bar, cls, lr, keptBar, keptCl, keptLr, brandsAdded, exact:!!(P.exact), rep:REP};
+}
+/* ---- the report: what was set, brand by brand, and how to undo it (v2.79.0) ---- */
+function invFixRead(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'invfix')||'null'); }catch(e){ return null; } }
+function invFixHide(){ try{ localStorage.removeItem(CO_PREFIX+'invfix'); }catch(e){} try{ route(); }catch(e){} }
+function invFixNoteHtml(){
+  const R=invFixRead(); if(!R) return '';
+  const n=(R.rows&&R.rows.length)||0;
+  return `<span class="invfixnote"><button class="btn btn-sm" onclick="invFixModal()" title="Every brand was matched to your September sheet — see exactly what was set">📋 Opening &amp; Closing from your sheet${n?' · '+fmt(n)+' changed':''}</button><button class="btn btn-sm x" title="Hide this note" onclick="invFixHide()">✕</button></span>`;
+}
+function invFixModal(){
+  const R=invFixRead();
+  if(!R){ toast('Nothing to show','No sheet match has been run on this device','err'); return; }
+  const money=v=>fmt(Math.round(v||0));
+  const num=v=>(v===''||v==null)?'<span class="muted">—</span>':esc(String(v));
+  const arrow=(was,now,ch)=>!ch?`<td class="num muted">${was===''?'—':esc(String(was))}</td>`
+    :`<td class="num">${was===''?'<span class="muted">—</span>':'<s class="muted">'+esc(String(was))+'</s>'} <strong class="gold">${now===''?'cleared':esc(String(now))}</strong></td>`;
+  let D=null; try{ D=biRoyalData(); }catch(e){}
+  const appO=D?D.qty.raw.open:0, appC=D?D.qty.raw.close:0;
+  const okO=Math.abs(appO-R.sumO)<0.005, okC=Math.abs(appC-R.sumC)<0.005;
+  const rows=R.rows||[];
+  const body=`<div class="bevxl invfix">
+    <div class="h">Every brand of your September sheet was gone through one by one —
+      <strong>${fmt(R.n)}</strong> rows: <strong class="gold">${fmt(R.setO)}</strong> opening${R.setO===1?'':'s'} and
+      <strong class="gold">${fmt(R.setC)}</strong> closing${R.setC===1?'':'s'} put in,
+      <strong>${fmt(R.clrO+R.clrC)}</strong> figure${R.clrO+R.clrC===1?'':'s'} the sheet leaves blank cleared,
+      <strong>${fmt(R.same)}</strong> already matched${R.added&&R.added.length?`, <strong>${fmt(R.added.length)}</strong> brand${R.added.length===1?'':'s'} added`:''}.</div>
+    <div class="k k3">
+      <div class="c"><div class="l">Σ Opening — Excel total row</div><div class="v gold">${esc(R.sumO.toFixed(3))}</div>
+        <div class="s">${okO?'✔ the sheet matches this page':'this page reads '+esc(appO.toFixed(3))}</div></div>
+      <div class="c"><div class="l">Σ Closing — Excel total row</div><div class="v gold">${esc(R.sumC.toFixed(3))}</div>
+        <div class="s">${okC?'✔ the sheet matches this page':'this page reads '+esc(appC.toFixed(3))}</div></div>
+      <div class="c"><div class="l">Brands gone through</div><div class="v">${fmt(R.n)}</div>
+        <div class="s">${fmt(rows.length)} changed · ${fmt(R.same)} were already right</div></div>
+    </div>
+    ${(R.outside&&R.outside.length)?`<div class="w">⚠ ${fmt(R.outside.length)} brand${R.outside.length===1?'':'s'} carry a figure but are <strong>not on your September sheet</strong>, so they were left exactly as they are —
+      that is the whole difference between this page and your Excel total:
+      ${R.outside.slice(0,12).map(o=>`${esc(o.b)} <span class="muted">(${o.o!==''?'op '+esc(String(o.o)):''}${o.o!==''&&o.c!==''?' · ':''}${o.c!==''?'cl '+esc(String(o.c)):''})</span>`).join(' · ')}${R.outside.length>12?` … and ${fmt(R.outside.length-12)} more`:''}</div>`:''}
+    <div class="table-wrap" style="max-height:330px">
+      <table class="tbl"><thead><tr><th>#</th><th>Item</th><th>Category</th><th class="num">Opening</th><th class="num">Closing</th></tr></thead><tbody>
+      ${rows.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td>${esc(r.b)}</td><td class="muted">${esc(r.c||'')}</td>
+         ${arrow(r.wasO, r.nowO, r.dO)}${arrow(r.wasC, r.nowC, r.dC)}</tr>`).join('')
+       || `<tr><td colspan="5" class="center muted" style="padding:14px">Nothing had to change — every figure already matched your sheet.</td></tr>`}
+      </tbody></table></div>
+    <div class="muted" style="font-size:10.5px;margin-top:6px">Receipt is not read from the Excel — on this page it is always what the Bar Stock Issue holds for the period.</div>
+  </div>`;
+  const back=(function(){ try{ return !!JSON.parse(localStorage.getItem(CO_PREFIX+'invbak')||'null'); }catch(e){ return false; } })();
+  modal('📋 Opening &amp; Closing — matched to your September sheet', body,
+    `${back?'<button class="btn" onclick="invFixRestore()" title="Put every opening and closing back to what it was before this match">↩ Put the old figures back</button>':''}
+     <button class="btn btn-gold" onclick="closeModal()">Close</button>`);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+function invFixRestore(){
+  let B=null; try{ B=JSON.parse(localStorage.getItem(CO_PREFIX+'invbak')||'null'); }catch(e){}
+  if(!B||!B.inv){ toast('Nothing to put back','No earlier copy was kept on this device','err'); return; }
+  confirmAsk('Put every opening and closing back to what it was before the sheet was matched?<br><span class="muted" style="font-size:11.5px">The figures from your Excel go away again.</span>', ()=>{
+    invData=B.inv;
+    try{ localStorage.setItem(CO_PREFIX+'inv', JSON.stringify(invData)); cloudMark('inv'); }catch(e){}
+    try{ localStorage.removeItem(CO_PREFIX+'invfix'); }catch(e){}
+    try{ invalidateCalcCache(); }catch(e){}
+    closeModal(); route();
+    toast('Put back','The openings and closings are as they were before the match','ok');
+  });
 }
 /* When to run them. A device that was away (the PC closed overnight) would otherwise migrate its STALE copy at
    load, mark rawdata2/inv/bevmap dirty, and its next merge push would lay that stale copy over what the other
@@ -5288,11 +5388,14 @@ function _rawCatchRun(){
   if(!_rawCatchPending) return; _rawCatchPending=false;
   let R=null, I=null; try{ R=rawSeedCatchUp(); }catch(e){} try{ I=invSeedCatchUp(); }catch(e){}
   const rawDid=R&&!R.fresh&&(R.added||R.renamed.length||R.removed.length);
-  const invDid=I&&(I.bar||I.lr||I.brandsAdded.length);
+  const invDid=I&&(I.bar||I.lr||I.brandsAdded.length||(I.rep&&I.rep.rows.length));
   if(!rawDid && !invDid) return;
   const n=(c,w)=>c+' '+w+(c===1?'':'s');
   const say=()=>{ try{ _cloudNeedRender=true; cloudRenderIfQuiet(false); }catch(e){}
     try{ if(rawDid) toast('Item Master updated from your September sheet', n(R.added,'new name')+' · '+n(R.renamed.length,'name')+' renamed to yours · '+n(R.removed.length,'extra name')+' removed'+(R.keptData.length?' · '+n(R.keptData.length,'name')+' with purchases / issues / stock kept for you to decide':'')+' · your groups applied', 'ok'); }catch(e){}
+    try{ if(I && I.exact && I.rep){ const R=I.rep;
+      toast('Opening & Closing matched to your September sheet', n(R.setO,'opening')+' · '+n(R.setC,'closing')+' put in · '+n(R.clrO+R.clrC,'figure')+' cleared where your sheet is blank'+(R.added.length?' · '+n(R.added.length,'brand')+' added':'')+' — tap to see every line', 'ok');
+      setTimeout(()=>{ try{ invFixModal(); }catch(e){} }, 900); return; } }catch(e){}
     try{ if(invDid){ if(I.bar||I.lr) toast('Opening stock filled from your September sheet', n(I.lr,'Liquor Room opening')+' · '+n(I.bar,'Beverage Control opening')+(I.keptBar+I.keptLr?' · '+n(I.keptBar+I.keptLr,'figure')+' already set — left as they were':'')+(I.brandsAdded.length?' · '+n(I.brandsAdded.length,'brand')+' added to Beverage Control':''), 'ok');
       else toast('Beverage Control now lists every brand of your September sheet', n(I.brandsAdded.length,'brand')+' added (openings already in place)', 'ok'); } }catch(e){} };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(say, 1200)); else setTimeout(say, 50);
