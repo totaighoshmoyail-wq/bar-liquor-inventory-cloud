@@ -2694,6 +2694,7 @@ VIEWS.barinv = () => {
         <button class="btn btn-sm" onclick="expReport('bev','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('bev')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your own Liquor Inventory workbook — the month sheet with OPENING BAL and CLOSING BAL. Every brand is matched to yours, you see what would change, and only then is it put in.">📥 From Excel<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="bevXlUpload(this)"></label>
+        <button class="btn btn-sm" onclick="invFixRun()" title="Put every opening and closing back to what your Liquor Inventory workbook says — brand by brand. Your figures as they are now are kept first.">🔄 Sheet match</button>
         <button class="btn btn-sm" onclick="cloneBarInv()" title="Closing → Opening carry-forward (new period)">🧬 Carry</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('openBL')" title="Clears EVERY Opening value">🧹 Opening</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
@@ -2793,17 +2794,30 @@ AFTER.barinv = () => {
 };
 function setBarPeriod(){ const f=$('#biFrom').value, t=$('#biTo').value; period={from:f||period.from, to:t||period.to}; bsv('period',period); route(); toast('Period set',`${period.from} → ${period.to}`,'ok'); }
 function cloneBarInv(){
-  modal('Clone → New Period', `<p>Carry <strong>Closing → Opening</strong> for the next period:</p>
-    <ul style="margin:10px 0 0 18px;font-size:13px;color:var(--text-muted);line-height:1.7">
-      <li>Every item's <strong>Closing</strong> becomes the new <strong>Opening</strong></li>
-      <li>Closing & Sale are cleared for fresh physical count</li>
-      <li>Only the Bar Inventory sheet is affected (Item Master, Bar Stock Issue, Purchase untouched)</li></ul>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doCloneBarInv()">Clone Now</button>`);
+  /* say what it will actually do, with the figures (v2.81.0 — it was pressed mid-month once
+     and wiped every closing; the wording alone did not make the size of it clear) */
+  let nC=0, nOver=0, sumC=0;
+  tallyItems.forEach(t=>{ const iv=invGet(t.name);
+    if(iv.closeBL!=null&&iv.closeBL!==''){ nC++; sumC+=(+iv.closeBL||0); if(iv.openBL!=null&&iv.openBL!=='') nOver++; } });
+  modal('🧬 Carry Closing → Opening — only when the month is finished', `
+    <div class="bevxl"><div class="k k3">
+      <div class="c"><div class="l">Closings that move up</div><div class="v gold">${fmt(nC)}</div><div class="s">Σ column ${esc((Math.round(sumC*1000)/1000).toFixed(3))}</div></div>
+      <div class="c"><div class="l">Openings replaced</div><div class="v ${nOver?'am':''}">${fmt(nOver)}</div><div class="s">what is in Opening now is overwritten</div></div>
+      <div class="c"><div class="l">Closings cleared</div><div class="v">${fmt(nC)}</div><div class="s">ready for the new physical count</div></div>
+    </div>
+    <div class="w" style="border-color:color-mix(in srgb,var(--red) 45%,transparent);color:var(--red);background:color-mix(in srgb,var(--red) 7%,transparent)">
+      ⚠ Do this only when THIS month is closed. In the middle of a month it empties the Closing column, and then Consumption and Variance read the whole opening stock.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:8px">Only the Beverage Control sheet is touched — Item Master, Bar Stock Issue and Purchase stay as they are.
+      Your figures as they are now are kept, and <strong>🔄 Sheet match</strong> on this page puts your workbook's openings and closings back.</div></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doCloneBarInv()">🧬 Carry ${fmt(nC)} closing${nC===1?'':'s'} up</button>`);
 }
 function doCloneBarInv(){
   let n=0; const st=activeInv();
+  /* keep a copy so ↩ Put the old figures back works after a Carry too (v2.81.0) */
+  try{ if(st===invData) localStorage.setItem(CO_PREFIX+'invbak', JSON.stringify({at:new Date().toISOString(), why:'carry', inv:invData})); }catch(e){}
   tallyItems.forEach(t=>{ const iv=invGet(t.name); if(iv.closeBL!=null&&iv.closeBL!==''){ st[norm(t.name)]={...iv, openBL:iv.closeBL, closeBL:'', saleOverride:undefined}; n++; } });
-  activeInvSave(); closeModal(); route(); toast('Cloned',`${n} items carried Closing → Opening (new period)`,'ok');
+  activeInvSave(); closeModal(); route();
+  toast('Carried', `${n} closing${n===1?'':'s'} moved up to Opening · Closing cleared — 🔄 Sheet match puts your workbook figures back`,'ok');
 }
 /* ---- Clone Pages popup: create a full duplicate page (own sheet in the nav) / delete one ---- */
 function openBevClone(){
@@ -5319,6 +5333,26 @@ function invSeedCatchUp(){
   return {bar, cls, lr, keptBar, keptCl, keptLr, brandsAdded, exact:!!(P.exact), rep:REP};
 }
 /* ---- the report: what was set, brand by brand, and how to undo it (v2.79.0) ---- */
+/* Put the workbook's openings & closings back, whenever they ask (v2.81.0). The automatic pass
+   runs once per CANTEEN_INV_V; this is the same pass on demand — after a 🧬 Carry, a wrong
+   typing session, or simply a newer save of their Excel. */
+function invFixRun(){
+  const P=_invSeedPlan();
+  if(!P||!P.bar||!P.bar.length){ toast('No workbook figures','This company has no sheet figures in the app yet — use 📥 From Excel','err'); return; }
+  const what=P.exact
+    ? fmt(P.bar.length)+' brands are gone through one by one: the sheet\u2019s opening and closing go in, and a figure the sheet leaves blank is cleared.'
+    : fmt(P.bar.length)+' brands are gone through one by one: the sheet\u2019s opening fills anything still blank.';
+  confirmAsk('Match every opening and closing to your <strong>Liquor Inventory workbook</strong> again?<br>' +
+    '<span class="muted" style="font-size:11.5px">' + what + ' Your figures as they are now are kept first, so this can be put back.</span>', ()=>{
+    try{ localStorage.removeItem(CO_PREFIX+'invv'); }catch(e){}
+    let R=null; try{ R=invSeedCatchUp(); }catch(e){ toast('Could not do it', e.message, 'err'); return; }
+    try{ invalidateCalcCache(); }catch(e){}
+    route();
+    const x=R&&R.rep;
+    if(x){ toast('Matched to your sheet', fmt(x.setO)+' opening'+(x.setO===1?'':'s')+' · '+fmt(x.setC)+' closing'+(x.setC===1?'':'s')+' · '+fmt(x.clrO+x.clrC)+' cleared','ok'); setTimeout(()=>{ try{ invFixModal(); }catch(e){} }, 250); }
+    else toast('Done', R?('nothing left to change'):'nothing to change','ok');
+  }, {title:'🔄 Match my sheet again', ok:'🔄 Match my sheet'});
+}
 function invFixRead(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'invfix')||'null'); }catch(e){ return null; } }
 function invFixHide(){ try{ localStorage.removeItem(CO_PREFIX+'invfix'); }catch(e){} try{ route(); }catch(e){} }
 function invFixNoteHtml(){

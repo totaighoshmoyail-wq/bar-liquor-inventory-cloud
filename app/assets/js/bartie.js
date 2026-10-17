@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.80.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.81.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -3659,9 +3659,12 @@ function modal(title, body, foot){
 function closeModal(){ const ms=$$('.modal-back'); if(ms.length) ms[ms.length-1].remove(); }   // close the topmost (supports stacked confirm)
 // reusable "Are you sure?" confirm popup — used by every delete across the app
 let _confirmCb=null;
-function confirmAsk(msg, cb){ _confirmCb=cb;
-  modal('⚠️ Are you sure?', `<p style="font-size:13.5px;line-height:1.6">${msg}</p>`,
-    `<button class="btn" onclick="_confirmCb=null;closeModal()">Cancel</button><button class="btn btn-gold" style="background:var(--red);color:#fff" onclick="confirmYes()">Yes, delete</button>`); }
+/* confirmAsk(msg, cb[, opt]) — opt {title, ok} lets a NON-deleting action ask in its own words and
+   drops the red button; every older caller keeps the red 'Yes, delete' it has always had (v2.81.0). */
+function confirmAsk(msg, cb, opt){ _confirmCb=cb; opt=opt||{};
+  const red = opt.ok ? '' : ' style="background:var(--red);color:#fff"';
+  modal(opt.title || '⚠️ Are you sure?', `<p style="font-size:13.5px;line-height:1.6">${msg}</p>`,
+    `<button class="btn" onclick="_confirmCb=null;closeModal()">Cancel</button><button class="btn btn-gold"${red} onclick="confirmYes()">${esc(opt.ok || 'Yes, delete')}</button>`); }
 function confirmYes(){ const cb=_confirmCb; _confirmCb=null; closeModal(); if(typeof cb==='function') cb(); }
 function toast(title, desc, kind){
   let wrap=$('#toastWrap'); if(!wrap){ wrap=document.createElement('div'); wrap.id='toastWrap'; wrap.className='toast-wrap'; document.body.appendChild(wrap); }
