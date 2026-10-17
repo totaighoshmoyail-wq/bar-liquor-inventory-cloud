@@ -2330,6 +2330,225 @@ function biFindInner(){
         <div class="center muted" style="padding:24px;font-size:16px">"<strong>${esc(findQ)}</strong>" — not found</div></div>`;
 }
 function biFindType(v){ biFind=v; const r=$('#biFindResults'); if(r) r.innerHTML=biFindInner(); else routeQuiet(); }
+/* ============================================================
+   OPENING & CLOSING FROM THEIR OWN EXCEL BAR SHEET (v2.78.0)
+   The client keeps the month in the Liquor Inventory workbook's "<from>-<to>"
+   sheet — col B brand · C size · D OPENING BAL · E RECEIPT · F CLOSING BAL.
+   This reads that sheet (any workbook, any sheet: it is found by its OPENING
+   and CLOSING headings), matches every brand to theirs, SHOWS what would
+   change, and only then writes openBL / closeBL. Receipt stays the Bar Stock
+   Issue's own figure (v2.71.0) and no rate, sale or issue is touched.
+   ============================================================ */
+var bevXl=null;                       // {sheet, file, rows, opt:{add,clear}}
+function bevXlNum(v){ if(v==null||v==='') return null; if(typeof v==='number') return isFinite(v)?v:null;
+  const n=+String(v).replace(/[, ]/g,''); return isFinite(n)?n:null; }
+function bevXlTxt(v){ return v==null?'':String(v).replace(/[ \t\r\n]+/g,' ').trim(); }
+
+/* EVERY sheet that could be a bar-inventory sheet, best first. A workbook holds more than one
+   (their Liquor-Room sheet also says OPENING/CLOSING, and old months sit in the same file), so
+   the best guess is scored and the person can still switch sheets in the preview. */
+function bevXlDates(nm){ const out=[]; const re=/(\d{1,2})[-\/. ](\d{1,2})[-\/. ](\d{4})/g; let m;
+  while((m=re.exec(String(nm||'')))){ const d=new Date(+m[3], +m[2]-1, +m[1]); if(!isNaN(+d)) out.push(+d); }
+  return out; }
+function bevXlCands(wb){
+  const out=[];
+  for(let si=0; si<wb.SheetNames.length; si++){
+    let grid; try{ grid=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[si]],{header:1,defval:null}); }catch(e){ continue; }
+    for(let h=0; h<Math.min(grid.length,15); h++){
+      const row=(grid[h]||[]).map(x=>norm(x));
+      const o=row.findIndex(x=>/^OPENING/.test(x)), cl=row.findIndex(x=>/^CLOSING/.test(x));
+      if(o<0||cl<0) continue;
+      const z=row.findIndex(x=>/^SIZE/.test(x)), rec=row.findIndex(x=>/^RECEIPT|^RECEIVED/.test(x));
+      const b=(z>0?z-1:o-1); if(b<0) continue;
+      /* a BAR sheet is the one with the whole formula on it — the Liquor Room has no variance */
+      let sc=0;
+      if(row.some(x=>/^VARIANCE/.test(x))) sc+=3;
+      if(row.some(x=>/^CONSUMPTION/.test(x))) sc+=2;
+      if(/^OPENING BAL/.test(row[o])) sc+=2;
+      if(/^CLOSING BAL/.test(row[cl])) sc+=1;
+      if(z>=0) sc+=1;
+      const F={sheet:wb.SheetNames[si], grid:grid, h:h, c:{b:b, z:z, o:o, cl:cl, rec:rec, a:b-1}};
+      const rows=bevXlRows(F);
+      F.score=sc; F.n=rows.length; F.figs=rows.filter(r=>r.o!=null||r.cl!=null).length;
+      /* their workbook keeps OLD months as sheets as well — the one whose NAME carries a date
+         inside the period set on this page is the month they mean (v2.78.0) */
+      const ds=bevXlDates(F.sheet), pf=Date.parse(period.from), pt=Date.parse(period.to), day=864e5;
+      F.newest=ds.length?Math.max.apply(null,ds):0;
+      F.inPeriod=(isFinite(pf)&&isFinite(pt))?ds.some(t=>t>=pf-3*day&&t<=pt+3*day):false;
+      out.push(F); break;                                      // one header row per sheet is enough
+    } }
+  return out.sort((x,y)=>y.score-x.score || (y.inPeriod?1:0)-(x.inPeriod?1:0) || y.newest-x.newest || y.figs-x.figs || y.n-x.n);
+}
+function bevXlFind(wb){ const c=bevXlCands(wb); return c.length?c[0]:null; }
+function bevXlSheet(i){
+  if(!bevXl||!bevXl.cands||!bevXl.cands[i]) return;
+  const F=bevXl.cands[i];
+  bevXl.pick=+i; bevXl.sheet=F.sheet; bevXl.rows=bevXlResolve(bevXlRows(F));
+  bevXlModal();
+}
+/* brand rows, with the group heading they sit under */
+function bevXlRows(F){
+  const g=F.grid, c=F.c, out=[]; let grp='';
+  for(let i=F.h+1; i<g.length; i++){
+    const r=g[i]||[]; const b=bevXlTxt(r[c.b]); if(!b) continue;
+    if(/^(GRAND )?TOTAL/i.test(b)) continue;
+    const zt=c.z>=0?bevXlTxt(r[c.z]):'', at=c.a>=0?bevXlTxt(r[c.a]):'';
+    const o=bevXlNum(r[c.o]), cl=bevXlNum(r[c.cl]), rec=c.rec>=0?bevXlNum(r[c.rec]):null;
+    if(!zt && !at && o==null && cl==null && !rec){ grp=b.toUpperCase(); continue; }   // a group heading
+    out.push({b:b.toUpperCase(), grp:grp, z:zt, o:o, cl:cl, rec:rec, row:i+1});
+  }
+  return out;
+}
+/* each sheet brand → one of theirs (exact name, else a SURE smart match, else new) */
+function bevXlResolve(rows){
+  const list=tallyItems.map(t=>({item:t.name, group:t.category})); const seen={};
+  rows.forEach(r=>{
+    const ex=getTallyItem(r.b);
+    if(ex){ r.t=ex.name; r.kind='exact'; }
+    else { let m=null; try{ m=bevcoMatch(r.b,{list:list}); }catch(e){}
+      if(m && m.name && m.sure){ r.t=m.name; r.kind='near'; }
+      else { r.t=''; r.kind='new'; r.alt=(m&&m.name)||''; } }
+    if(r.t){ const k=norm(r.t); if(seen[k]) r.dupOf=seen[k]; else seen[k]=r.b; }
+    const iv=r.t?invGet(r.t):{};
+    r.wasO=(iv.openBL==null?'':iv.openBL); r.wasC=(iv.closeBL==null?'':iv.closeBL);
+    r.dO=(r.o!=null && String(r.wasO)!==String(r.o));
+    r.dC=(r.cl!=null && String(r.wasC)!==String(r.cl));
+    r.clrO=(r.o==null && String(r.wasO)!=='');      // the sheet leaves it blank, the app holds one
+    r.clrC=(r.cl==null && String(r.wasC)!=='');
+  });
+  return rows;
+}
+function bevXlStats(){ const R=(bevXl&&bevXl.rows)||[]; const n=f=>R.filter(f).length;
+  return { n:R.length, exact:n(r=>r.kind==='exact'), near:n(r=>r.kind==='near'), neu:n(r=>r.kind==='new'),
+    dO:n(r=>r.dO), dC:n(r=>r.dC), clrO:n(r=>r.clrO), clrC:n(r=>r.clrC), dup:n(r=>r.dupOf),
+    hasO:n(r=>r.o!=null), hasC:n(r=>r.cl!=null),
+    sumO:R.reduce((s,r)=>s+(r.o||0),0), sumC:R.reduce((s,r)=>s+(r.cl||0),0) }; }
+
+function bevXlUpload(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page (xlsx.full.min.js)','err'); inp.value=''; return; }
+  const rd=new FileReader();
+  rd.onload=e=>{ try{
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    const cands=bevXlCands(wb), F=cands[0];
+    if(!F){ toast('Could not read it','No sheet in that file has an OPENING and a CLOSING column','err'); inp.value=''; return; }
+    const rows=bevXlResolve(bevXlRows(F));
+    if(!rows.length){ toast('Nothing on that sheet','"'+F.sheet+'" has the headings but no brand rows','err'); inp.value=''; return; }
+    bevXl={sheet:F.sheet, file:f.name, cands:cands, pick:0, rows:rows, opt:{add:true, clear:false}};
+    bevXlModal();
+  }catch(err){ toast('Could not read it', err.message,'err'); } inp.value=''; };
+  rd.readAsArrayBuffer(f);
+}
+function bevXlOpt(k,v){ if(!bevXl) return; bevXl.opt[k]=!!v; bevXlModal(); }
+function bevXlCancel(){ bevXl=null; closeModal(); }
+
+function bevXlModal(){
+  if(!bevXl) return;
+  const S=bevXlStats(), O=bevXl.opt;
+  const changed=bevXl.rows.filter(r=>r.dO||r.dC||r.kind==='new'||r.dupOf||(O.clear&&(r.clrO||r.clrC)));
+  const cap=changed.slice(0,400);
+  const cell=(was,now,on)=>!on?`<td class="num muted">${was===''?'—':esc(String(was))}</td>`
+    :`<td class="num">${was===''?'<span class="muted">—</span>':'<s class="muted">'+esc(String(was))+'</s>'} <strong class="gold">${now===''?'cleared':esc(String(now))}</strong></td>`;
+  const body=`
+    <div class="bevxl">
+      ${(bevXl.cands&&bevXl.cands.length>1)?`<div class="sh"><span>Sheet</span>
+        <select class="input" onchange="bevXlSheet(this.value)">${bevXl.cands.map((f,i)=>`<option value="${i}" ${i===bevXl.pick?'selected':''}>${esc(f.sheet.trim()||'(unnamed)')} — ${fmt(f.n)} rows · ${fmt(f.figs)} with figures${f.inPeriod?' · this period':''}</option>`).join('')}</select>
+        <span class="muted">${fmt(bevXl.cands.length)} sheets in that file carry an opening and a closing — this is the one that looks like the bar sheet.</span></div>`:''}
+      <div class="h">Read <strong class="gold">${esc(bevXl.file)}</strong> · sheet <strong class="gold">${esc(bevXl.sheet)}</strong>
+        — <strong>${fmt(S.n)}</strong> brand rows, <strong>${fmt(S.hasO)}</strong> with an opening and <strong>${fmt(S.hasC)}</strong> with a closing.</div>
+      <div class="k">
+        <div class="c"><div class="l">Found in my sheet</div><div class="v">${fmt(S.exact+S.near)}</div><div class="s">${fmt(S.exact)} by name${S.near?' · '+fmt(S.near)+' matched':''}</div></div>
+        <div class="c"><div class="l">Not in my sheet yet</div><div class="v ${S.neu?'am':''}">${fmt(S.neu)}</div><div class="s">${O.add?'will be added':'will be skipped'}</div></div>
+        <div class="c"><div class="l">Openings to set</div><div class="v">${fmt(S.dO)}</div><div class="s">of ${fmt(S.hasO)} on the sheet</div></div>
+        <div class="c"><div class="l">Closings to set</div><div class="v">${fmt(S.dC)}</div><div class="s">of ${fmt(S.hasC)} on the sheet</div></div>
+      </div>
+      <label class="o"><input type="checkbox" ${O.add?'checked':''} onchange="bevXlOpt('add',this.checked)">
+        Add the <strong>${fmt(S.neu)}</strong> brand${S.neu===1?'':'s'} that are on the sheet but not in my Beverage Control yet
+        <span class="muted">— they also go to the Item Master and the Liquor Room</span></label>
+      <label class="o"><input type="checkbox" ${O.clear?'checked':''} onchange="bevXlOpt('clear',this.checked)">
+        Also <strong>clear</strong> the ${fmt(S.clrO+S.clrC)} figure${S.clrO+S.clrC===1?'':'s'} my sheet holds where the Excel is blank
+        <span class="muted">— off by default, so nothing you typed is lost</span></label>
+      ${S.dup?`<div class="w">⚠ ${fmt(S.dup)} row${S.dup===1?'':'s'} on the Excel point at a brand another row already took — those are listed and will be skipped.</div>`:''}
+      <div class="table-wrap" style="max-height:320px">
+        <table class="tbl"><thead><tr><th>#</th><th>On the Excel</th><th>My brand</th><th class="num">Opening</th><th class="num">Closing</th></tr></thead><tbody>
+        ${cap.map((r,i)=>`<tr${r.dupOf?' class="rvdup"':''}>
+            <td class="num muted">${i+1}</td>
+            <td>${esc(r.b)}<div class="muted" style="font-size:9.5px">${esc(r.grp||'')}${r.z?' · '+esc(r.z):''}</div></td>
+            <td>${r.dupOf?`<span class="pill red">already taken by ${esc(r.dupOf)}</span>`
+                 :r.kind==='exact'?esc(r.t)
+                 :r.kind==='near'?`${esc(r.t)} <span class="pill amber">matched</span>`
+                 :`<span class="pill ${O.add?'green':'red'}">${O.add?'＋ new':'skipped'}</span> ${esc(r.b)}`}</td>
+            ${r.dupOf?'<td class="num muted">—</td><td class="num muted">—</td>'
+              :cell(r.wasO, r.o==null?'':r.o, r.dO||(O.clear&&r.clrO))+cell(r.wasC, r.cl==null?'':r.cl, r.dC||(O.clear&&r.clrC))}
+          </tr>`).join('')||`<tr><td colspan="5" class="center muted" style="padding:14px">Everything on that sheet already matches — nothing to change.</td></tr>`}
+        </tbody></table></div>
+      ${changed.length>cap.length?`<div class="muted" style="font-size:10.5px;margin-top:5px">… and ${fmt(changed.length-cap.length)} more rows, all of them included when you apply.</div>`:''}
+      <div class="muted" style="font-size:10.5px;margin-top:6px">Receipt is not read from the Excel — on this page it is always what the Bar Stock Issue holds for the period.</div>
+    </div>`;
+  const foot=`<button class="btn" onclick="bevXlCancel()">Cancel</button>
+    <button class="btn btn-gold" onclick="bevXlApply()">✅ Put ${fmt(S.dO+S.dC)} figure${S.dO+S.dC===1?'':'s'} in${O.add&&S.neu?' · add '+fmt(S.neu)+' brands':''}</button>`;
+  closeModal(); modal('📥 Opening &amp; Closing from my Excel', body, foot);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+
+function bevXlApply(){
+  if(!bevXl) return;
+  const R=bevXl.rows, O=bevXl.opt;
+  let D0=null; try{ D0=biRoyalData(); }catch(e){}
+  const made=[]; let setO=0,setC=0,clO=0,clC=0,skipped=0;
+  const st=activeInv();
+  R.forEach(r=>{
+    if(r.dupOf){ skipped++; return; }
+    if(!r.t){ if(!O.add){ skipped++; return; }
+      const res=newItemEverywhere(r.b, r.grp||'', catFindFor(r.b, r.grp||'')); if(res) made.push(res); r.t=r.b; }
+    const k=norm(r.t); const iv=st[k]||(st[k]={});
+    if(r.o!=null){ if(r.dO){ iv.openBL=r.o; setO++; } }
+    else if(O.clear && r.clrO){ iv.openBL=''; clO++; }
+    if(r.cl!=null){ if(r.dC){ iv.closeBL=r.cl; setC++; } }
+    else if(O.clear && r.clrC){ iv.closeBL=''; clC++; }
+  });
+  if(made.length) newItemCommit(made);
+  activeInvSave();
+  try{ invalidateCalcCache(); }catch(e){}
+  const S={sheet:bevXl.sheet, file:bevXl.file, setO:setO, setC:setC, clO:clO, clC:clC,
+           made:made.filter(x=>x&&x.madeBrand).length, items:made.filter(x=>x&&x.madeRaw).length, skipped:skipped, D0:D0};
+  bevXl=null; closeModal(); route();
+  bevXlResult(S);
+}
+
+/* what the money did — the client's "koto ta amount + holo, na − holo" */
+function bevXlResult(S){
+  let D=null; try{ D=biRoyalData(); }catch(e){}
+  const money=v=>(v<0?'− ₹ ':'₹ ')+fmt(Math.abs(Math.round(v||0)));
+  const sign=v=>v>0?'up':(v<0?'dn':'');
+  const movedQ=(D&&D.qty)?{ml:(D.qty.ml.close-D.qty.ml.open), pcs:(D.qty.pcs.close-D.qty.pcs.open)}:{ml:0,pcs:0};
+  const moved=D?(D.tot.close-D.tot.open):0;
+  const before=S.D0?(S.D0.tot.close-S.D0.tot.open):null;
+  const line=(l,v,cls,sub)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
+  const body=`<div class="bevxl">
+    <div class="h">Taken from <strong class="gold">${esc(S.file)}</strong> · sheet <strong class="gold">${esc(S.sheet)}</strong> —
+      <strong>${fmt(S.setO)}</strong> opening${S.setO===1?'':'s'} and <strong>${fmt(S.setC)}</strong> closing${S.setC===1?'':'s'} put in${S.made?`, <strong>${fmt(S.made)}</strong> new brand${S.made===1?'':'s'} added`:''}${S.clO+S.clC?`, ${fmt(S.clO+S.clC)} cleared`:''}${S.skipped?`, ${fmt(S.skipped)} skipped`:''}.</div>
+    <div class="k k3">
+      ${line('Opening stock', money(D?D.tot.open:0), '', D?fmt(Math.round(D.qty.ml.open))+' ml · '+fmt(D.qty.pcs.open)+' pcs':'')}
+      ${line('Closing stock', money(D?D.tot.close:0), 'gold', D?fmt(Math.round(D.qty.ml.close))+' ml · '+fmt(D.qty.pcs.close)+' pcs':'')}
+      ${line('Closing − Opening', (moved>0?'+ ':'')+money(moved), sign(moved), fmt(Math.round(movedQ.ml))+' ml · '+fmt(movedQ.pcs)+' pcs')}
+    </div>
+    <div class="k k3" style="margin-top:6px">
+      ${line('Receipt (Bar Stock Issue)', money(D?D.tot.rec:0), '', 'the period on this page')}
+      ${line('Consumption', money(D?D.tot.cons:0), '', 'opening + receipt − closing')}
+      ${line('Variance', (D&&D.tot.varv>0?'+ ':'')+money(D?D.tot.varv:0), sign(D?D.tot.varv:0), (D&&D.tot.sale>0)?'consumption − sale':'no POS sale in this period yet')}
+    </div>
+    <div class="n">${moved>=0
+      ? `Stock value went <strong class="up">UP by ${money(moved)}</strong> over the month — the closing is worth more than the opening.`
+      : `Stock value went <strong class="dn">DOWN by ${money(moved)}</strong> over the month — the closing is worth less than the opening.`}
+      ${before!=null&&Math.round(before)!==Math.round(moved)?` Before this import it read ${(before>0?'+ ':'')+money(before)}.`:''}
+      <div class="muted" style="margin-top:4px">Every figure is valued at the landing rate this app uses everywhere — the Item Master rate, else the latest invoice rate, else MRP.</div></div>
+  </div>`;
+  modal('✅ Opening &amp; Closing are in — what the money did', body,
+    `<button class="btn btn-gold" onclick="closeModal()">Close</button>`);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+  toast('Sheet read', S.setO+' openings · '+S.setC+' closings'+(S.made?' · '+S.made+' new brands':''),'ok');
+}
 VIEWS.barinv = () => {
   const q=iq.bi; const _gt=calcGrandTotals();
   const active=t=>{ const r=barRow(t); return r.sale>0||r.recBtl>0||t._fav||invGet(t.name).openBL!=null||invGet(t.name).closeBL!=null; };
@@ -2468,6 +2687,7 @@ VIEWS.barinv = () => {
         <button class="btn btn-sm btn-gold" onclick="openBevClone()" title="Create / delete clone pages">📑 Page Clone${bevPages.length?' ('+bevPages.length+')':''}</button>
         <button class="btn btn-sm" onclick="expReport('bev','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('bev')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
+        <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your own Liquor Inventory workbook — the month sheet with OPENING BAL and CLOSING BAL. Every brand is matched to yours, you see what would change, and only then is it put in.">📥 From Excel<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="bevXlUpload(this)"></label>
         <button class="btn btn-sm" onclick="cloneBarInv()" title="Closing → Opening carry-forward (new period)">🧬 Carry</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('openBL')" title="Clears EVERY Opening value">🧹 Opening</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
