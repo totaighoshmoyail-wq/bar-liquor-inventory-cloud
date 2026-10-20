@@ -5264,7 +5264,12 @@ function _invSeedPlan(){                                     // which workbook t
       prev:(typeof CANTEEN_INV!=='undefined'?CANTEEN_INV:{})} : null;   // what the OLD seed put there
   if(typeof CO_IS_TRAFFIC!=='undefined' && CO_IS_TRAFFIC)
     return (typeof TRAFFIC_INV_V!=='undefined') ? {v:TRAFFIC_INV_V, bar:(typeof TRAFFIC_BAR!=='undefined'?TRAFFIC_BAR:[]), lr:(typeof TRAFFIC_LR_OPEN!=='undefined'?TRAFFIC_LR_OPEN:[]), fillAll:false,
-      exact:true, lrExact:true} : null;   // their September sheet IS the figure, bar page and Liquor Room both (v2.82.0)
+      exact:true, lrExact:true,
+      /* v2.83.0 — they emptied the OPENING column of their own sheet and asked for the CLOSING to
+         become the opening, so TRAFFIC_BAR now carries the closing in `o` and no `cl` at all.
+         `carry` only changes the WORDING — an empty closing column at the start of a month is
+         normal, but it is exactly what alarmed them in v2.81.0, so it must be named. */
+      carry:true} : null;                  // their September sheet IS the figure, bar page and Liquor Room both (v2.82.0)
   return null; }
 function invSeedCatchUp(){
   const P=_invSeedPlan(); if(!P) return null;
@@ -5321,7 +5326,7 @@ function invSeedCatchUp(){
     tallyItems.forEach(t=>{ const k=norm(t.name); if(onSheet[k]) return; const iv=invData[k]; if(!iv) return;
       const o=blank(iv.openBL)?'':iv.openBL, c=blank(iv.closeBL)?'':iv.closeBL;
       if(o!==''||c!=='') outside.push({b:t.name, o:o, c:c}); });
-    REP={at:Date.now(), v:P.v, n:P.bar.length, same:same, rows:rows, added:brandsAdded.slice(),
+    REP={at:Date.now(), v:P.v, n:P.bar.length, same:same, rows:rows, added:brandsAdded.slice(), carry:!!P.carry,
          outside:outside, setO:bar, setC:cls, clrO:clrO, clrC:clrC,
          sumO:Math.round(sumO*1000)/1000, sumC:Math.round(sumC*1000)/1000,
          lrN:(P.lrExact&&P.lr?P.lr.length:0), lrRows:lrRows, lrSame:lrSame, lrSet:lr, lrClr:lrClr,
@@ -5362,18 +5367,23 @@ function invSeedCatchUp(){
 function invFixRun(){
   const P=_invSeedPlan();
   if(!P||!P.bar||!P.bar.length){ toast('No workbook figures','This company has no sheet figures in the app yet — use 📥 From Excel','err'); return; }
-  const what=P.exact
+  const what=P.carry
+    ? fmt(P.bar.length)+' brands are gone through one by one: the sheet\u2019s CLOSING becomes the opening here, and the closing column is left empty for this month\u2019s count.'+
+      ((P.lrExact&&P.lr&&P.lr.length)?' Your <strong>Liquor Room</strong> openings come from its own sheet page as well ('+fmt(P.lr.length)+' items).':'')
+    : P.exact
     ? fmt(P.bar.length)+' brands are gone through one by one: the sheet\u2019s opening and closing go in, and a figure the sheet leaves blank is cleared.'+
       ((P.lrExact&&P.lr&&P.lr.length)?' Your <strong>Liquor Room</strong> openings are matched to its own sheet page as well ('+fmt(P.lr.length)+' items).':'')
     : fmt(P.bar.length)+' brands are gone through one by one: the sheet\u2019s opening fills anything still blank.';
-  confirmAsk('Match every opening and closing to your <strong>Liquor Inventory workbook</strong> again?<br>' +
+  confirmAsk((P.carry?'Start from your <strong>Liquor Inventory workbook</strong>\u2019s closing again?':'Match every opening and closing to your <strong>Liquor Inventory workbook</strong> again?')+'<br>' +
     '<span class="muted" style="font-size:11.5px">' + what + ' Your figures as they are now are kept first, so this can be put back.</span>', ()=>{
     try{ localStorage.removeItem(CO_PREFIX+'invv'); }catch(e){}
     let R=null; try{ R=invSeedCatchUp(); }catch(e){ toast('Could not do it', e.message, 'err'); return; }
     try{ invalidateCalcCache(); }catch(e){}
     route();
     const x=R&&R.rep;
-    if(x){ toast('Matched to your sheet', fmt(x.setO)+' opening'+(x.setO===1?'':'s')+' · '+fmt(x.setC)+' closing'+(x.setC===1?'':'s')+' · '+fmt(x.clrO+x.clrC)+' cleared'+(x.lrN?' · Liquor Room '+fmt(x.lrSet):''),'ok'); setTimeout(()=>{ try{ invFixModal(); }catch(e){} }, 250); }
+    if(x){ toast(x.carry?'Your closing is now the opening':'Matched to your sheet', x.carry
+        ? fmt(x.setO)+' opening'+(x.setO===1?'':'s')+' from your sheet\u2019s closing · closing column empty for this month'+(x.lrN?' · Liquor Room '+fmt(x.lrSet):'')
+        : fmt(x.setO)+' opening'+(x.setO===1?'':'s')+' · '+fmt(x.setC)+' closing'+(x.setC===1?'':'s')+' · '+fmt(x.clrO+x.clrC)+' cleared'+(x.lrN?' · Liquor Room '+fmt(x.lrSet):''),'ok'); setTimeout(()=>{ try{ invFixModal(); }catch(e){} }, 250); }
     else toast('Done', R?('nothing left to change'):'nothing to change','ok');
   }, {title:'🔄 Match my sheet again', ok:'🔄 Match my sheet'});
 }
@@ -5382,7 +5392,7 @@ function invFixHide(){ try{ localStorage.removeItem(CO_PREFIX+'invfix'); }catch(
 function invFixNoteHtml(){
   const R=invFixRead(); if(!R) return '';
   const n=(R.rows&&R.rows.length)||0;
-  return `<span class="invfixnote"><button class="btn btn-sm" onclick="invFixModal()" title="Every brand was matched to your September sheet — see exactly what was set">📋 Opening &amp; Closing from your sheet${n?' · '+fmt(n)+' changed':''}</button><button class="btn btn-sm x" title="Hide this note" onclick="invFixHide()">✕</button></span>`;
+  return `<span class="invfixnote"><button class="btn btn-sm" onclick="invFixModal()" title="Every brand was matched to your September sheet — see exactly what was set">${R.carry?'📋 Opening carried from your sheet\u2019s closing':'📋 Opening &amp; Closing from your sheet'}${n?' · '+fmt(n)+' changed':''}</button><button class="btn btn-sm x" title="Hide this note" onclick="invFixHide()">✕</button></span>`;
 }
 function invFixModal(){
   const R=invFixRead();
@@ -5396,16 +5406,20 @@ function invFixModal(){
   const okO=Math.abs(appO-R.sumO)<0.005, okC=Math.abs(appC-R.sumC)<0.005;
   const rows=R.rows||[];
   const body=`<div class="bevxl invfix">
-    <div class="h">Every brand of your September sheet was gone through one by one —
-      <strong>${fmt(R.n)}</strong> rows: <strong class="gold">${fmt(R.setO)}</strong> opening${R.setO===1?'':'s'} and
-      <strong class="gold">${fmt(R.setC)}</strong> closing${R.setC===1?'':'s'} put in,
-      <strong>${fmt(R.clrO+R.clrC)}</strong> figure${R.clrO+R.clrC===1?'':'s'} the sheet leaves blank cleared,
-      <strong>${fmt(R.same)}</strong> already matched${R.added&&R.added.length?`, <strong>${fmt(R.added.length)}</strong> brand${R.added.length===1?'':'s'} added`:''}.</div>
+    <div class="h">${R.carry
+      ? `Your sheet's <strong>CLOSING</strong> is now the <strong>opening</strong> — the new month starts from the stock you counted.
+         <strong>${fmt(R.n)}</strong> brands gone through: <strong class="gold">${fmt(R.setO)}</strong> opening${R.setO===1?'':'s'} put in,
+         <strong>${fmt(R.clrO)}</strong> cleared where your sheet has no closing, and the <strong>Closing column is empty</strong> for this month's count.`
+      : `Every brand of your September sheet was gone through one by one —
+         <strong>${fmt(R.n)}</strong> rows: <strong class="gold">${fmt(R.setO)}</strong> opening${R.setO===1?'':'s'} and
+         <strong class="gold">${fmt(R.setC)}</strong> closing${R.setC===1?'':'s'} put in,
+         <strong>${fmt(R.clrO+R.clrC)}</strong> figure${R.clrO+R.clrC===1?'':'s'} the sheet leaves blank cleared,
+         <strong>${fmt(R.same)}</strong> already matched`}${R.added&&R.added.length?`, <strong>${fmt(R.added.length)}</strong> brand${R.added.length===1?'':'s'} added`:''}.</div>
     <div class="k k3">
-      <div class="c"><div class="l">Σ Opening — Excel total row</div><div class="v gold">${esc(R.sumO.toFixed(3))}</div>
+      <div class="c"><div class="l">Σ Opening — ${R.carry?'your sheet\u2019s closing':'Excel total row'}</div><div class="v gold">${esc(R.sumO.toFixed(3))}</div>
         <div class="s">${okO?'✔ the sheet matches this page':'this page reads '+esc(appO.toFixed(3))}</div></div>
-      <div class="c"><div class="l">Σ Closing — Excel total row</div><div class="v gold">${esc(R.sumC.toFixed(3))}</div>
-        <div class="s">${okC?'✔ the sheet matches this page':'this page reads '+esc(appC.toFixed(3))}</div></div>
+      <div class="c"><div class="l">Σ Closing — ${R.carry?'this month\u2019s count':'Excel total row'}</div><div class="v gold">${R.carry&&!R.sumC?'<span class="muted">empty</span>':esc(R.sumC.toFixed(3))}</div>
+        <div class="s">${R.carry&&!R.sumC?'count the bar, then type it in — Consumption reads the whole opening until you do':(okC?'✔ the sheet matches this page':'this page reads '+esc(appC.toFixed(3)))}</div></div>
       <div class="c"><div class="l">Brands gone through</div><div class="v">${fmt(R.n)}</div>
         <div class="s">${fmt(rows.length)} changed · ${fmt(R.same)} were already right</div></div>
     </div>
@@ -5467,7 +5481,10 @@ function _rawCatchRun(){
   const say=()=>{ try{ _cloudNeedRender=true; cloudRenderIfQuiet(false); }catch(e){}
     try{ if(rawDid) toast('Item Master updated from your September sheet', n(R.added,'new name')+' · '+n(R.renamed.length,'name')+' renamed to yours · '+n(R.removed.length,'extra name')+' removed'+(R.keptData.length?' · '+n(R.keptData.length,'name')+' with purchases / issues / stock kept for you to decide':'')+' · your groups applied', 'ok'); }catch(e){}
     try{ if(I && I.exact && I.rep){ const R=I.rep;
-      toast('Opening & Closing matched to your September sheet', n(R.setO,'opening')+' · '+n(R.setC,'closing')+' put in · '+n(R.clrO+R.clrC,'figure')+' cleared where your sheet is blank'+(R.added.length?' · '+n(R.added.length,'brand')+' added':'')+(R.lrN?' · Liquor Room '+n(R.lrSet,'opening'):'')+' — tap to see every line', 'ok');
+      toast(R.carry?'Your sheet\u2019s closing is now the opening':'Opening & Closing matched to your September sheet',
+        (R.carry ? n(R.setO,'opening')+' carried over · the Closing column is empty for this month\u2019s count'
+                 : n(R.setO,'opening')+' · '+n(R.setC,'closing')+' put in · '+n(R.clrO+R.clrC,'figure')+' cleared where your sheet is blank')
+        +(R.added.length?' · '+n(R.added.length,'brand')+' added':'')+(R.lrN?' · Liquor Room '+n(R.lrSet,'opening'):'')+' — tap to see every line', 'ok');
       setTimeout(()=>{ try{ invFixModal(); }catch(e){} }, 900); return; } }catch(e){}
     try{ if(invDid){ if(I.bar||I.lr) toast('Opening stock filled from your September sheet', n(I.lr,'Liquor Room opening')+' · '+n(I.bar,'Beverage Control opening')+(I.keptBar+I.keptLr?' · '+n(I.keptBar+I.keptLr,'figure')+' already set — left as they were':'')+(I.brandsAdded.length?' · '+n(I.brandsAdded.length,'brand')+' added to Beverage Control':''), 'ok');
       else toast('Beverage Control now lists every brand of your September sheet', n(I.brandsAdded.length,'brand')+' added (openings already in place)', 'ok'); } }catch(e){} };
