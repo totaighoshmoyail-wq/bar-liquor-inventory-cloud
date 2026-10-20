@@ -126,12 +126,18 @@ function excelDate(v){
    remembered, so the arithmetic is identical and the work happens once instead of 600 times.
    The cache is dropped by invalidateCalcCache(), which bsv() already calls on every save. */
 var _fiVer=0, _fiFp='', _fiRecv=null, _fiIss=null, _fiExact=null, _fiMemoR=null, _fiMemoI=null;
-function _fiFingerprint(){ return _fiVer+'|'+receivedStock.length+'|'+mrDetail.length+'|'+(period.from||'')+'|'+(period.to||''); }
+/* The day the Liquor Room's month was closed (v2.84.0). Everything dated before it is already
+   inside the opening that count produced, so Received / Issued skip it. Blank = every date. */
+function lrFrom(){ try{ return String(bls('lrfrom','')||''); }catch(e){ return ''; } }
+function _fiFingerprint(){ return _fiVer+'|'+receivedStock.length+'|'+mrDetail.length+'|'+(period.from||'')+'|'+(period.to||'')+'|'+lrFrom(); }
 function _fiEnsure(){
   const fp=_fiFingerprint(); if(_fiRecv && fp===_fiFp) return;
   _fiFp=fp; _fiMemoR=Object.create(null); _fiMemoI=Object.create(null);
+  const lf=lrFrom();                                   // the month-close floor (v2.84.0)
   const group=list=>{ const m=Object.create(null);
-    for(let i=0;i<list.length;i++){ const r=list[i], k=norm(r.item); m[k]=(m[k]||0)+fnum(r.qty); } return m; };
+    for(let i=0;i<list.length;i++){ const r=list[i];
+      if(lf && String(r.date||'')<lf) continue;        // already inside the opening that count produced
+      const k=norm(r.item); m[k]=(m[k]||0)+fnum(r.qty); } return m; };
   _fiRecv=group(receivedStock); _fiIss=group(mrDetail);
   _fiExact=Object.create(null); const f=period.from, t=period.to;
   for(let i=0;i<mrDetail.length;i++){ const r=mrDetail[i], d=r.date||'';
@@ -1972,6 +1978,103 @@ let lrBlank='none';
 function lrColTh(c,lbl){ const on=(lrBlank==='h'+c)?'has':(lrBlank===c)?'none':'';
   return `<button class="lrcolf${on?' on '+on:''}" onclick="lrColCycle('${c}')" title="Click: only rows WITH ${lbl.toLowerCase()} · again: only rows without · again: off">${lbl}${on==='has'?'<i>●</i>':on==='none'?'<i>○</i>':''}</button>`; }
 function lrColCycle(c){ lrBlank = (lrBlank==='h'+c) ? c : (lrBlank===c) ? 'none' : 'h'+c; route(); }
+/* ---- Liquor Room: close the month (v2.84.0) ----------------------------------------------
+   The client asked for the store room to do what Beverage Control just did: "liquor room closing
+   opning koro". Its closing is not a typed figure — it is Opening + Received − Issued over EVERY
+   date (v2.72.0) — so carrying it up without a floor would count every purchase and every issue a
+   SECOND time. lrFrom() is that floor: the day the count was taken. Everything older is already
+   inside the new opening, so Received / Issued count only what is dated on or after it, and the
+   page says so. Blank = every date, which is where every company starts.                         */
+function lrRollRows(){
+  const rows=[]; let op=0, rv=0, is=0, cl=0, val=0, neg=0;
+  rawData.forEach(r=>{
+    const o=fnum(invGet(r.item).lrOpen), v=receivedForItem(r.item), i=issuedForItem(r.item), c=o+v-i;
+    if(!o && !v && !i && !c) return;
+    rows.push({item:r.item, grp:r.group||'', op:o, rv:v, is:i, cl:c, val:c*landOf(r.item)});
+    op+=o; rv+=v; is+=i; cl+=c; val+=c*landOf(r.item); if(c<0) neg++;
+  });
+  rows.sort((a,b)=>b.cl-a.cl);
+  return {rows, op, rv, is, cl, val, neg, n:rows.length};
+}
+function _lrMaxEntryDate(){ let m='';
+  const walk=l=>{ for(let i=0;i<l.length;i++){ const d=String(l[i].date||''); if(d>m) m=d; } };
+  walk(receivedStock); walk(mrDetail); return m; }
+function _lrNextDay(d){ try{ const t=new Date(d+'T00:00:00'); t.setDate(t.getDate()+1); return t.toISOString().slice(0,10); }catch(e){ return d; } }
+function lrRollDefaultDate(){
+  const today=new Date().toISOString().slice(0,10), mx=_lrMaxEntryDate();
+  return (mx && mx>=today) ? _lrNextDay(mx) : today;      // never leave an entry on the wrong side
+}
+function lrRollAfter(from){                                // what would still count on top of the new opening
+  let p=0, i=0;
+  for(let k=0;k<receivedStock.length;k++){ if(String(receivedStock[k].date||'')>=from) p++; }
+  for(let k=0;k<mrDetail.length;k++){ if(String(mrDetail[k].date||'')>=from) i++; }
+  return {p, i};
+}
+var _lrRollD='';
+function lrRollSetDate(v){ _lrRollD=String(v||'').trim(); lrRollPaint(); }
+function lrRollPaint(){
+  const from=_lrRollD||lrRollDefaultDate(), a=lrRollAfter(from), el=document.getElementById('lrRollAfter');
+  if(el) el.innerHTML = (a.p||a.i)
+    ? `<span style="color:var(--red)">⚠ ${fmt(a.p)} purchase${a.p===1?'':'s'} and ${fmt(a.i)} issue${a.i===1?'':'s'} are dated on or after ${esc(from)}. They are already inside the new opening, so they would be counted a second time — pick a later day.</span>`
+    : `✓ Nothing is dated on or after ${esc(from)}, so the figures stay exactly as they are now.`;
+  const b=document.getElementById('lrRollBtn'); if(b) b.disabled=false;
+}
+function lrRollAsk(){
+  const T=lrRollRows();
+  if(!T.n){ toast('Nothing to carry','The Liquor Room has no figures yet','err'); return; }
+  _lrRollD=lrRollDefaultDate();
+  const from=_lrRollD;
+  const top=T.rows.filter(r=>r.cl).slice(0,10);
+  modal('📅 Close the month — the Liquor Room closing becomes the opening', `
+    <div class="bevxl"><div class="k k3">
+      <div class="c"><div class="l">Items counted</div><div class="v gold">${fmt(T.n)}</div><div class="s">every item that holds a figure</div></div>
+      <div class="c"><div class="l">Closing → new opening</div><div class="v gold">${fmt(T.cl)} <small>btl</small></div><div class="s">opening ${fmt(T.op)} + received ${fmt(T.rv)} − issued ${fmt(T.is)}</div></div>
+      <div class="c"><div class="l">Stock value</div><div class="v">₹ ${fmt(T.val)}</div><div class="s">at the rate this page already uses</div></div>
+    </div>
+    <div class="w" style="border-color:color-mix(in srgb,var(--gold) 45%,transparent)">
+      <strong>Counted on</strong> <input type="date" id="lrRollDate" class="cell-input" style="width:150px" value="${esc(from)}" onchange="lrRollSetDate(this.value)">
+      <div id="lrRollAfter" style="margin-top:6px;font-size:11.5px"></div>
+      <div class="muted" style="font-size:11px;margin-top:5px">From that day the Liquor Room counts Received and Issued again from zero — everything before it is already inside this opening.
+        Purchase and Bar Stock Issue keep every line; only this page's running total starts afresh.</div></div>
+    ${T.neg?`<div class="w" style="border-color:color-mix(in srgb,var(--red) 45%,transparent);color:var(--red)">⚠ ${fmt(T.neg)} item${T.neg===1?' is':'s are'} below zero — ${T.neg===1?'it':'they'} will start the new month negative. Check them on the Negative Stock card first if that is not right.</div>`:''}
+    <div class="table-wrap" style="max-height:250px"><table class="tbl"><thead><tr><th>#</th><th>Item</th><th class="num">Opening</th><th class="num">Received</th><th class="num">Issued</th><th class="num">New opening</th></tr></thead><tbody>
+      ${top.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td>${esc(r.item)}</td><td class="num muted">${fmt(r.op)}</td><td class="num" style="color:var(--green)">${r.rv?'+'+fmt(r.rv):'0'}</td><td class="num" style="color:var(--red)">${r.is?'−'+fmt(r.is):'0'}</td><td class="num"><strong class="gold">${fmt(r.cl)}</strong></td></tr>`).join('')}
+      ${T.rows.filter(r=>r.cl).length>10?`<tr><td colspan="6" class="center muted" style="padding:8px">… and ${fmt(T.rows.filter(r=>r.cl).length-10)} more — the sheet below lists every one</td></tr>`:''}
+    </tbody></table></div>
+    <div class="muted" style="font-size:10.5px;margin-top:6px">Your figures as they are now are kept, and ↩ Put the old figures back undoes this in one click.</div></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" id="lrRollBtn" onclick="lrRollDo()">📅 Start the new month · ${fmt(T.n)} item${T.n===1?'':'s'}</button>`);
+  lrRollPaint();
+}
+function lrRollDo(){
+  const from=_lrRollD||lrRollDefaultDate(), T=lrRollRows();
+  try{ localStorage.setItem(CO_PREFIX+'lrbak', JSON.stringify({at:new Date().toISOString(), from:lrFrom(), inv:invData})); }catch(e){}
+  T.rows.forEach(r=>{ const k=norm(r.item); const iv=invData[k]||(invData[k]={}); iv.lrOpen = r.cl===0 ? '' : r.cl; });
+  bsv('inv', invData); bsv('lrfrom', from);
+  try{ invalidateCalcCache(); }catch(e){}
+  closeModal(); route();
+  toast('New month started', `${fmt(T.n)} item${T.n===1?'':'s'} · ${fmt(T.cl)} bottles carried up · Received and Issued now count from ${from}`, 'ok');
+}
+function lrRollUndo(){
+  let B=null; try{ B=JSON.parse(localStorage.getItem(CO_PREFIX+'lrbak')||'null'); }catch(e){}
+  if(!B){ toast('Nothing to put back','No month close has been run on this device','err'); return; }
+  confirmAsk(`Put the Liquor Room back to what it held before the month close?<br><span class="muted" style="font-size:11.5px">The openings return to the figures of ${esc(String(B.at||'').slice(0,10))}, and Received · Issued count ${B.from?('from '+esc(B.from)):'every date'} again.</span>`, ()=>{
+    Object.keys(invData).forEach(k=>{ delete invData[k]; });
+    Object.keys(B.inv||{}).forEach(k=>{ invData[k]=B.inv[k]; });
+    bsv('inv', invData); bsv('lrfrom', B.from||'');
+    try{ localStorage.removeItem(CO_PREFIX+'lrbak'); }catch(e){}
+    try{ invalidateCalcCache(); }catch(e){}
+    route(); toast('Put back','The Liquor Room holds what it held before the month close','ok');
+  }, {title:'↩ Put the old figures back', ok:'↩ Put them back'});
+}
+function lrWhenTxt(){ const f=lrFrom(); return f ? ('counted from '+esc(f)) : 'every date'; }
+function lrWhenTitle(){ const f=lrFrom();
+  return f ? ('The month was closed on '+f+': that day’s count is the opening, and Received · Issued count only what is dated on or after it. Everything older is already inside the opening.')
+           : 'The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.'; }
+function lrRollNoteHtml(){
+  const f=lrFrom(); if(!f) return '';
+  const back=(function(){ try{ return !!JSON.parse(localStorage.getItem(CO_PREFIX+'lrbak')||'null'); }catch(e){ return false; } })();
+  return `<span class="invfixnote"><button class="btn btn-sm" onclick="lrRollAsk()" title="${esc(lrWhenTitle())}">📅 New month from ${esc(f)}</button>${back?`<button class="btn btn-sm x" title="Put the Liquor Room back to what it held before the month close" onclick="lrRollUndo()">↩</button>`:''}</span>`;
+}
 VIEWS.liquorroom = () => {
   const q=iq.lr;
   const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
@@ -2069,7 +2172,7 @@ VIEWS.liquorroom = () => {
       lrRoyal=`<div class="card" style="margin-bottom:14px"><div class="card-body" style="text-align:center;border-bottom:1px solid var(--gold)">
           <div style="${SER};font-size:10px;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase">— ${esc(cfg.company||'Traffic Gastropub')} · Liquor Room Register —</div>
           <div style="${SER};font-size:26px;color:var(--text);margin-top:4px">₹ ${fmt(Math.round(tVal))}</div>
-          <div class="muted" style="font-size:11px"><strong class="gold">${fmt(tClose)} bots</strong> closing stock · every date</div></div>
+          <div class="muted" style="font-size:11px"><strong class="gold">${fmt(tClose)} bots</strong> closing stock · ${lrWhenTxt()}</div></div>
         <div class="card-body" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
           <div style="flex:1.4;min-width:240px">${ledger}</div>
           <div style="width:150px;flex:none;text-align:center"><div style="width:110px;height:110px;margin:0 auto;position:relative"><canvas id="lrC4"></canvas></div></div></div></div>`;
@@ -2091,14 +2194,14 @@ VIEWS.liquorroom = () => {
     ['op','🏛️ Opening — none'],['rv','📦 Received — none'],['is','🍸 Issued — none'],['cl','♛ Closing — none']];
   const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
   const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
-  const tools=`${periodBar(true)}<span class="lrnote noprint" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">counts <strong>every date</strong> · the period is for Beverage Control &amp; reports</span><span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
+  const tools=`${periodBar(true)}<span class="lrnote noprint" title="${esc(lrWhenTitle())}">${lrFrom()?`counts <strong>from ${esc(lrFrom())}</strong> · the month before it is in the opening`:`counts <strong>every date</strong> · the period is for Beverage Control &amp; reports`}</span><span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
       <div class="search lrq">🔎<input id="searchBox" placeholder="Search item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
-      <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button><button class="btn btn-sm" onclick="invFixRun()" title="Put every opening back to what your Liquor Inventory workbook says — item by item, this page and Beverage Control. Your figures as they are now are kept first.">🔄 Sheet match</button>${invFixNoteHtml()}`;
+      <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button><button class="btn btn-sm" onclick="invFixRun()" title="Put every opening back to what your Liquor Inventory workbook says — item by item, this page and Beverage Control. Your figures as they are now are kept first.">🔄 Sheet match</button><button class="btn btn-sm" onclick="lrRollAsk()" title="Close the month: today's closing stock becomes the opening, and Received · Issued start counting again from that day. Your figures are kept, so it can be put back.">📅 New month</button>${invFixNoteHtml()}${lrRollNoteHtml()}`;
   const tl=`<div class="tl noprint">${headSel}${smallSel('Premium look','setLrLook(this.value)',LOOK_OPTS,look)}${layDrop('liquorroom')}</div>`;
   // ① Royal Ledger — the .bcledger title + .bclh grid of the Beverage Control head, five columns, the .lrflow ring
   const shareCell=(v,c,hi)=>{ const p=pctOf(v); return `<div class="s${hi?' hi':''}">${p.toFixed(1)}%<span class="bar ${c}"><i style="width:${Math.min(100,p).toFixed(1)}%"></i></span></div>`; };
   const ledgerHead=`<div class="card lrflow bcledger lrledger">
-      <div class="bh"><div class="t">Liquor Room Ledger</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued to bar <b>=</b> Closing</div><div class="p" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">${nInHand} items in hand · every date</div>${tl}</div>
+      <div class="bh"><div class="t">Liquor Room Ledger</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued to bar <b>=</b> Closing</div><div class="p" title="${esc(lrWhenTitle())}">${nInHand} items in hand · ${lrWhenTxt()}</div>${tl}</div>
       <div class="lrl-body">
         <div class="bclh lr5">
           <div class="h c">Column</div><div class="h">🏛️ Opening</div><div class="h">📦 Received</div><div class="h">🍸 Issued to bar</div><div class="h">♛ Closing stock</div>
