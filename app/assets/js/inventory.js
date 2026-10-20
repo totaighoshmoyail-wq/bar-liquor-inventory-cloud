@@ -2399,7 +2399,12 @@ function bcRecvGapModal(){
     `<button class="btn" onclick="closeModal()">Close</button><button class="btn btn-gold" onclick="closeModal();location.hash='#mrdetail'">🔁 Open Bar Stock Issue</button>`);
 }
 function biRoyalData(){
-  const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},plus:0,minus:0,
+  /* tot.hand = what is ON THE SHELF right now (v2.85.0): a brand whose Closing has been counted
+     counts at its closing, one whose Closing is still empty counts at its OPENING — nothing has
+     been counted off it yet. At the start of a month every Closing is empty (v2.83.0), and the
+     old "stock value" read tot.close, so a full bar showed ₹0. tot.close is untouched: every
+     line labelled Closing still means the closing. */
+  const d={rows:[],byCatSale:{},byCatCons:{},tot:{open:0,rec:0,close:0,cons:0,sale:0,varv:0,hand:0},plus:0,minus:0,nCounted:0,nAtOpen:0,
     // quantities behind the ₹ (v2.43.0, display only): ml-unit items in ml (kegs in ml too), pcs-unit items in pcs
     qty:{ml:{open:0,rec:0,close:0,cons:0,sale:0,varv:0}, pcs:{open:0,rec:0,close:0,cons:0,sale:0,varv:0},
       // the plain column sums the Excel's TOTAL row shows (D287 = Σ OPENING BAL as typed — bottle.loose, pcs and keg ml
@@ -2411,6 +2416,8 @@ function biRoyalData(){
     d.byCatSale[t.category]=(d.byCatSale[t.category]||0)+A.sale;
     d.byCatCons[t.category]=(d.byCatCons[t.category]||0)+A.cons;
     d.tot.open+=A.open; d.tot.rec+=A.rec; d.tot.close+=A.close; d.tot.cons+=A.cons; d.tot.sale+=A.sale; d.tot.varv+=A.varv;
+    const _counted=!(R.iv.closeBL==null||R.iv.closeBL==='');
+    d.tot.hand+=_counted?A.close:A.open; if(_counted) d.nCounted++; else if(!(R.iv.openBL==null||R.iv.openBL==='')) d.nAtOpen++;
     if(A.varv>0) d.plus+=A.varv; else d.minus+=-A.varv;
     let q; if(R.u==='pcs'){ q=d.qty.pcs; q.open+=fnum(R.iv.openBL); q.rec+=R.recBtl; q.close+=fnum(R.iv.closeBL); }
     else { q=d.qty.ml; const sl=sizeOf(t.name)||0; q.open+=toLitres(fnum(R.iv.openBL),sl)*1000; q.rec+=R.recBtl*sl*1000; q.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
@@ -3987,7 +3994,7 @@ function dbRoyalHead(look,X){
         <div class="k"><i>Received</i><b>${ML(X.ml.rec)}</b><span>${M(X.amt.rec)}</span></div>
         <div class="k"><i>Consumption</i><b>${ML(X.ml.cons)}</b><span>${M(X.amt.cons)}</span></div>
       </div>
-      <div class="crest"><i>♛</i><b>${M(X.lrVal+X.amt.close)}</b><span>Stock in Hand</span><span class="g">room ${fmt(R2(X.lrVal))} · bar ${fmt(R2(X.amt.close))}</span></div>
+      <div class="crest"${X.amt.atOpen?` title="The bar holds ${fmt(X.amt.atOpen)} brand${X.amt.atOpen===1?'':'s'} whose Closing has not been counted this month yet, so they count at their opening — that is what is on the shelf."`:''}><i>♛</i><b>${M(X.lrVal+X.amt.hand)}</b><span>Stock in Hand</span><span class="g">room ${fmt(R2(X.lrVal))} · bar ${fmt(R2(X.amt.hand))}</span></div>
       <div class="sidek">
         <div class="k"><i>Closing</i><b>${ML(X.ml.close)}</b><span>${M(X.amt.close)}</span></div>
         <div class="k"><i>Variance</i><b class="${vc(X.ml.varv)}">${sgn(X.ml.varv)} ML</b><span class="${vc(X.amt.varv)}">${M(X.amt.varv)}</span></div>
@@ -4012,7 +4019,7 @@ function dbRoyalHead(look,X){
       <div class="pil"><i>Consumption</i><b>${fmt(R2(X.ml.cons))}</b><span>${M(X.amt.cons)}</span></div>
       <div class="pil"><i>Closing</i><b>${fmt(R2(X.ml.close))}</b><span>${M(X.amt.close)}</span></div>
       <div class="pil"><i>Variance</i><b class="${vc(X.ml.varv)}">${sgn(X.ml.varv)}</b><span class="${vc(X.amt.varv)}">${M(X.amt.varv)}</span></div>
-      <div class="pil"><i>Stock Value</i><b>${M(X.lrVal+X.amt.close)}</b><span>LR + Bar</span></div>
+      <div class="pil"${X.amt.atOpen?` title="The bar holds ${fmt(X.amt.atOpen)} brand${X.amt.atOpen===1?'':'s'} whose Closing has not been counted this month yet, so they count at their opening — that is what is on the shelf."`:''}><i>Stock Value</i><b>${M(X.lrVal+X.amt.hand)}</b><span>LR + Bar</span></div>
     </div>
     <div class="body">
       <div class="dsec">The Consumption Hall</div>
@@ -4046,7 +4053,7 @@ function dbRoyalHead(look,X){
     <div class="hd"><h2>${head}</h2><div class="rule"><span>${esc(sub)}</span></div></div>
     <div class="quad">
       <div class="q"><i>Opening Stock</i><b>${ML(X.ml.open)}</b><span>${M(X.amt.open)}</span></div>
-      <div class="seal"><i>♛</i><b>${M(X.lrVal+X.amt.close)}</b><span>Stock in Hand</span></div>
+      <div class="seal"${X.amt.atOpen?` title="The bar holds ${fmt(X.amt.atOpen)} brand${X.amt.atOpen===1?'':'s'} whose Closing has not been counted this month yet, so they count at their opening — that is what is on the shelf."`:''}><i>♛</i><b>${M(X.lrVal+X.amt.hand)}</b><span>Stock in Hand</span></div>
       <div class="q"><i>Received</i><b>${ML(X.ml.rec)}</b><span>${M(X.amt.rec)}</span></div>
       <div class="q"><i>Consumption</i><b>${ML(X.ml.cons)}</b><span>${M(X.amt.cons)}</span></div>
       <div class="q"><i>Variance</i><b class="${vc(X.ml.varv)}">${sgn(X.ml.varv)} ML</b><span class="${vc(X.amt.varv)}">${M(X.amt.varv)}</span></div>
@@ -4067,15 +4074,15 @@ function dbRoyalHead(look,X){
       <div style="display:flex;align-items:center;gap:12px"><div class="mono">${esc(initials(cfg.company||'TG'))}</div>
         <div><h2>Beverage Control</h2><small>${head} · ${esc(sub.replace('Beverage Control · ',''))}</small></div></div>
       <div style="text-align:right"><small>Stock in Hand</small>
-        <div style="font-family:Georgia,serif;font-size:21px;color:var(--gold)" class="n">${M(X.lrVal+X.amt.close)}</div></div>
+        <div style="font-family:Georgia,serif;font-size:21px;color:var(--gold)" class="n"${X.amt.atOpen?` title="The bar holds ${fmt(X.amt.atOpen)} brand${X.amt.atOpen===1?'':'s'} whose Closing has not been counted this month yet, so they count at their opening — that is what is on the shelf."`:''}>${M(X.lrVal+X.amt.hand)}</div></div>
     </div>
     <div class="atr">
       <div class="p"><i>Total Consumption</i><b>${fmt(R2(X.ml.cons))}</b><span>ML · ${M(X.amt.cons)}</span>
         <div class="mini"><div>Cocktail<b>${fmt(R2(X.ckMl))} ml</b></div><div>Straight<b>${fmt(R2(X.stMl))} ml</b></div></div></div>
       <div class="p"><i>Total Variance</i><b class="${vc(X.ml.varv)}">${sgn(X.ml.varv)}</b><span class="${vc(X.amt.varv)}">ML · ${M(X.amt.varv)}</span>
         <div class="mini"><div>Plus<b class="g">${M(X.plus)}</b></div><div>Minus<b class="r">−${fmt(R2(X.minus))}</b></div></div></div>
-      <div class="p"><i>Stock Value</i><b>${M(X.lrVal+X.amt.close)}</b><span>Liquor Room + Bar</span>
-        <div class="mini"><div>Room<b>${M(X.lrVal)}</b></div><div>Bar<b>${M(X.amt.close)}</b></div></div></div>
+      <div class="p"${X.amt.atOpen?` title="The bar holds ${fmt(X.amt.atOpen)} brand${X.amt.atOpen===1?'':'s'} whose Closing has not been counted this month yet, so they count at their opening — that is what is on the shelf."`:''}><i>Stock Value</i><b>${M(X.lrVal+X.amt.hand)}</b><span>Liquor Room + Bar</span>
+        <div class="mini"><div>Room<b>${M(X.lrVal)}</b></div><div>Bar<b>${M(X.amt.hand)}</b></div></div></div>
     </div>
     <div class="atr">
       <div class="p"><i>Opening</i><b style="font-size:18px">${ML(X.ml.open)}</b><span>${M(X.amt.open)}</span></div>
@@ -4407,7 +4414,8 @@ VIEWS.dashboard = () => {
   const _dbLook=dbLookNow();
   const DBX={
     ml:{open:openMl, rec:recMl, cons:consMl, close:closeMl, varv:varMl},
-    amt:{open:D.tot.open, rec:D.tot.rec, cons:D.tot.cons, close:D.tot.close, varv:D.tot.varv, sale:D.tot.sale},
+    amt:{open:D.tot.open, rec:D.tot.rec, cons:D.tot.cons, close:D.tot.close, varv:D.tot.varv, sale:D.tot.sale,
+      hand:D.tot.hand, atOpen:D.nAtOpen},                 // hand = on the shelf now (v2.85.0)
     lrVal:lrT, lrN:lr.length, cats:CD.all,
     brands:stSorted.map(b=>{ const sl=sizeOf(b.t.name)||0; const m=landOf(rawNameFor(b.t.name)||b.t.name);
       return {name:b.t.name, cat:b.t.category, ml:b.s, amt:sl?b.s/1000/sl*m:0}; }),
@@ -4462,7 +4470,7 @@ VIEWS.dashboard = () => {
           ['🥃','Consumption', fmt(R2(consMl))+' ML', '₹ '+fmt(R2(D.tot.cons)), '#f0a73b',''],
           ['🌙','Closing', fmt(R2(closeMl))+' ML', '₹ '+fmt(R2(D.tot.close)), '#8b5cf6',''],
           ['⚖️','Variance', (varMl>0?'+':'')+fmt(R2(varMl))+' ML', '₹ '+fmt(R2(D.tot.varv)), varMl>=0?'#25c685':'#f0776d', varMl>=0?'var(--green)':'var(--red)'],
-          ['💰','Stock Value', '₹ '+fmt(R2(D.tot.close)), 'closing stock', '#e8c94b',''],
+          ['💰','Stock Value', '₹ '+fmt(R2(D.tot.hand)), D.nAtOpen?('on the shelf now · '+fmt(D.nAtOpen)+' not counted yet'):'closing stock', '#e8c94b',''],
         ].map((s,i,arr)=>`<div class="stp"><div class="ic" style="background:${s[4]}1f;border:1px solid ${s[4]}55">${s[0]}</div>
             <div class="l">${s[1]}</div><div class="v"${s[5]?` style="color:${s[5]}"`:''}>${s[2]}</div><div class="r">${s[3]}</div></div>${i<arr.length-1?'<div class="arr">→</div>':''}`).join('')}
       </div></div>
