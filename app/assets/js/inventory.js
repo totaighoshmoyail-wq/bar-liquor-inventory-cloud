@@ -1506,12 +1506,15 @@ function mrRegHtml(){
     const dupPill=dk==='dup'?' <span class="lrinv dupx" title="Same date + same item + same bottles appears more than once — a double entry; ✕ the extra one">⚠ duplicate</span>':dk==='maybe'?' <span class="lrinv dupm" title="Same date + same item, different bottles — two real issues, or a slip">? same day</span>':''; const q=fnum(r.qty), a=q*landOf(r.item), qd=Number.isInteger(q)?fmt(q):String(r.qty); total+=q; amt+=a;
     { const t=(mrSrc(r)==='cash')?sC:sB; t.q+=q; t.a+=a; }
     const cl=ok?lrNow(r.item):null;
-    // date · item · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place) — same pattern as the Purchase register
+    /* date · qty are inputs (v2.48.3, client: a wrong entry must be fixable in place); the ITEM is fixed text
+       since v2.86.0 — client: "name fixed rakho sudu qty change optison rakho nahole proble hoche". A stray
+       keystroke used to re-point the issue at another item, and its datalist also swallowed ↑/↓. To move an
+       issue to a different item: ✕ the line and enter it again on the Issue Slip. */
     return `<tr class="${ok?'':'row-alert'}${mrSrc(r)==='cash'?' rvcash':''}${dk==='dup'?' rvdup':''}">
       <td class="nowrap"><input class="cell-input rvdate" type="date" value="${esc(r.date||'')}" title="Issue date — click to change" onchange="mrSetField(${i},'date',this.value)"></td>
       <td class="nowrap">${mrSrcChip(r,i)}</td>
       <td class="nowrap">${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:redBadge()}${dupPill}</td>
-      <td class="lrname"><input class="cell-input rvitem" list="rawItems" value="${esc(r.item)}" title="Item — type another Item Master name to move this issue" onchange="mrSetField(${i},'item',this.value)"></td>
+      <td class="lrname"><span class="mritem" title="${esc(r.item)} — the name is fixed. To move this issue to another item, remove the line with ✕ and enter it again on the Issue Slip above.">${esc(r.item)}</span></td>
       <td class="num nowrap"><span class="lrsg ${q>0?'minus':'zero'}">${q>0?'−':''}</span><input class="cell-input rvqty" value="${esc(qd)}" title="Bottles issued — click to change (12+12 works)" onchange="mrSetField(${i},'qty',this.value)"></td>
       <td class="num"><span class="lrval">${a?('₹ '+fmt(Math.round(a))):'<span class="muted">—</span>'}</span></td>
       <td class="num">${cl==null?'<span class="muted">—</span>':`<strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong>`}</td>
@@ -3840,9 +3843,12 @@ document.addEventListener('keydown', function(e){
   let ss=null, se=null; try{ ss=el.selectionStart; se=el.selectionEnd; }catch(err){}
   if(k==='ArrowLeft'  && ss!=null && ss>0) return;      // still editing inside the text
   if(k==='ArrowRight' && se!=null && se<len) return;
-  // a datalist box keeps its own ↑↓ for the suggestions — except on the Beverage Control sheet, where the
-  // receive-name box is the FIRST cell of every row and the client walks the sheet with the arrows (v2.73.0)
-  if(el.getAttribute('list') && e.key!=='Enter' && !el.closest('.bctbl')) return;
+  /* A datalist box used to keep ↑/↓ for its own suggestions, which made the arrows dead on the Purchase
+     register's item box and on the Issue Register's (v2.73.0 had already carved out .bctbl for exactly this
+     reason). Since v2.86.0 the arrows ALWAYS walk the sheet — the suggestion list still opens while typing,
+     and Alt+↓ is the browser's own way to open it — except on the Landing sheet's .lcin category box, which
+     is a free-text field with a long list and no grid to walk. */
+  if(el.getAttribute('list') && e.key!=='Enter' && el.classList.contains('lcin')) return;
   const grid=el.closest('.lfg');
   if(grid){ const cells=Array.from(grid.querySelectorAll('#lfLines > div'));
     const cell=el.closest('#lfLines > div'); const ix=cells.indexOf(cell); if(ix<0) return;

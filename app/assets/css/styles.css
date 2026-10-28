@@ -878,13 +878,31 @@ body[class*="ed-"] .nav-item:hover .ico { background:var(--panel); }
 /* ============================================================
    ANIMATIONS — body.a-* toggles (Settings → Appearance)
    ============================================================ */
-@keyframes viewFade { from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+@keyframes viewFade { from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
 @keyframes rowIn    { from{ opacity:0; transform:translateX(-7px); } to{ opacity:1; transform:none; } }
 @keyframes toastPop { from{ opacity:0; transform:translateY(12px) scale(.92); } to{ opacity:1; transform:none; } }
-body.a-fade #view > * { animation: viewFade .34s ease both; }
+body.a-fade #view > * { animation: viewFade .22s cubic-bezier(.22,.61,.36,1) both; }
 /* quiet re-render (routeQuiet — live search typing): no entry animations, no flicker */
 body.a-off #view > *, body.a-off .tbl tbody tr:not(.grp-row) { animation: none !important; }
-body.a-rows .tbl tbody tr:not(.grp-row) { animation: rowIn .3s ease both; }
+/* ROW ENTRY — only the rows you can actually see (v2.86.0). Measured on the client's own sheets:
+   animating every row ran 297 animations on the Liquor Room (328 rows) and 421 on the Landing
+   sheet (415), and cost 477 ms against 283 ms / 912 ms against 689 ms of build+layout on a page
+   change — that was the stutter. The first twelve rows carry the effect; the rest just appear. */
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(-n+12) { animation: rowIn .26s cubic-bezier(.22,.61,.36,1) both; }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(2)  { animation-delay:.018s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(3)  { animation-delay:.036s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(4)  { animation-delay:.054s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(5)  { animation-delay:.072s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(6)  { animation-delay:.09s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(7)  { animation-delay:.105s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(8)  { animation-delay:.118s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(9)  { animation-delay:.13s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(10) { animation-delay:.14s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(11) { animation-delay:.148s }
+body.a-rows .tbl tbody tr:not(.grp-row):nth-child(12) { animation-delay:.155s }
+/* a machine set to "reduce motion" gets none of it */
+@media (prefers-reduced-motion:reduce){
+  body.a-fade #view > *, body.a-rows .tbl tbody tr:not(.grp-row){ animation:none !important; } }
 body.a-hover .card { transition: transform .16s ease, box-shadow .16s ease; }
 body.a-hover .card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 body.a-hover .tbl tbody tr:hover { box-shadow: inset 2px 0 0 var(--gold); }
@@ -1788,7 +1806,7 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .tbl tr.rvcoll td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
 .tbl .lrinv.dupc{border-color:var(--amber);color:var(--amber);font-weight:700}
 .recvtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)}
-.mrtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px} .mrtbl .cell-input.rvqty{width:60px;color:var(--red);font-weight:700} .mrtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)} .mrtbl td.num .lrsg{margin-right:2px}   /* Issue Register edits in place (v2.48.3) */
+.mrtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px} .mrtbl .cell-input.rvqty{width:60px;color:var(--red);font-weight:700} .mrtbl .mritem{display:block;min-width:220px;padding:4px 6px;font-weight:700;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* the item name is FIXED here (v2.86.0) */ .mrtbl td.num .lrsg{margin-right:2px}   /* Issue Register edits in place (v2.48.3) */
 
 /* ---- Liquor Room head looks (v2.46.0) — ① Royal Ledger · ② Crown Seal, the client's picks from the canvas; ③ Classic = the
    v2.31.0 .lrflow head. pref.lrHead. Theme tokens only, so every theme keeps its own colours. ---- */
