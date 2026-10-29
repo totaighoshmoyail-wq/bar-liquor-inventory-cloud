@@ -1806,7 +1806,14 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .tbl tr.rvcoll td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
 .tbl .lrinv.dupc{border-color:var(--amber);color:var(--amber);font-weight:700}
 .recvtbl .cell-input.rvitem{width:100%;min-width:220px;text-align:left;font-weight:700;font-size:12.5px;color:var(--text)}
-.mrtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px} .mrtbl .cell-input.rvqty{width:60px;color:var(--red);font-weight:700} .mrtbl .mritem{display:block;min-width:220px;padding:4px 6px;font-weight:700;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* the item name is FIXED here (v2.86.0) */ .mrtbl td.num .lrsg{margin-right:2px}   /* Issue Register edits in place (v2.48.3) */
+.mrtbl .cell-input.rvdate{width:116px;font-size:12px;padding:3px 5px} .mrtbl .cell-input.rvqty{width:60px;color:var(--red);font-weight:700} /* a head figure you can open: which items are behind it (v2.87.0) */
+.lrseal .sc.tap, .lrledger .rs.tap{cursor:pointer;border-radius:7px;transition:background .14s ease,box-shadow .14s ease}
+.lrseal .sc.tap:hover, .lrledger .rs.tap:hover{background:color-mix(in srgb,var(--gold) 9%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gold) 45%,transparent)}
+.lrseal .sc.tap .n strong{color:var(--gold)}
+/* the item name is the answer, so let it take a second line instead of ellipsing away */
+.lrseal .sc.tap .n{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.32}
+@media print{ .lrseal .sc.tap, .lrledger .rs.tap{cursor:auto;background:none;box-shadow:none} }
+.mrtbl .mritem{display:block;min-width:220px;padding:4px 6px;font-weight:700;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* the item name is FIXED here (v2.86.0) */ .mrtbl td.num .lrsg{margin-right:2px}   /* Issue Register edits in place (v2.48.3) */
 
 /* ---- Liquor Room head looks (v2.46.0) — ① Royal Ledger · ② Crown Seal, the client's picks from the canvas; ③ Classic = the
    v2.31.0 .lrflow head. pref.lrHead. Theme tokens only, so every theme keeps its own colours. ---- */

@@ -2078,6 +2078,63 @@ function lrRollNoteHtml(){
   const back=(function(){ try{ return !!JSON.parse(localStorage.getItem(CO_PREFIX+'lrbak')||'null'); }catch(e){ return false; } })();
   return `<span class="invfixnote"><button class="btn btn-sm" onclick="lrRollAsk()" title="${esc(lrWhenTitle())}">📅 New month from ${esc(f)}</button>${back?`<button class="btn btn-sm x" title="Put the Liquor Room back to what it held before the month close" onclick="lrRollUndo()">↩</button>`:''}</span>`;
 }
+/* ---- WHICH items moved (v2.87.0) -------------------------------------------------------------
+   Client, with a screenshot of the ISSUED TO BAR card reading −1 BTL ₹4,153: "issue to dakhache
+   but kon item hoyache show korche na". The head card carried the TOTAL and nothing else, so a
+   single bottle leaving the store room could not be traced from this page. Same figures as the
+   sheet below — issuedForItem / receivedForItem, so the v2.84.0 month-close floor applies here
+   too — only collected and named.                                                               */
+function lrMoveList(kind){
+  const rows=[]; let qty=0, val=0;
+  rawData.forEach(r=>{
+    const q = (kind==='rv') ? receivedForItem(r.item) : issuedForItem(r.item);
+    if(!(q>0)) return;
+    const v=q*landOf(r.item);
+    rows.push({item:r.item, grp:r.group||'', qty:q, val:v});
+    qty+=q; val+=v;
+  });
+  rows.sort((a,b)=> (b.qty-a.qty) || (b.val-a.val) || String(a.item).localeCompare(String(b.item)));
+  return {rows, n:rows.length, qty, val};
+}
+function lrMoveWord(kind){ return kind==='rv' ? 'from Purchase' : 'to Bar Stock Issue'; }
+/* the card's own line: one item is NAMED outright — that is the whole point of the wave */
+function lrMoveSub(kind){
+  const L=lrMoveList(kind);
+  if(!L.n) return kind==='rv' ? 'nothing purchased in this period' : 'no Bar Stock Issue yet';
+  if(L.n===1) return lrMoveWord(kind)+' · <strong>'+esc(L.rows[0].item)+'</strong>';
+  return lrMoveWord(kind)+' · <strong>'+fmt(L.n)+' items</strong> · '+esc(L.rows[0].item)+(L.n>1?' +'+fmt(L.n-1)+' more':'');
+}
+function lrMoveTitle(kind){
+  const L=lrMoveList(kind); if(!L.n) return 'Nothing yet';
+  return L.rows.slice(0,14).map(r=>r.item+' — '+fmt(r.qty)+' btl').join('\n') + (L.n>14 ? ('\n… and '+fmt(L.n-14)+' more') : '') + '\n\nClick to see every one.';
+}
+function lrMoveFind(kind, name){
+  closeModal();
+  if(kind==='rv'){ iq.rv=String(name||''); location.hash='#received'; route();
+    const b=document.getElementById('searchBox'); if(b){ b.value=iq.rv; b.focus({preventScroll:true}); } return; }
+  mrNegFind(name);                                    // the Issue Register, filtered to that item (v2.75.0)
+}
+function lrMoveModal(kind){
+  const L=lrMoveList(kind);
+  if(!L.n){ toast('Nothing to show', kind==='rv'?'No purchase reached the Liquor Room yet':'Nothing has been issued to the bar yet','err'); return; }
+  const ttl = kind==='rv' ? '📦 Received into the Liquor Room — which items' : '🍸 Issued to the bar — which items';
+  const sgn = kind==='rv' ? '+' : '−';
+  modal(ttl, `
+    <div class="bevxl"><div class="k k3">
+      <div class="c"><div class="l">Items</div><div class="v gold">${fmt(L.n)}</div><div class="s">${lrMoveWord(kind)}</div></div>
+      <div class="c"><div class="l">Bottles</div><div class="v ${kind==='rv'?'':'am'}">${sgn}${fmt(L.qty)}</div><div class="s">${lrWhenTxt()}</div></div>
+      <div class="c"><div class="l">Value</div><div class="v">₹ ${fmt(Math.round(L.val))}</div><div class="s">at the rate this page uses</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:330px"><table class="tbl"><thead><tr><th>#</th><th>Item</th><th>Group</th><th class="num">Bottles</th><th class="num">₹</th><th></th></tr></thead><tbody>
+      ${L.rows.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(r.item)}</strong></td>
+        <td><span class="pill gray">${esc(r.grp)}</span></td>
+        <td class="num"><strong class="${kind==='rv'?'':'lrclose neg'}">${sgn}${fmt(r.qty)}</strong></td>
+        <td class="num">₹ ${fmt(Math.round(r.val))}</td>
+        <td class="right"><button class="btn btn-sm" title="Open ${kind==='rv'?'Purchase':'the Issue Register'} filtered to this item" onclick="lrMoveFind('${kind}',this.getAttribute('data-n'))" data-n="${esc(r.item)}">🔎</button></td></tr>`).join('')}
+      </tbody><tfoot><tr><td></td><td><strong>TOTAL</strong></td><td></td><td class="num"><strong>${sgn}${fmt(L.qty)}</strong></td><td class="num"><strong>₹ ${fmt(Math.round(L.val))}</strong></td><td></td></tr></tfoot></table></div>
+    <div class="muted" style="font-size:10.5px;margin-top:6px">Counted ${lrWhenTxt()} — the same figures as the sheet below. 🔎 opens that item on the page it came from.</div></div>`,
+    `<button class="btn btn-gold" onclick="closeModal()">Close</button>`);
+}
 VIEWS.liquorroom = () => {
   const q=iq.lr;
   const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
@@ -2208,7 +2265,7 @@ VIEWS.liquorroom = () => {
       <div class="lrl-body">
         <div class="bclh lr5">
           <div class="h c">Column</div><div class="h">🏛️ Opening</div><div class="h">📦 Received</div><div class="h">🍸 Issued to bar</div><div class="h">♛ Closing stock</div>
-          <div class="k">Bottles</div><div class="rs big tx">${fmt(tOpen)}<small>btl</small></div><div class="rs big vp">${tRecv>0?'+':''}${fmt(tRecv)}<small>btl</small></div><div class="rs big ${tIss>0?'vn':'mu'}">${tIss>0?'−':''}${fmt(tIss)}<small>btl</small></div><div class="rs big hi">${fmt(tClose)}<small>btl</small></div>
+          <div class="k">Bottles</div><div class="rs big tx">${fmt(tOpen)}<small>btl</small></div><div class="rs big vp${tRecv>0?' tap':''}"${tRecv>0?` onclick="lrMoveModal('rv')" title="${esc(lrMoveTitle('rv'))}"`:''}>${tRecv>0?'+':''}${fmt(tRecv)}<small>btl</small></div><div class="rs big ${tIss>0?'vn tap':'mu'}"${tIss>0?` onclick="lrMoveModal('is')" title="${esc(lrMoveTitle('is'))}"`:''}>${tIss>0?'−':''}${fmt(tIss)}<small>btl</small></div><div class="rs big hi">${fmt(tClose)}<small>btl</small></div>
           <div class="k">Landing ₹</div><div class="rs">₹ ${fmt(Math.round(tValO))}</div><div class="rs">₹ ${fmt(Math.round(tValR))}</div><div class="rs">₹ ${fmt(Math.round(tValI))}</div><div class="rs hi">₹ ${fmt(Math.round(tVal))}</div>
           <div class="k">₹ per bottle</div><div class="q">${per(tValO,tOpen)}</div><div class="q">${per(tValR,tRecv)}</div><div class="q ${tIss>0?'':'mu'}">${per(tValI,tIss)}</div><div class="q hi">${per(tVal,tClose)}</div>
           <div class="k s" title="each column's landing value as a share of the closing stock value">Share of stock value <small>of closing ₹</small></div>${shareCell(tValO,'')}${shareCell(tValR,'g')}${shareCell(tValI,'r')}${shareCell(tVal,'',true)}
@@ -2217,14 +2274,14 @@ VIEWS.liquorroom = () => {
       </div>
     </div>`;
   // ② Crown Seal — double frame, ribbon title, Opening + Received · seal · Issued = Closing, the controls in a gold band
-  const sc=(cls,ico,label,btl,sgn,val,sub)=>`<div class="sc ${cls}"><div class="l">${ico} ${label}</div><div class="v">${sgn}${fmt(btl)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(val))}</div><div class="n">${sub}</div></div>`;
+  const sc=(cls,ico,label,btl,sgn,val,sub,kind)=>`<div class="sc ${cls}${kind?' tap':''}"${kind?` onclick="lrMoveModal('${kind}')" title="${esc(lrMoveTitle(kind))}"`:''}><div class="l">${ico} ${label}</div><div class="v">${sgn}${fmt(btl)}<small>btl</small></div><div class="m">₹ ${fmt(Math.round(val))}</div><div class="n">${sub}</div></div>`;
   const sealHead=`<div class="card lrflow lrseal"><i class="cd tl"></i><i class="cd tr"></i><i class="cd bl"></i><i class="cd br"></i>${tl}
       <div class="rib"><span class="ln"></span><div class="c"><div class="t">❖ Liquor Room ❖</div><div class="f">Opening <b>+</b> Received <b>−</b> Issued <b>=</b> Closing <span class="p" title="The Liquor Room is the stock in hand, so Opening · Received · Issued · Closing count EVERY date — the whole month. The period above belongs to Beverage Control and the reports.">· ${nInHand} items in hand · every date</span></div></div><span class="ln r"></span></div>
       <div class="sg">
         ${sc('op','🏛️','Opening',tOpen,'',tValO,`${nOpen} items · ${per(tValO,tOpen)} / bottle`)}<div class="opr">+</div>
-        ${sc('rv','📦','Received',tRecv,tRecv>0?'+':'',tValR,tRecv>0?`from Purchase · ${per(tValR,tRecv)} / bottle`:'nothing purchased in this period')}
+        ${sc('rv','📦','Received',tRecv,tRecv>0?'+':'',tValR,lrMoveSub('rv'),tRecv>0?'rv':'')}
         <div class="sealwrap"><div class="seal"><div class="in"><div class="ico">♛</div><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${nInHand} items</div><i class="rule"></i><div class="k3">${per(tVal,tClose)} per bottle</div></div></div></div>
-        ${sc('is','🍸','Issued to bar',tIss,tIss>0?'−':'',tValI,tIss>0?`to Bar Stock Issue · ${per(tValI,tIss)} / bottle`:'no Bar Stock Issue yet')}<div class="opr">=</div>
+        ${sc('is','🍸','Issued to bar',tIss,tIss>0?'−':'',tValI,lrMoveSub('is'),tIss>0?'is':'')}<div class="opr">=</div>
         ${sc('cl','♛','Closing stock',tClose,'',tVal,`${nInHand} items · ${per(tVal,tClose)} / bottle`)}
       </div>
       <div class="band noprint">${tools}</div>
