@@ -2223,29 +2223,110 @@ function lrFindBar(q, shown, total){
           : `<strong>${fmt(shown)}</strong> items`}</span>
   </div>`;
 }
+/* ---- the Liquor Room sheet edits in place too (v2.89.0) ---------------------------------------
+   Two things were wrong here, both found by typing into the page: the Opening box called
+   invSetRaw(), so (a) NOTHING on screen moved — the Closing, the Value, the status pill, the group
+   total and the head all stayed as they were until the page happened to render again — and (b) the
+   box's own tooltip offers "12+12" but the raw string was stored, and fnum("12+12") is 0, so a
+   client who typed a sum silently lost that stock. invSetNum() runs evalNum, as every other
+   quantity box in the app does, and the row + its group total are repainted at once. */
+const lrPass  = cl=> lrFilter==='all' || (lrFilter==='instock'&&cl>0) || (lrFilter==='zero'&&cl===0) || (lrFilter==='neg'&&cl<0);
+const lrPassB = v => lrBlank==='none'
+  || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0)
+  || (lrBlank==='hop'&&v.op!==0) || (lrBlank==='hrv'&&v.rv>0)  || (lrBlank==='his'&&v.is>0)  || (lrBlank==='hcl'&&v.cl!==0);
+function lrCalc(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op,rv,is,cl:op+rv-is}; }
+function lrRowHtml(name,idx,grpKnown,op,rv,is,cl,grp){
+  const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
+  const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
+  const nq=esc(name).replace(/'/g,"\\'");
+  const set=k=> idx>=0 ? `lrEdit(${idx},'${k}',this.value)` : `lrEditName('${nq}','${k}',this.value)`;
+  return `<tr class="${grpKnown?'':'row-alert'}" data-lr="${esc(norm(name))}">
+      <td class="lrname">${idx>=0?`<input type="checkbox" class="rdsel selcb" data-n="${esc(norm(name))}" data-g="${esc(grp||'')}" ${_rdSel.has(norm(name))?'checked':''} title="Select" onchange="rdSelToggle(this)"> `:''}<strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
+      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${landOf(name)?Math.round(landOf(name)*100)/100:'₹'}" title="${land!=null&&land!==''?'Your Item Master rate — values this item everywhere':'Automatic: the latest BEVCO invoice rate (or MRP) — type a rate to make it yours'}" onchange="${set('land')}"></td>
+      <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${set('lrOpen')}"></td>
+      <td class="num">${sgn(rv,'plus','+')}</td>
+      <td class="num">${sgn(is,'minus','−')}</td>
+      <td class="num"><strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong></td>
+      <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
+      <td class="nowrap">${cl<0?'<span class="pill red">negative</span>':cl===0?'<span class="pill gray">empty</span>':cl<5?'<span class="pill amber">low</span>':'<span class="pill green">ok</span>'}${idx>=0?` <button class="btn btn-danger btn-sm rmx" title="Remove this item from the Item Master & Liquor Room (linked Beverage Control brand goes too unless it has figures)" onclick="rawRemoveAsk(${idx})">✕</button>`:''}</td></tr>`;
+}
+/* the group's own TOTAL line — the view passes the figures it has just added up, the repainter asks
+   for them (same filters, same search, so the two can never print different numbers) */
+function lrGroupTot(grp){
+  const nq=iq.lr?norm(iq.lr):''; const T={gO:0,gR:0,gI:0,gC:0,gV:0,gN:0,gSel:0};
+  rawData.forEach(r=>{ if((r.group||'')!==(grp||'')) return;
+    if(nq && !(norm(r.item).includes(nq)||norm(r.group||'').includes(nq))) return;
+    const v=lrCalc(r.item); if(!lrPass(v.cl)||!lrPassB(v)) return;
+    T.gN++; if(_rdSel.has(norm(r.item))) T.gSel++;
+    T.gO+=v.op; T.gR+=v.rv; T.gI+=v.is; T.gC+=v.cl; T.gV+=v.cl*landOf(r.item); });
+  return T;
+}
+function lrSubHtml(grp,T){
+  const t=T||lrGroupTot(grp);
+  return `<tr class="lrsub" data-lrsub="${esc(grp||'')}"><td colspan="2" class="right"><strong>${grp} — TOTAL</strong></td>
+      <td class="num"><strong>${fmt(t.gO)}</strong></td><td class="num"><strong class="lrsg ${t.gR>0?'plus':'zero'}">${t.gR>0?'+':''}${fmt(t.gR)}</strong></td>
+      <td class="num"><strong class="lrsg ${t.gI>0?'minus':'zero'}">${t.gI>0?'−':''}${fmt(t.gI)}</strong></td><td class="num"><strong class="lrclose">${fmt(t.gC)}</strong></td>
+      <td class="num"><strong class="lrval">₹ ${fmt(Math.round(t.gV))}</strong></td><td></td></tr>`;
+}
+function lrEdit(idx,key,val){ const r=rawData[idx]; if(!r) return; invSetNum(idx,key,val); lrAfterEdit(r.item, r.group||''); }
+function lrEditName(name,key,val){ invSet(name,key,evalNum(val)); lrAfterEdit(name,''); }
+function lrAfterEdit(name,grp){ setTimeout(function(){   // a tick later — see bcPaint for why
+  if(!lrPaintRow(name)){ routeQuiet(); return; }   // a card / two-pane layout has no sheet row to patch
+  lrPaintSub(grp);
+  lrPaintTotSoon();
+}, 0); }
+function lrPaintRow(name){
+  const key=norm(name); const rows=document.querySelectorAll('#view .tbl.rawhead tbody tr[data-lr]');
+  let tr=null; for(let i=0;i<rows.length;i++){ if(rows[i].getAttribute('data-lr')===key){ tr=rows[i]; break; } }
+  if(!tr) return false;
+  const r=findRawExact(name); const idx=r?rawData.indexOf(r):-1; const v=lrCalc(name);
+  const act=document.activeElement; let fi=-1, ss=null, se=null;
+  if(act && tr.contains(act)){ const f=[].slice.call(tr.querySelectorAll('input,button'));
+    fi=f.indexOf(act); try{ ss=act.selectionStart; se=act.selectionEnd; }catch(e){} }
+  const tmp=document.createElement('tbody');
+  tmp.innerHTML=lrRowHtml(name, idx, idx>=0, v.op,v.rv,v.is,v.cl, r?(r.group||''):'');
+  const nr=tmp.firstElementChild; if(!nr) return false;
+  tr.className=nr.className; tr.innerHTML=nr.innerHTML;     // the row ELEMENT stays — see bcPaintRow for why
+  if(fi>=0){ const f=[].slice.call(tr.querySelectorAll('input,button'))[fi];
+    if(f){ f.focus(); try{ if(ss!=null) f.setSelectionRange(ss,se); }catch(e){} } }
+  return true;
+}
+function lrPaintSub(grp){
+  const subs=document.querySelectorAll('#view .tbl.rawhead tbody tr[data-lrsub]');
+  for(let i=0;i<subs.length;i++) if(subs[i].getAttribute('data-lrsub')===(grp||'')){
+    const tmp=document.createElement('tbody'); tmp.innerHTML=lrSubHtml(grp);
+    subs[i].innerHTML=tmp.firstElementChild.innerHTML; return true; }
+  return false;
+}
+/* The head (all three looks), the premium-look card and the search bar's count are the page's own
+   arithmetic over every row, so they are rebuilt from the view itself — with _lrHeadOnly set, which
+   makes it return the head and an EMPTY sheet, so none of the 255 rows is parsed or laid out.
+   A beat behind, like Beverage Control: the row under the cursor is already right. */
+var _lrHeadOnly=false, _lrTotT=null;
+function lrPaintTotSoon(){ if(_lrTotT) clearTimeout(_lrTotT); _lrTotT=setTimeout(function(){ _lrTotT=null; lrPaintTot(); }, 90); }
+function lrPaintTot(){
+  if(_lrTotT){ clearTimeout(_lrTotT); _lrTotT=null; }
+  const host=document.getElementById('lrTop'); if(!host) return;
+  let html; _lrHeadOnly=true;
+  try{ html=VIEWS.liquorroom(); } finally { _lrHeadOnly=false; }
+  const d=document.createElement('div'); d.innerHTML=html;
+  const nt=d.querySelector('#lrTop');
+  if(nt){
+    CHARTS.forEach(c=>{ try{ c.destroy(); }catch(e){} }); CHARTS=[];   // the premium look's canvases go with the node
+    host.innerHTML=nt.innerHTML;
+    if(AFTER.liquorroom) AFTER.liquorroom();
+  }
+  const oc=document.querySelector('#view .lrfind .cnt'), nc=d.querySelector('.lrfind .cnt');
+  if(oc && nc){ oc.className=nc.className; oc.innerHTML=nc.innerHTML; }
+}
 VIEWS.liquorroom = () => {
   const q=iq.lr;
   const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
   let tOpen=0,tRecv=0,tIss=0,tClose=0, tValO=0,tValR=0,tValI=0, shownN=0, shownSel=0;
   let shownX=0;   // rows of the red NOT-IN-ITEM-MASTER section — on the sheet, but outside shownN (v2.88.0)
-  const pass=cl=> lrFilter==='all' || (lrFilter==='instock'&&cl>0) || (lrFilter==='zero'&&cl===0) || (lrFilter==='neg'&&cl<0);
-  const passB=v=> lrBlank==='none'
-    || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0)
-    || (lrBlank==='hop'&&v.op!==0) || (lrBlank==='hrv'&&v.rv>0)  || (lrBlank==='his'&&v.is>0)  || (lrBlank==='hcl'&&v.cl!==0);
+  const pass=lrPass, passB=lrPassB;   // moved out so a repaint filters exactly as the sheet does (v2.89.0)
   let tVal=0;
-  const rowHtml=(name,idx,grpKnown,op,rv,is,cl,grp)=>{
-    const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
-    const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
-    return `<tr class="${grpKnown?'':'row-alert'}">
-      <td class="lrname">${idx>=0?`<input type="checkbox" class="rdsel selcb" data-n="${esc(norm(name))}" data-g="${esc(grp||'')}" ${_rdSel.has(norm(name))?'checked':''} title="Select" onchange="rdSelToggle(this)"> `:''}<strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
-      <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${landOf(name)?Math.round(landOf(name)*100)/100:'₹'}" title="${land!=null&&land!==''?'Your Item Master rate — values this item everywhere':'Automatic: the latest BEVCO invoice rate (or MRP) — type a rate to make it yours'}" onchange="${idx>=0?`invSetRaw(${idx},'land',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','land',this.value)`}"></td>
-      <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${idx>=0?`invSetRaw(${idx},'lrOpen',this.value)`:`invSet('${esc(name).replace(/'/g,"\'")}','lrOpen',this.value)`}"></td>
-      <td class="num">${sgn(rv,'plus','+')}</td>
-      <td class="num">${sgn(is,'minus','−')}</td>
-      <td class="num"><strong class="lrclose ${cl<0?'neg':''}">${fmt(cl)}</strong></td>
-      <td class="num"><span class="lrval">${val?('₹ '+fmt(Math.round(val))):'<span class="muted">—</span>'}</span></td>
-      <td class="nowrap">${cl<0?'<span class="pill red">negative</span>':cl===0?'<span class="pill gray">empty</span>':cl<5?'<span class="pill amber">low</span>':'<span class="pill green">ok</span>'}${idx>=0?` <button class="btn btn-danger btn-sm rmx" title="Remove this item from the Item Master & Liquor Room (linked Beverage Control brand goes too unless it has figures)" onclick="rawRemoveAsk(${idx})">✕</button>`:''}</td></tr>`; };
-  const calc=name=>{ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op,rv,is,cl:op+rv-is}; };
+  const rowHtml=lrRowHtml, calc=lrCalc;   // both moved out of the view (v2.89.0)
   let body=groups.map(g=>{
     let gO=0,gR=0,gI=0,gC=0, gN=0, gSel=0;
     const rows=g.items.map(r=>{ const v=calc(r.item); if(!pass(v.cl)||!passB(v)) return ''; gN++; shownN++; if(_rdSel.has(norm(r.item))){ gSel++; shownSel++; }
@@ -2256,10 +2337,7 @@ VIEWS.liquorroom = () => {
     if(!rows) return '';
     // per-group separate totals: Opening · Received · Issued · Closing · Value
     const gV=g.items.reduce((a,r)=>{ const v=calc(r.item); return (pass(v.cl)&&passB(v)) ? a+v.cl*landOf(r.item) : a; },0);
-    const sub=`<tr class="lrsub"><td colspan="2" class="right"><strong>${g.group} — TOTAL</strong></td>
-      <td class="num"><strong>${fmt(gO)}</strong></td><td class="num"><strong class="lrsg ${gR>0?'plus':'zero'}">${gR>0?'+':''}${fmt(gR)}</strong></td>
-      <td class="num"><strong class="lrsg ${gI>0?'minus':'zero'}">${gI>0?'−':''}${fmt(gI)}</strong></td><td class="num"><strong class="lrclose">${fmt(gC)}</strong></td>
-      <td class="num"><strong class="lrval">₹ ${fmt(Math.round(gV))}</strong></td><td></td></tr>`;
+    const sub=lrSubHtml(g.group,{gO,gR,gI,gC,gV});
     return `<tr class="grp-row lrgrp"><td colspan="8"><input type="checkbox" class="rdselg selcb" data-g="${esc(g.group)}" ${gN&&gSel===gN?'checked':''} title="Select this group" onchange="rdSelGroup(this)"> <span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
   }).join('');
   const extraAll=unmatchedNames();   // the red NOT-IN-ITEM-MASTER rows are on the sheet, so the search bar counts them on both sides of its "N of M"
@@ -2283,7 +2361,7 @@ VIEWS.liquorroom = () => {
         .filter(x=>pass(x.cl)&&passB(x));
       return { id:g.group, title:g.group, sub:`${its.length} items`,
         right:`<span class="num gold" style="font-weight:700">${fmt(its.reduce((a,x)=>a+x.cl,0))}</span>`,
-        detail: its.map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${x.name}</span><span class="nowrap muted" style="font-size:11px">op <input class="cell-input" style="width:46px" value="${invGet(x.name).lrOpen!=null?invGet(x.name).lrOpen:''}" placeholder="0" onchange="invSetRaw(${x.idx},'lrOpen',this.value);route()"> +${x.rv} −${x.is} = <strong class="${x.cl<0?'':'gold'}" style="${x.cl<0?'color:var(--red)':''}">${x.cl}</strong></span></div>`).join('')||'<span class="muted" style="font-size:12px">none</span>' };
+        detail: its.map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${x.name}</span><span class="nowrap muted" style="font-size:11px">op <input class="cell-input" style="width:46px" value="${invGet(x.name).lrOpen!=null?invGet(x.name).lrOpen:''}" placeholder="0" onchange="lrEdit(${x.idx},'lrOpen',this.value)"> +${x.rv} −${x.is} = <strong class="${x.cl<0?'':'gold'}" style="${x.cl<0?'color:var(--red)':''}">${x.cl}</strong></span></div>`).join('')||'<span class="muted" style="font-size:12px">none</span>' };
     }).filter(g=>g.detail.indexOf('none')<0 || lrFilter==='all');
     bodyHtml=renderLay('liquorroom',lay,grp,{listTitle:'Groups'});
   }
@@ -2411,9 +2489,10 @@ VIEWS.liquorroom = () => {
   /* the item search sits directly above the names now, in every head look (v2.88.0) —
      shownN is what the sheet actually drew, so the count can never disagree with it */
   const findBar = lrFindBar(q, shownN + shownX, rawData.length + extraAll.length);
+  if(_lrHeadOnly) bodyHtml='';   // a head-only build for lrPaintTot: all the arithmetic, none of the 255 rows
   return `
-    ${top}
-    ${lrRoyal}
+    <div id="lrTop">${top}
+    ${lrRoyal}</div>
     ${bevDupNotice()}
     ${findBar}
     ${bodyHtml}`;
@@ -2502,6 +2581,68 @@ function biAmt(t,R){
   return { key, mrp, mrpDisp, open:openQ*mrp, rec:recQ*mrp, close:closeQ*mrp, cons:consQ*mrp, sale:saleQ*mrp, varv:varQ*mrp };
 }
 // one Bar-Inventory <tr> — shared by the sheet body and the Search & Add panel
+/* ---- an edit lands in place, the page does not rebuild (v2.89.0) ------------------------------
+   Every figure box on this sheet used to carry `;route()`. One typed Opening therefore rebuilt the
+   whole page — MEASURED 230-400 ms on a 147-row sheet with 1,097 inputs — and the client types
+   dozens in a row: "kono item plus minus korla instand jano kaj hoy superfast, page refresh er kono
+   bapar jano na takhe". Now the edited ROW is rebuilt from the same biRowHtml() and the derived
+   blocks above and below it from the same bcBlocks(); the other 146 rows are never touched, so
+   there is no re-layout of a thousand inputs and nothing moves under the cursor.
+   WHICH EDITS QUALIFY: opening · closing · consumption · variance · size · rate change only their
+   own row (a rate is shared by the brands that point at one Item Master name, so those rows are
+   repainted too). **The receive-name box still calls route()** — `_receiptOwner()` gives every
+   issued name exactly ONE owner (v2.73.0), so re-pointing a name can move a receipt from another
+   row, and only a full render can show that honestly.
+   A row whose figures are cleared is left on the sheet rather than filtered away mid-typing — the
+   next real render applies the filters (the v2.49.0 lesson: nothing may jump while they type). */
+function bcPaintRow(idx){
+  const t=tallyItems[idx]; if(!t) return false;
+  const key=norm(t.name); let tr=null;
+  const rows=document.querySelectorAll('#view .bctbl tbody tr[data-bi]');
+  for(let i=0;i<rows.length;i++){ if(rows[i].getAttribute('data-bi')===key){ tr=rows[i]; break; } }
+  if(!tr) return false;                      // filtered off the sheet — the totals below still repaint
+  /* onchange fires when the box is LEFT, so the cursor is already in the next cell — which may be
+     in this very row. Put it back where it was, by position, or a Tab would land nowhere. */
+  const act=document.activeElement; let fi=-1, ss=null, se=null;
+  if(act && tr.contains(act)){
+    const f=[].slice.call(tr.querySelectorAll('input,select,button'));
+    fi=f.indexOf(act); try{ ss=act.selectionStart; se=act.selectionEnd; }catch(e){}
+  }
+  /* The row element itself is KEPT and only its cells are rewritten. Measured on this very sheet:
+     replaceChild of the <tr> = 72 ms (the table re-lays out around a new row box), rewriting the
+     same row's innerHTML = 15.7 ms, and writing nothing but text = 14.8 ms — so the cells are not
+     the cost, inserting a row into a 147-row table is. */
+  const tmp=document.createElement('tbody'); tmp.innerHTML=biRowHtml(t);
+  const nr=tmp.firstElementChild; if(!nr) return false;
+  tr.innerHTML=nr.innerHTML;
+  if(fi>=0){ const f=[].slice.call(tr.querySelectorAll('input,select,button'))[fi];
+    if(f){ f.focus(); try{ if(ss!=null) f.setSelectionRange(ss,se); }catch(e){} } }
+  return true;
+}
+/* The ledger head, the Category Register and the bottom tiles are a fresh bcBlocks() plus their own
+   layout — about 50 ms. A person typing a column of figures must not pay that on every Tab, so they
+   are repainted a beat after the last edit; the row under the cursor is already right. */
+var _bcTotT=null;
+function bcPaintTotSoon(){ if(_bcTotT) clearTimeout(_bcTotT); _bcTotT=setTimeout(function(){ _bcTotT=null; bcPaintTot(); }, 90); }
+function bcPaintTot(){
+  if(_bcTotT){ clearTimeout(_bcTotT); _bcTotT=null; }
+  const B=bcBlocks(), set=(id,h)=>{ const e=document.getElementById(id); if(e) e.innerHTML=h; };
+  set('bcTop',B.top); set('bcFoot',B.foot); set('bcAudit',B.audit);
+  const fr=document.getElementById('biFindResults'); if(fr) fr.innerHTML=biFindInner();   // the Search & Add box shows the same figures
+}
+/* ONE TICK LATER, deliberately. Chrome fires change during the blur, while document.activeElement
+   is still the box being left, and the sheet's Tab handler has already focused the next cell
+   synchronously (v2.73.0) — repainting there would replace that cell and send the cursor back. */
+function bcPaint(idx, rateShared){ setTimeout(function(){ bcPaintNow(idx, rateShared); }, 0); }
+function bcPaintNow(idx, rateShared){
+  bcPaintRow(idx);
+  if(rateShared){                            // one Item Master rate can value several brands
+    const t=tallyItems[idx];
+    if(t){ const k=norm(rawNameFor(t.name)||t.name);
+      tallyItems.forEach((x,i)=>{ if(i!==idx && norm(rawNameFor(x.name)||x.name)===k) bcPaintRow(i); }); }
+  }
+  bcPaintTotSoon();
+}
 function biRowHtml(t){
   const idx=tallyItems.indexOf(t); const R=barRow(t); const iv=R.iv; const A=biAmt(t,R); const u=R.u;
   const amtLine=(v,col)=>{ const r=Math.round(v); return r?`<div class="biamt"${col?` style="color:${col}"`:''}>₹ ${fmt(r)}</div>`:''; };
@@ -2509,21 +2650,21 @@ function biRowHtml(t){
   const vcol=R.varv>0?'var(--green)':(R.varv<0?'var(--red)':'var(--text-muted)');
   const vbg=R.varv>0?'var(--green-dim)':(R.varv<0?'var(--red-dim)':'transparent');
   const sizeCell = u==='pcs'
-    ? `<td class="num"><input class="cell-input size" value="${iv.sizePcs!=null?iv.sizePcs:''}" placeholder="pcs" title="pack size in pcs (editable; does not change consumption)" onchange="invSetTNum(${idx},'sizePcs',this.value);route()"></td>`
-    : `<td class="num"><input class="cell-input size" value="${Math.round(sizeOf(t.name)*1000)}" title="bottle size in ml (e.g. 750 · Draught 50000)" onchange="invSetSizeMl(${idx},this.value);route()"></td>`;
+    ? `<td class="num"><input class="cell-input size" value="${iv.sizePcs!=null?iv.sizePcs:''}" placeholder="pcs" title="pack size in pcs (editable; does not change consumption)" onchange="invSetTNum(${idx},'sizePcs',this.value);bcPaint(${idx})"></td>`
+    : `<td class="num"><input class="cell-input size" value="${Math.round(sizeOf(t.name)*1000)}" title="bottle size in ml (e.g. 750 · Draught 50000)" onchange="invSetSizeMl(${idx},this.value);bcPaint(${idx})"></td>`;
   const rnMissing = !R.rname;
   const varSub = u==='pcs' ? '' : `<div class="muted" style="font-size:9px;white-space:nowrap;text-align:right">±${R.varBtl} btl · ${R.varMl} ml</div>`;
-  return `<tr>
+  return `<tr data-bi="${esc(norm(t.name))}">
     <td><div style="display:flex;align-items:center;gap:4px"><input type="checkbox" class="bisel selcb" data-n="${esc(norm(t.name))}" data-c="${esc(t.category||'')}" ${_biSel.has(norm(t.name))?'checked':''} title="Mark" onchange="biSelToggle(this)"><strong style="flex:1;min-width:0">${t.name}</strong><button class="btn btn-danger btn-sm rmx" title="Remove this brand from Beverage Control & the Tally Sheet (with its POS aliases)" onclick="biRemove(${idx})">✕</button></div>
       <div style="margin-top:2px"><input class="cell-input rname" style="text-align:left;color:${rnMissing?'var(--red)':'var(--text-muted)'}" list="rawItems" value="${esc(R.rname||'')}" placeholder="↳ receive name (Item Master col A)…" title="Item Master full name — receipts in Bar Stock Issue / Purchase / Liquor Room are matched against THIS (Excel col A). Edit if blank/wrong." onchange="invSetT(${idx},'rawName',this.value);route()"></div></td>
     ${sizeCell}
-    <td class="num"><input class="cell-input mrpcell" value="${mrpRaw!=null?mrpRaw:''}" placeholder="₹" title="Landing ₹ ${u==='pcs'?'per pc':'per bottle'} — shared with Item Master / Liquor Room / Purchase (auto-set by BEVCO invoice)" onchange='invSet(${jatt(A.key)},"land",this.value);route()'></td>
-    <td class="num"><input class="cell-input obox" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${u==='pcs'?'pieces':'bottle.loose 2.35 — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);route()">${amtLine(A.open)}</td>
+    <td class="num"><input class="cell-input mrpcell" value="${mrpRaw!=null?mrpRaw:''}" placeholder="₹" title="Landing ₹ ${u==='pcs'?'per pc':'per bottle'} — shared with Item Master / Liquor Room / Purchase (auto-set by BEVCO invoice)" onchange='invSet(${jatt(A.key)},"land",this.value);bcPaint(${idx},1)'></td>
+    <td class="num"><input class="cell-input obox" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${u==='pcs'?'pieces':'bottle.loose 2.35 — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);bcPaint(${idx})">${amtLine(A.open)}</td>
     <td class="num calc" title="Bar Stock Issue entries for '${esc(R.rname||t.name)}' within the period">${R.recBtl}${amtLine(A.rec)}</td>
-    <td class="num"><input class="cell-input cbox" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);route()">${amtLine(A.close)}</td>
-    <td class="num"><input class="cell-input cv" style="color:${R.consOver!=null?'var(--gold)':'inherit'}" value="${R.consOver!=null?R.consOver:''}" placeholder="${fmt(R.consAuto)}" title="auto = Opening + Receipt − Closing · type a value to override (e.g. Draught keg)" onchange="invSetTNum(${idx},'consOverride',this.value);route()">${amtLine(A.cons)}</td>
+    <td class="num"><input class="cell-input cbox" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);bcPaint(${idx})">${amtLine(A.close)}</td>
+    <td class="num"><input class="cell-input cv" style="color:${R.consOver!=null?'var(--gold)':'inherit'}" value="${R.consOver!=null?R.consOver:''}" placeholder="${fmt(R.consAuto)}" title="auto = Opening + Receipt − Closing · type a value to override (e.g. Draught keg)" onchange="invSetTNum(${idx},'consOverride',this.value);bcPaint(${idx})">${amtLine(A.cons)}</td>
     <td class="num gold">${fmt(R.sale)}${amtLine(A.sale)}</td>
-    <td class="num"><input class="cell-input cv vcell" style="color:${vcol};background:${vbg}" value="${R.varOver!=null?R.varOver:''}" placeholder="${R.varAuto>0?'+':''}${fmt(R.varAuto)}" title="auto = Sale − Consumption · + = sold more than the stock that moved · type a value to override (${u==='pcs'?'pcs':'ml'})" onchange="invSetTNum(${idx},'varOverride',this.value);route()">${varSub}</td>
+    <td class="num"><input class="cell-input cv vcell" style="color:${vcol};background:${vbg}" value="${R.varOver!=null?R.varOver:''}" placeholder="${R.varAuto>0?'+':''}${fmt(R.varAuto)}" title="auto = Sale − Consumption · + = sold more than the stock that moved · type a value to override (${u==='pcs'?'pcs':'ml'})" onchange="invSetTNum(${idx},'varOverride',this.value);bcPaint(${idx})">${varSub}</td>
     <td class="num" title="variance amount = variance qty in bottles × Landing ₹"><strong style="color:${vcol};font-size:12.5px">${Math.round(A.varv)?('₹ '+fmt(Math.round(A.varv))):'—'}</strong></td></tr>`;
 }
 // royal-look dashboard data over ACTIVE items (same activity rule as the sheet)
@@ -2821,34 +2962,18 @@ function bevXlResult(S){
   const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
   toast('Sheet read', S.setO+' openings · '+S.setC+' closings'+(S.made?' · '+S.made+' new brands':''),'ok');
 }
-VIEWS.barinv = () => {
-  const q=iq.bi; const _gt=calcGrandTotals();
-  const active=t=>{ const r=barRow(t); return r.sale>0||r.recBtl>0||t._fav||invGet(t.name).openBL!=null||invGet(t.name).closeBL!=null; };
-  let list=tallyItems.filter(t=>{
-    if(biCat && t.category!==biCat) return false;
-    if(q && !(norm(t.name).includes(norm(q))||norm(t.category).includes(norm(q)))) return false;
-    if(!q && !biCat && biConsF==='all' && biVarF==='all' && biSaleF==='all' && !pref.biAll && !active(t)) return false;   // default view: only active (pref.biAll = every brand)
-    if(biConsF!=='all' || biVarF!=='all' || biSaleF!=='all'){ const r=barRow(t);
-      if(!passSign(r.cons,biConsF)||!passSign(r.varv,biVarF)||!passSign(r.sale,biSaleF)) return false; }
-    return true;
-  });
-  const groups={}; list.forEach(t=>{ (groups[t.category]=groups[t.category]||[]).push(t); });
-  let mlC=0,mlV=0,pcC=0,pcV=0; const T={open:0,rec:0,close:0,cons:0,sale:0,varv:0};
-  const body=Object.keys(groups).sort().map(cat=>{ const u=invUnit(cat);
-    const rows=groups[cat].map(t=>{ const R=barRow(t); const A=biAmt(t,R);
-      if(u==='pcs'){ pcC+=R.cons; pcV+=R.varv; } else { mlC+=R.cons; mlV+=R.varv; }
-      T.open+=A.open; T.rec+=A.rec; T.close+=A.close; T.cons+=A.cons; T.sale+=A.sale; T.varv+=A.varv;
-      return biRowHtml(t); }).join('');
-    return `<tr class="grp-row"><td colspan="10"><input type="checkbox" class="biselc selcb" data-c="${esc(cat)}" title="Mark this category" onchange="biSelCat(this)"> ${cat} <span class="muted">· ${u}</span></td></tr>${rows}`;
-  }).join('') || `<tr><td colspan="10" class="center muted" style="padding:24px">${(!q&&!biCat&&!pref.biAll)?'No item has figures yet. Switch on <b>☰ All brands</b> above to list every brand and type the opening stock, or search an item, or pick a category.':'No items match this filter.'}</td></tr>`;
-
-  const allCats=[...new Set(tallyItems.map(t=>t.category))].sort();
-  const chip=(c,lbl)=>`<button class="btn btn-sm ${biCat===c?'btn-gold':''}" onclick='setBiCat(${JSON.stringify(c)})'>${esc(lbl)}</button>`;
-  const catChips = chip('','All') + allCats.map(c=>chip(c,c)).join('');
-  const fopts=cur=>['all','plus','minus'].map(o=>`<option value="${o}" ${cur===o?'selected':''}>${o==='all'?'All':o==='plus'?'➕ Plus':'➖ Minus'}</option>`).join('');
-
-  // ---- ₹ / stats / Search-Add panel (calculations untouched) ----
-  const SER="font-family:Georgia,'Times New Roman',serif";
+/* ---- Beverage Control: the blocks that are pure arithmetic (v2.89.0) --------------------------
+   Client: "kono item plus minus korla instand jano kaj hoy superfast, page refresh er kono bapar
+   jano na takhe". Every Opening / Closing box on this sheet carried `;route()`, so ONE typed figure
+   rebuilt the whole page — measured 230-400 ms on a 147-row sheet with 1,097 inputs, and the client
+   types dozens of these in a row. The derived blocks are lifted out of the view unchanged so they
+   can be repainted on their own (they are a handful of small cards; the sheet table is the
+   expensive part and an edit only touches ONE of its rows). Same figures, same markup. */
+function bcAuditHtml(){
+  const A=bcRecvAudit(); const ok=Math.abs(A.gap)<0.001;
+  return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`}`;
+}
+function bcBlocks(){
   const D=biRoyalData();
   // ① Grand totals (₹) as premium KPI chips — always on top, in EVERY layout
   const R0=v=>fmt(Math.round(v));
@@ -2923,6 +3048,37 @@ VIEWS.barinv = () => {
       .map(x=>`<div class="f"><div class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[0]}</div>
         <div class="v" style="color:${x[4]}">${x[2]}</div><div class="l">${x[1]}</div></div>`).join('')}
   </div>`;
+  return { top: bcHead + bcLedger, foot: footHtml, audit: bcAuditHtml() };
+}
+VIEWS.barinv = () => {
+  const q=iq.bi; const _gt=calcGrandTotals();
+  const active=t=>{ const r=barRow(t); return r.sale>0||r.recBtl>0||t._fav||invGet(t.name).openBL!=null||invGet(t.name).closeBL!=null; };
+  let list=tallyItems.filter(t=>{
+    if(biCat && t.category!==biCat) return false;
+    if(q && !(norm(t.name).includes(norm(q))||norm(t.category).includes(norm(q)))) return false;
+    if(!q && !biCat && biConsF==='all' && biVarF==='all' && biSaleF==='all' && !pref.biAll && !active(t)) return false;   // default view: only active (pref.biAll = every brand)
+    if(biConsF!=='all' || biVarF!=='all' || biSaleF!=='all'){ const r=barRow(t);
+      if(!passSign(r.cons,biConsF)||!passSign(r.varv,biVarF)||!passSign(r.sale,biSaleF)) return false; }
+    return true;
+  });
+  const groups={}; list.forEach(t=>{ (groups[t.category]=groups[t.category]||[]).push(t); });
+  let mlC=0,mlV=0,pcC=0,pcV=0; const T={open:0,rec:0,close:0,cons:0,sale:0,varv:0};
+  const body=Object.keys(groups).sort().map(cat=>{ const u=invUnit(cat);
+    const rows=groups[cat].map(t=>{ const R=barRow(t); const A=biAmt(t,R);
+      if(u==='pcs'){ pcC+=R.cons; pcV+=R.varv; } else { mlC+=R.cons; mlV+=R.varv; }
+      T.open+=A.open; T.rec+=A.rec; T.close+=A.close; T.cons+=A.cons; T.sale+=A.sale; T.varv+=A.varv;
+      return biRowHtml(t); }).join('');
+    return `<tr class="grp-row"><td colspan="10"><input type="checkbox" class="biselc selcb" data-c="${esc(cat)}" title="Mark this category" onchange="biSelCat(this)"> ${cat} <span class="muted">· ${u}</span></td></tr>${rows}`;
+  }).join('') || `<tr><td colspan="10" class="center muted" style="padding:24px">${(!q&&!biCat&&!pref.biAll)?'No item has figures yet. Switch on <b>☰ All brands</b> above to list every brand and type the opening stock, or search an item, or pick a category.':'No items match this filter.'}</td></tr>`;
+
+  const allCats=[...new Set(tallyItems.map(t=>t.category))].sort();
+  const chip=(c,lbl)=>`<button class="btn btn-sm ${biCat===c?'btn-gold':''}" onclick='setBiCat(${JSON.stringify(c)})'>${esc(lbl)}</button>`;
+  const catChips = chip('','All') + allCats.map(c=>chip(c,c)).join('');
+  const fopts=cur=>['all','plus','minus'].map(o=>`<option value="${o}" ${cur===o?'selected':''}>${o==='all'?'All':o==='plus'?'➕ Plus':'➖ Minus'}</option>`).join('');
+
+  // ---- ₹ / stats / Search-Add panel (calculations untouched) ----
+  const SER="font-family:Georgia,'Times New Roman',serif";
+  const _BB=bcBlocks();   // the derived blocks, so an edit can repaint them alone (v2.89.0)
   // ---- Search & Add — big search box; results live in their own box (updated in place) ----
   const findHtml = `<div class="card bicomp noprint" style="margin-bottom:10px;border-color:var(--gold-dim)">
     <div class="card-body" style="padding:12px 14px">
@@ -2952,8 +3108,7 @@ VIEWS.barinv = () => {
         <input class="input" type="date" id="biFrom" value="${period.from}" style="width:auto" onchange="setBarPeriod()">
         <span class="gold">→</span>
         <input class="input" type="date" id="biTo" value="${period.to}" style="width:auto" onchange="setBarPeriod()">
-        ${(()=>{ const A=bcRecvAudit(); const ok=Math.abs(A.gap)<0.001;   // v2.71.0 — say what Receipt is, and prove it
-          return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`}`; })()}
+        <span id="bcAudit">${_BB.audit}</span>
         ${invFixNoteHtml()}
       </div>
       <div class="flex items-center" style="gap:6px;flex-wrap:wrap">
@@ -2967,8 +3122,7 @@ VIEWS.barinv = () => {
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
       </div>
     </div></div>
-    ${bcHead}
-    ${bcLedger}
+    <div id="bcTop">${_BB.top}</div>
     ${findHtml}
     ${bcFilter}
     ${(()=>{ // sheet area — Classic table only (the Velvet Salon / Crown Glass card looks were
@@ -2991,9 +3145,9 @@ VIEWS.barinv = () => {
         const sizeTxt=R.u==='pcs' ? ((iv.sizePcs!=null&&iv.sizePcs!=='')?iv.sizePcs+' pcs':'pcs') : (Math.round(sizeOf(t.name)*1000)+' ml');
         return `<div class="bvrow">
           <div class="who"><b>${esc(t.name)}</b><span>${esc(t.category)} · ${sizeTxt}</span></div>
-          <div class="st"><i>Opening</i><input class="cell-input" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${R.u==='pcs'?'pieces':'bottle.loose 2.35 — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);route()"></div>
+          <div class="st"><i>Opening</i><input class="cell-input" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${R.u==='pcs'?'pieces':'bottle.loose 2.35 — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);bcPaint(${idx})"></div>
           <div class="st"><i>Receipt</i><b>${R.recBtl}</b></div>
-          <div class="st"><i>Closing</i><input class="cell-input" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${R.u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);route()"></div>
+          <div class="st"><i>Closing</i><input class="cell-input" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${R.u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);bcPaint(${idx})"></div>
           <div class="st"><i>Cons.</i><b>${fmt(R.cons)}</b></div>
           <div class="st"><i>Sale</i><b>${fmt(R.sale)}</b></div>
           <div class="vchip ${vcls}" title="variance qty (${R.u})">${R.varv>0?'+':''}${fmt(R.varv)}<i>${R.u}</i></div>
@@ -3005,7 +3159,7 @@ VIEWS.barinv = () => {
       }).join('') || '<div class="center muted" style="padding:26px">No items match this filter.</div>';
       return `<div class="bv ${lookB==='velvet'?'bvvelvet':'bvglass'}">${chipBar}<div class="bvwrap">${cardsHtml}</div></div>`;
     })()}
-    ${footHtml}
+    <div id="bcFoot">${_BB.foot}</div>
     </div>${rawNamesDatalist()}`;
 };
 // Beverage Control clone PAGES — identical full page, each its own data store (seed = copy of the page it was created from)

@@ -1,5 +1,5 @@
 {
-  "version": "2.88.0",
+  "version": "2.89.0",
   "date": "2026-10-31",
-  "notes": "The Liquor Room item search has left the crowded top toolbar: it is now its own bar directly above the item names, pinned there while the rows scroll, and it answers as you type — a live count of what is left on the sheet and a list of the matching items with the stock in hand beside each (down/up + Enter picks one, Esc clears)."
+  "notes": "Typing a figure no longer rebuilds the page. On Beverage Control an Opening or Closing now lands in 16 ms instead of 369, and on the Liquor Room in 28 ms instead of 538 — only the edited row is redrawn, and the ledger head, the category register and the totals follow a beat later. The Liquor Room Opening box also stopped losing a typed sum: it promised 12+12 but stored the text, which counted as 0."
 }
