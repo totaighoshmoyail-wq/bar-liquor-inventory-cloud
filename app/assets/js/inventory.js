@@ -2135,10 +2135,99 @@ function lrMoveModal(kind){
     <div class="muted" style="font-size:10.5px;margin-top:6px">Counted ${lrWhenTxt()} — the same figures as the sheet below. 🔎 opens that item on the page it came from.</div></div>`,
     `<button class="btn btn-gold" onclick="closeModal()">Close</button>`);
 }
+/* ---- the item search sits ABOVE the item names (v2.88.0) --------------------------------------
+   Client, with a screenshot of the whole page: "liquor room a sarch items ta top a soriya — item
+   name jakha takhe sarte hoche tar upor a koro kore dynamic sarche". The box was one cell of the
+   crowded top toolbar (.lrbar .search.lrq is flex:1 1 120px / min-width:110px, so it rendered
+   about a hundred pixels wide with its own placeholder cut off) while the item names start several
+   hundred pixels further down the page — so they typed in one place and had to scroll to another
+   to read the answer. It is its own bar now, directly above the sheet, pinned under the topbar
+   while the rows scroll, and it ANSWERS as it is typed: a live count of what is left on the sheet
+   and the matching item names with the stock in hand beside each (down/up + Enter to pick one,
+   Esc to clear). Same match rule as the sheet itself (name, else group), so the list and the rows
+   can never disagree, and no figure is computed here that the page did not already have. */
+var _lrFindOpen = false, _lrFindSel = -1;
+const LR_FIND_MAX = 8;
+function lrFindHits(q){
+  const nq = norm(q || ''); if(!nq) return [];
+  const a = [], b = [], c = [];
+  rawData.forEach(r => { const n = norm(r.item);
+    if(n.startsWith(nq)) a.push(r);                       // the name begins with it — first
+    else if(n.includes(nq)) b.push(r);                    // the name carries it
+    else if(norm(r.group || '').includes(nq)) c.push(r);  // only the group matches — last
+  });
+  return a.concat(b, c).slice(0, LR_FIND_MAX).map(r => {
+    const op = fnum(invGet(r.item).lrOpen);
+    return { item:r.item, grp:r.group || '', cl: op + receivedForItem(r.item) - issuedForItem(r.item) };
+  });
+}
+function lrFindDD(q){
+  if(!_lrFindOpen || !q) return '';
+  const H = lrFindHits(q);
+  if(!H.length) return `<div class="msdd lrdd open"><div class="none">No item or group of that name — the sheet below is empty too.</div></div>`;
+  return `<div class="msdd lrdd open">${H.map((h,i)=>`<div class="o${i===_lrFindSel?' on':''}" data-n="${esc(h.item)}" title="Show only this item" onmousedown="event.preventDefault();lrFindPick(this.getAttribute('data-n'))">
+      <span class="nm">${esc(h.item)}</span><span class="gp">${esc(h.grp)}</span><span class="st${h.cl<=0?' z':''}">${fmt(h.cl)}<small>btl</small></span></div>`).join('')}</div>`;
+}
+/* re-focusing the box after a pick is OURS, not the person's — without this flag that focus()
+   fires onfocus, which reopens the list for a box that already holds the chosen name (a real click
+   on the box still reopens it, which is the Resolve box's own behaviour, v2.66.0) */
+var _lrFindMine = false;
+function _lrFindPut(){ _lrFindMine=true; const b=document.getElementById('searchBox');
+  if(b){ b.focus(); try{ b.setSelectionRange(b.value.length,b.value.length); }catch(e){} } _lrFindMine=false; }
+function lrFindType(v){ _lrFindOpen=true; _lrFindSel=-1; isearch('lr', v); }   // isearch keeps the box focused through the re-render
+function lrFindFocus(){ if(_lrFindMine) return; if(iq.lr && !_lrFindOpen){ _lrFindOpen=true; routeQuiet(); _lrFindPut(); } }
+function lrFindHide(){ _lrFindOpen=false; _lrFindSel=-1; const d=document.querySelector('.lrfind .lrdd'); if(d) d.classList.remove('open'); }
+/* A re-render removes the focused input, which Chrome reports as a blur, so the timer must ask
+   where the cursor ended up rather than trust the event — isearch puts it straight back in the new
+   box, and the list has to stay open while they type. */
+function lrFindBlur(){ setTimeout(function(){
+  const b=document.getElementById('searchBox');
+  if(b && document.activeElement===b) return;   // the cursor is still in the box — only the element changed
+  lrFindHide();
+}, 170); }
+function lrFindPick(name){ _lrFindOpen=false; _lrFindSel=-1; iq.lr=String(name||''); routeQuiet(); _lrFindPut(); }
+function lrFindClear(){ _lrFindOpen=false; _lrFindSel=-1; iq.lr=''; routeQuiet(); _lrFindPut(); }
+/* The arrows and Enter move INSIDE the open list, in the DOM — a 300-row sheet is not rebuilt on
+   every keypress, which is the Resolve box's own rule (v2.66.0). */
+function lrFindKey(e){
+  const dd = document.querySelector('.lrfind .lrdd.open');
+  const opts = dd ? [].slice.call(dd.querySelectorAll('.o')) : [];
+  if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+    if(!opts.length) return;
+    e.preventDefault(); e.stopPropagation();
+    _lrFindSel = e.key==='ArrowDown' ? Math.min(_lrFindSel+1, opts.length-1) : Math.max(_lrFindSel-1, 0);
+    opts.forEach((o,i)=>o.classList.toggle('on', i===_lrFindSel));
+    try{ opts[_lrFindSel].scrollIntoView({block:'nearest'}); }catch(err){}
+    return;
+  }
+  if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation();
+    if(_lrFindSel>=0 && opts[_lrFindSel]) lrFindPick(opts[_lrFindSel].getAttribute('data-n')); else lrFindHide();
+    return; }
+  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation();
+    if(dd) lrFindHide(); else lrFindClear(); }
+}
+/* the bar itself — built down in the view, where the sheet's own counts are already known */
+function lrFindBar(q, shown, total){
+  const has = !!q;
+  return `<div class="lrfind noprint${has?' on':''}">
+    <span class="ic">🔎</span>
+    <div class="bx">
+      <input id="searchBox" autocomplete="off" spellcheck="false" value="${esc(q)}"
+        placeholder="Search the items below — type a name or a group, the sheet filters as you type…"
+        oninput="lrFindType(this.value)" onkeydown="lrFindKey(event)" onfocus="lrFindFocus()" onblur="lrFindBlur()">
+      ${lrFindDD(q)}
+    </div>
+    ${has?`<button class="clr" onclick="lrFindClear()" title="Clear the search (Esc)">✕</button>`:''}
+    <span class="cnt${has&&!shown?' no':''}" title="${has?'rows on the sheet below that match what you typed':'items on the sheet below'}">${
+      has ? (shown ? `<strong>${fmt(shown)}</strong> of ${fmt(total)} items` : `nothing matches that name`)
+          : `<strong>${fmt(shown)}</strong> items`}</span>
+  </div>`;
+}
 VIEWS.liquorroom = () => {
   const q=iq.lr;
   const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
   let tOpen=0,tRecv=0,tIss=0,tClose=0, tValO=0,tValR=0,tValI=0, shownN=0, shownSel=0;
+  let shownX=0;   // rows of the red NOT-IN-ITEM-MASTER section — on the sheet, but outside shownN (v2.88.0)
   const pass=cl=> lrFilter==='all' || (lrFilter==='instock'&&cl>0) || (lrFilter==='zero'&&cl===0) || (lrFilter==='neg'&&cl<0);
   const passB=v=> lrBlank==='none'
     || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0)
@@ -2173,8 +2262,9 @@ VIEWS.liquorroom = () => {
       <td class="num"><strong class="lrval">₹ ${fmt(Math.round(gV))}</strong></td><td></td></tr>`;
     return `<tr class="grp-row lrgrp"><td colspan="8"><input type="checkbox" class="rdselg selcb" data-g="${esc(g.group)}" ${gN&&gSel===gN?'checked':''} title="Select this group" onchange="rdSelGroup(this)"> <span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
   }).join('');
-  const extra=unmatchedNames().filter(n=> !q || norm(n).includes(norm(q)));
-  if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return '';
+  const extraAll=unmatchedNames();   // the red NOT-IN-ITEM-MASTER rows are on the sheet, so the search bar counts them on both sides of its "N of M"
+  const extra=extraAll.filter(n=> !q || norm(n).includes(norm(q)));
+  if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return ''; shownX++;
       const m=landOf(n);
       tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
       return rowHtml(n,-1,false,v.op,v.rv,v.is,v.cl); }).join('');
@@ -2255,7 +2345,6 @@ VIEWS.liquorroom = () => {
   const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
   const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
   const tools=`${periodBar(true)}<span class="lrnote noprint" title="${esc(lrWhenTitle())}">${lrFrom()?`counts <strong>from ${esc(lrFrom())}</strong> · the month before it is in the opening`:`counts <strong>every date</strong> · the period is for Beverage Control &amp; reports`}</span><span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
-      <div class="search lrq">🔎<input id="searchBox" placeholder="Search item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
       <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button><button class="btn btn-sm" onclick="invFixRun()" title="Put every opening back to what your Liquor Inventory workbook says — item by item, this page and Beverage Control. Your figures as they are now are kept first.">🔄 Sheet match</button><button class="btn btn-sm" onclick="lrRollAsk()" title="Close the month: today's closing stock becomes the opening, and Received · Issued start counting again from that day. Your figures are kept, so it can be put back.">📅 New month</button>${invFixNoteHtml()}${lrRollNoteHtml()}`;
   const tl=`<div class="tl noprint">${headSel}${smallSel('Premium look','setLrLook(this.value)',LOOK_OPTS,look)}${layDrop('liquorroom')}</div>`;
   // ① Royal Ledger — the .bcledger title + .bclh grid of the Beverage Control head, five columns, the .lrflow ring
@@ -2315,18 +2404,18 @@ VIEWS.liquorroom = () => {
         <div class="lrf-ring"><div class="ring"><div class="in"><div class="k">Stock in hand</div><div class="amt">₹ ${fmt(Math.round(tVal))}</div><div class="k2">${fmt(tClose)} bottles · ${nInHand} items</div></div></div></div>
       </div>
     </div>`;
-  const classicSearch=`
-    <div class="card noprint" style="margin-bottom:12px;border-color:var(--gold-dim)"><div class="card-body" style="padding:12px 14px">
-      <div class="bigsearch"><span style="font-size:22px">🔎</span><input id="searchBox" placeholder="Search any item or group — the sheet filters as you type…" value="${esc(q)}" oninput="isearch('lr',this.value)"></div>
-    </div></div>`;
+  // look 3 kept its own search card until v2.88.0 — all three looks now use the one lrFindBar below
   const top = headLook==='ledger' ? `<div class="card lrbar noprint"><div class="card-body">${tools}</div></div>${ledgerHead}`
             : headLook==='seal'   ? sealHead
             : classicTop;
+  /* the item search sits directly above the names now, in every head look (v2.88.0) —
+     shownN is what the sheet actually drew, so the count can never disagree with it */
+  const findBar = lrFindBar(q, shownN + shownX, rawData.length + extraAll.length);
   return `
     ${top}
     ${lrRoyal}
     ${bevDupNotice()}
-    ${headLook==='flow'?classicSearch:''}
+    ${findBar}
     ${bodyHtml}`;
 };
 const LR_HEADS=[['ledger','① Royal Ledger'],['seal','② Crown Seal'],['flow','③ Classic Flow']];
@@ -2334,6 +2423,11 @@ function lrHeadNow(){ return LR_HEADS.some(o=>o[0]===pref.lrHead) ? pref.lrHead 
 function setLrHead(v){ pref.lrHead=v; bsv('pref',pref); route(); }
 function setLrLook(v){ pref.lrLook=v; bsv('pref',pref); route(); }
 AFTER.liquorroom = () => {
+  /* pin the find bar exactly under the topbar: its height is 77.8px in the app's own skin but moves
+     with the edition and the theme, so it is measured, not guessed. Must stay ABOVE the two early
+     returns below, or the bar is only pinned correctly while a premium look is on. */
+  const _tb=document.querySelector('.topbar'), _fb=document.querySelector('#view .lrfind');
+  if(_tb && _fb && getComputedStyle(_fb).position==='sticky') _fb.style.top=Math.round(_tb.getBoundingClientRect().height)+'px';
   if(typeof Chart==='undefined') return;
   const look=pref.lrLook||'def'; if(look==='def') return;
   const gv={}; const top=[]; let tI=0,tAvail=0;

@@ -1824,6 +1824,28 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .lrpill.on{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold-soft);border-color:color-mix(in srgb,var(--gold) 50%,transparent);font-weight:600}
 .lrpill .d{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--text-muted)} .lrpill .d.g{background:var(--green)} .lrpill .d.r{background:var(--red)}
 .lrbar .search.lrq,.lrseal .band .search.lrq{flex:1 1 120px;min-width:110px;width:auto;padding:5px 12px;border-radius:999px} .lrbar .search.lrq input,.lrseal .band .search.lrq input{min-width:0;flex:1 1 0;width:0;font-size:12.5px}
+/* ---- the Liquor Room's item search, directly above the item names (v2.88.0) ----
+   It used to be one cell of the toolbar above (.lrbar .search.lrq is flex:1 1 120px, so it drew
+   about a hundred pixels wide with its placeholder cut off) while the names start far below it.
+   Its own bar now, pinned under the topbar so it stays in sight while the rows scroll. */
+.lrfind{position:sticky;top:78px;z-index:7;display:flex;align-items:center;gap:11px;margin-bottom:10px;
+  padding:9px 15px;background:var(--panel);border:1px solid var(--gold-dim);border-radius:12px;
+  box-shadow:0 8px 20px rgba(0,0,0,.30)}
+.lrfind.on{border-color:color-mix(in srgb,var(--gold) 62%,var(--border))}
+.lrfind .ic{flex:none;font-size:18px;line-height:1}
+.lrfind .bx{position:relative;flex:1 1 auto;min-width:0}
+.lrfind input{width:100%;background:none;border:none;outline:none;color:var(--text);font-family:inherit;
+  font-size:16px;letter-spacing:.2px;padding:4px 0}
+.lrfind input::placeholder{color:var(--text-dim);font-size:13.5px;letter-spacing:0}
+.lrfind .clr{flex:none;width:26px;height:26px;border-radius:999px;border:1px solid var(--border-soft);
+  background:transparent;color:var(--text-dim);font-size:12px;line-height:1;cursor:pointer;font-family:inherit}
+.lrfind .clr:hover{color:var(--red);border-color:var(--red)}
+.lrfind .cnt{flex:none;white-space:nowrap;font-family:Georgia,'Times New Roman',serif;font-size:11.5px;color:var(--text-muted)}
+.lrfind .cnt strong{font-size:15px;color:var(--gold)}
+.lrfind .cnt.no{color:var(--red)}
+.lrfind .lrdd{left:0;width:100%;max-width:none;top:calc(100% + 7px)}
+@media (max-width:922px){ .lrfind{position:static} }
+@media (max-width:760px){ .lrfind .cnt{display:none} .lrfind input{font-size:15px} }
 .lrbar .selbar,.lrseal .band .selbar{display:inline-flex;align-items:center;gap:8px;font-size:12px}
 /* ① ledger: the .bcledger title + .bclh grid, five columns, the .lrflow ring beside it */
 .lrledger{border-color:color-mix(in srgb,var(--gold) 55%,var(--border));margin-bottom:12px}

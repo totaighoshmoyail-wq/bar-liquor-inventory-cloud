@@ -1,1 +1,5 @@
-{"version":"2.87.0","date":"2026-10-29","notes":"The Liquor Room head said how many bottles went to the bar but never which item. Now the card names it — one item is written out in full, several show the count and the biggest — and clicking the Received or Issued figure lists every item with its bottles and ₹, each with a magnifier that opens Purchase or the Issue Register filtered to it."}
+{
+  "version": "2.88.0",
+  "date": "2026-10-31",
+  "notes": "The Liquor Room item search has left the crowded top toolbar: it is now its own bar directly above the item names, pinned there while the rows scroll, and it answers as you type — a live count of what is left on the sheet and a list of the matching items with the stock in hand beside each (down/up + Enter picks one, Esc clears)."
+}
