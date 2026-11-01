@@ -2949,43 +2949,152 @@ function saleMatch(){
   o.ok = !o.n && !o.gapMl && !o.gapPcs;
   return o;
 }
-function saleMatchChip(small){
-  let M; try{ M=saleMatch(); }catch(e){ return ''; }
-  if(!M.ml && !M.pcs) return `<span class="smchip mu"${small?' style="font-size:10px"':''} title="Upload the month's POS sales first — Sales → POS Upload">no POS sale in this period yet</span>`;
-  if(M.ok) return `<button class="smchip ok"${small?' style="font-size:10px"':''} onclick="saleMatchModal()" title="Every brand's Cocktail + Straight on this Tally Sheet is the same number Beverage Control prints in its Sale column. Click to see it side by side.">✔ Beverage Control agrees</button>`;
-  const n=M.n || ((M.gapMl?1:0)+(M.gapPcs?1:0));
-  return `<button class="smchip bad"${small?' style="font-size:10px"':''} onclick="saleMatchModal()" title="Click to see which brands differ and by how much">⚠ ${fmt(n)} ${M.n?('brand'+(M.n===1?' differs':'s differ')):('total'+(n===1?' differs':'s differ'))}</button>`;
+/* saleAudit() — everything that can keep the two Sale totals apart, each with the place to fix it
+   (v2.92.0). Client, with the SALE column on screen: "sale cloum er sale & tally sale total match
+   koro & kono gap takhle seta list dau & fixed korbar jaiga kore dau".
+   FOUR things, and only four, can do it — all of them are listed, none of them are guesses:
+     1. a brand in a category of its own — until v2.92.0 the Tally Sheet's sale table looped
+        CATEGORIES, so such a brand was never drawn or counted there while Beverage Control kept it
+        (measured: one brand with a 5,280 ml sale moved to "SINGLE MALT WHISKY" took 5,280 off this
+        sheet alone; on Canteen 165 of 330 brands sat outside the twelve). It is drawn now, so this
+        is no longer a gap — but an unknown category is counted in ML by invUnit(), so a breezer or
+        a beer filed under one is counted in millilitres, and that IS wrong. Hence the move-them-all
+        control, with a category suggested by the brand names themselves.
+     2. the same brand name twice — counted twice on BOTH pages, so the pages agree and are both
+        wrong. One click keeps one row.
+     3. a POS name the engine cannot place — in NEITHER total. Resolve opens straight from here.
+     4. a per-brand difference — impossible by construction (barRow's `sale` IS the Tally Sheet's
+        own Cocktail + Straight), so it is listed loudest of all if it ever happens. */
+function saleAudit(){
+  const M=saleMatch(), G=calcGrandTotals();
+  const saleOf=t=>Math.round(getEffectiveCocktailMl(t,G.cmlMap)+getEffectiveStraightMl(t,G.smlMap));
+  const odd=[], dup=[], seen={};
+  tallyItems.forEach((t,i)=>{
+    const k=norm(t.name);
+    if(seen[k]!=null) dup.push({name:t.name, cat:t.category||'', i, first:seen[k], sale:saleOf(t)}); else seen[k]=i;
+    const c=t.category||'';
+    if(CATEGORIES.indexOf(c)<0) odd.push({name:t.name, cat:c, i, sale:saleOf(t)});
+  });
+  // one row per unknown category, with a category suggested by the brand names themselves
+  const byCat={};
+  odd.forEach(o=>{ const g=byCat[o.cat]||(byCat[o.cat]={cat:o.cat, n:0, sale:0, names:[], guess:{}});
+    g.n++; g.sale+=o.sale; if(g.names.length<4) g.names.push(o.name);
+    let gs=''; try{ gs=(typeof rvGuessCat==='function')?(rvGuessCat(o.name)||''):''; }catch(e){}
+    if(gs) g.guess[gs]=(g.guess[gs]||0)+1; });
+  const oddCats=Object.keys(byCat).map(c=>{ const g=byCat[c];
+    const best=Object.keys(g.guess).sort((a,b)=>g.guess[b]-g.guess[a])[0]||'';
+    return {cat:g.cat, n:g.n, sale:g.sale, names:g.names, u:invUnit(c), best, wrongUnit: !!best && invUnit(best)!==invUnit(c)}; })
+    .sort((a,b)=>b.n-a.n || String(a.cat).localeCompare(String(b.cat)));
+  let err=[]; try{ err=errorRows().map(p=>({name:String(p.name), qty:+p.qty||0})).sort((a,b)=>b.qty-a.qty); }catch(e){}
+  return {M, odd, oddCats, dup, err, errQty:err.reduce((a,x)=>a+x.qty,0),
+          nFix:M.n+oddCats.length+dup.length+err.length};
 }
-function saleMatchModal(){
-  const M=saleMatch();
-  const sign=v=> (v>0?'+':'')+fmt(v);
+function saleMatchChip(small){
+  let A; try{ A=saleAudit(); }catch(e){ return ''; }
+  const M=A.M, st=small?' style="font-size:10px"':'';
+  if(!M.ml && !M.pcs) return `<span class="smchip mu"${st} title="Upload the month's POS sales first — Sales → POS Upload">no POS sale in this period yet</span>`;
+  if(!M.ok){ const n=M.n||((M.gapMl?1:0)+(M.gapPcs?1:0));
+    return `<button class="smchip bad"${st} onclick="saleMatchModal()" title="Click to see which brands differ, by how much, and how to put each one right">⚠ ${fmt(n)} ${M.n?('brand'+(M.n===1?'':'s')+' differ'+(M.n===1?'s':'')):('total'+(n===1?'':'s')+' differ')}</button>`; }
+  if(A.nFix) return `<button class="smchip look"${st} onclick="saleMatchModal()" title="The two pages agree on every brand. ${fmt(A.nFix)} thing${A.nFix===1?' is':'s are'} still worth putting right — click to see them.">✔ agrees · ${fmt(A.nFix)} to check</button>`;
+  return `<button class="smchip ok"${st} onclick="saleMatchModal()" title="Every brand's Cocktail + Straight on the Tally Sheet is the same number Beverage Control prints in its Sale column. Click to see it side by side.">✔ Beverage Control agrees</button>`;
+}
+function smCatOpts(sel){ return `<option value="">— move into…</option>`+CATEGORIES.map(c=>`<option ${norm(c)===norm(sel||'')?'selected':''}>${esc(c)}</option>`).join(''); }
+function saleAuditBody(){
+  const A=saleAudit(), M=A.M;
+  const sign=v=>(v>0?'+':'')+fmt(v);
   const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
-  const body=M.rows.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(r.name)}</strong></td>
-      <td><span class="pill gray">${esc(r.cat||'')}</span></td>
-      <td class="num">${fmt(r.tally)}<small class="muted"> ${r.u}</small></td>
-      <td class="num">${fmt(r.bev)}<small class="muted"> ${r.u}</small></td>
-      <td class="num"><strong style="color:var(--red)">${sign(r.diff)}</strong></td>
-      <td class="right"><button class="btn btn-sm" title="Open this brand on Beverage Control" onclick="saleMatchFind(this.getAttribute('data-n'))" data-n="${esc(r.name)}">🔎</button></td></tr>`).join('');
-  modal('⚖️ Tally Sheet ⇄ Beverage Control · Sale', `<div class="bevxl">
-    <div class="k k3">
+  const sec=(ico,title,sub,inner)=>`<div class="smsec"><div class="smsh">${ico} <strong>${title}</strong> <span class="muted">${sub}</span></div>${inner}</div>`;
+  let out=`<div class="k k3">
       ${card('Tally Sheet · Sale', fmt(M.ml)+'<small>ml</small>', fmt(M.nml)+' brands counted in ml','gold')}
       ${card('Beverage Control · Sale', fmt(M.bevMl)+'<small>ml</small>', M.gapMl?('difference '+sign(M.gapMl)):'the same figure, brand by brand', M.gapMl?'am':'')}
       ${card('Pieces', fmt(M.pcs)+'<small>pcs</small>', M.gapPcs?('Beverage Control '+fmt(M.bevPcs)+' · difference '+sign(M.gapPcs)):fmt(M.npcs)+' brands · beer · breezer · cigarettes', M.gapPcs?'am':'')}
     </div>
     <div class="w" style="${M.ok?'border-color:color-mix(in srgb,var(--green) 45%,transparent);color:var(--green);background:color-mix(in srgb,var(--green) 7%,transparent)':''}">
       ${M.ok
-        ? '✔ Every brand matches. Both pages read the same engine — a brand\'s Sale on Beverage Control <em>is</em> its Cocktail ml + Straight ml here.'
-        : '⚠ '+fmt(M.n)+(M.n===1?' brand below does not agree':' brands below do not agree')+'. Each row shows what this sheet says and what Beverage Control says.'}
+        ? '✔ The two columns tie, brand by brand. A brand\'s Sale on Beverage Control <em>is</em> its Cocktail ml + Straight ml here — they read one engine.'
+        : '⚠ '+fmt(M.n)+' brand'+(M.n===1?'':'s')+' below '+(M.n===1?'does':'do')+' not agree. Each row shows what this sheet says and what Beverage Control says.'}
+      ${A.nFix?` <strong>${fmt(A.nFix)}</strong> thing${A.nFix===1?'':'s'} to put right ${A.nFix===1?'is':'are'} listed below.`:' Nothing is left to fix.'}
     </div>
     <div class="muted" style="font-size:11.5px;margin:8px 0 4px">
-      <strong>Why the Grand Total is two numbers.</strong> Beer, breezer and cigarettes are counted in <strong>pieces</strong>, never in millilitres, so they cannot be added to the ml total — Beverage Control has always split them and this sheet now does too.
+      <strong>Why the total is two numbers.</strong> Beer, breezer and cigarettes are counted in <strong>pieces</strong>, never in millilitres, so they cannot be added to the ml total.
       Cocktail ${fmt(M.cml)} ml${M.cpcs?' · '+fmt(M.cpcs)+' pcs':''} + Straight ${fmt(M.sml)} ml${M.spcs?' · '+fmt(M.spcs)+' pcs':''} = <strong class="gold">${fmt(M.ml)} ml</strong>${M.pcs?' · <strong class="gold">'+fmt(M.pcs)+' pcs</strong>':''}.
-    </div>
-    ${M.n?`<div class="table-wrap" style="max-height:300px"><table class="tbl"><thead><tr><th>#</th><th>Brand</th><th>Category</th><th class="num">Tally Sheet</th><th class="num">Beverage Control</th><th class="num">Difference</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`:''}
-    <div class="muted" style="font-size:10.5px;margin-top:6px">Both figures come from the POS sheet through your aliases and cocktail recipes. A name the engine cannot place is in the <strong>Error Queue</strong>, not here — resolve those first and these totals grow together.</div>
-    </div>`,
+    </div>`;
+  /* 1 — brands the two pages print differently (should never happen) */
+  if(M.n) out+=sec('⚠️','Brands the two pages print differently',`${fmt(M.n)} · fix: open the brand and check its aliases`,
+    `<div class="table-wrap" style="max-height:240px"><table class="tbl"><thead><tr><th>#</th><th>Brand</th><th>Category</th><th class="num">Tally Sheet</th><th class="num">Beverage Control</th><th class="num">Difference</th><th></th></tr></thead><tbody>${
+      M.rows.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(r.name)}</strong></td>
+        <td><span class="pill gray">${esc(r.cat||'')}</span></td>
+        <td class="num">${fmt(r.tally)}<small class="muted"> ${r.u}</small></td>
+        <td class="num">${fmt(r.bev)}<small class="muted"> ${r.u}</small></td>
+        <td class="num"><strong style="color:var(--red)">${sign(r.diff)}</strong></td>
+        <td class="right"><button class="btn btn-sm" title="Open this brand on Beverage Control" onclick="saleMatchFind(this.getAttribute('data-n'))" data-n="${esc(r.name)}">🔎</button></td></tr>`).join('')
+    }</tbody></table></div>`);
+  /* 2 — categories of their own */
+  if(A.oddCats.length) out+=sec('🏷️','Filed under a category of their own',
+    `${fmt(A.odd.length)} brand${A.odd.length===1?'':'s'} in ${fmt(A.oddCats.length)} categor${A.oddCats.length===1?'y':'ies'} · both pages count them · fix: move them into one of the twelve`,
+    `<div class="muted" style="font-size:11px;margin:2px 0 6px">A category the app does not know is counted in <strong>millilitres</strong>, so anything sold by the piece — beer, breezer, cigarettes — must be moved or its sale lands in the ml column. The suggestion is read from the brand names themselves.</div>
+     <div class="table-wrap" style="max-height:260px"><table class="tbl"><thead><tr><th>Category</th><th class="num">Brands</th><th class="num">Sale</th><th>Counted in</th><th>Move them all into</th></tr></thead><tbody>${
+      A.oddCats.map(g=>`<tr${g.wrongUnit?' class="row-alert"':''}><td class="lrname"><strong>${esc(g.cat||'— no category')}</strong><div class="muted" style="font-size:10.5px">${esc(g.names.join(' · '))}${g.n>g.names.length?' +'+(g.n-g.names.length)+' more':''}</div></td>
+        <td class="num">${fmt(g.n)}</td><td class="num">${fmt(g.sale)}<small class="muted"> ${g.u}</small></td>
+        <td>${g.wrongUnit?`<span class="pill red" title="These names look like ${esc(g.best)}, which is counted in ${invUnit(g.best)} — right now they are counted in ${g.u}">${g.u} · should be ${invUnit(g.best)}</span>`:`<span class="pill gray">${g.u}</span>`}</td>
+        <td><select class="input" style="padding:3px 6px;font-size:11.5px;min-width:150px" onchange="saleFixAllCat(this.getAttribute('data-c'), this.value)" data-c="${esc(g.cat)}">${smCatOpts(g.best)}</select></td></tr>`).join('')
+    }</tbody></table></div>`);
+  /* 3 — the same brand twice */
+  if(A.dup.length) out+=sec('🧬','The same brand twice',
+    `${fmt(A.dup.length)} · counted twice on BOTH pages · fix: keep one row`,
+    `<div class="table-wrap" style="max-height:220px"><table class="tbl"><thead><tr><th>Brand</th><th>Category</th><th class="num">Sale</th><th></th></tr></thead><tbody>${
+      A.dup.map(d=>`<tr class="row-alert"><td class="lrname"><strong>${esc(d.name)}</strong></td><td><span class="pill gray">${esc(d.cat)}</span></td>
+        <td class="num">${fmt(d.sale)}</td>
+        <td class="right"><button class="btn btn-sm" onclick="saleFixDup(this.getAttribute('data-n'))" data-n="${esc(d.name)}">🗑 Keep one</button></td></tr>`).join('')
+    }</tbody></table></div>`);
+  /* 4 — the Error Queue: the one thing missing from BOTH totals */
+  if(A.err.length) out+=sec('🧭','POS sales the engine could not place',
+    `${fmt(A.err.length)} name${A.err.length===1?'':'s'} · qty ${fmt(A.errQty)} · in NEITHER total · fix: Resolve each one`,
+    `<div class="table-wrap" style="max-height:240px"><table class="tbl"><thead><tr><th>#</th><th>POS name</th><th class="num">Qty sold</th><th></th></tr></thead><tbody>${
+      A.err.slice(0,40).map((e,i)=>`<tr class="row-alert"><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(e.name)}</strong></td><td class="num">${fmt(e.qty)}</td>
+        <td class="right"><button class="btn btn-gold btn-sm" onclick="saleFixErr(this.getAttribute('data-n'))" data-n="${esc(e.name)}">Resolve</button></td></tr>`).join('')
+    }</tbody></table>${A.err.length>40?`<div class="muted center" style="font-size:11px;padding:6px">+ ${fmt(A.err.length-40)} more — the Error Queue page lists them all</div>`:''}</div>`);
+  out+=`<div class="muted" style="font-size:10.5px;margin-top:8px">Both figures come from the POS sheet through your aliases and cocktail recipes. Clear the Error Queue and both totals grow together — a name resolved there reaches this sheet and Beverage Control in the same moment.</div>`;
+  return out;
+}
+function saleMatchModal(){
+  modal('⚖️ Sale match · Tally Sheet ⇄ Beverage Control', `<div class="bevxl" id="smBody">${saleAuditBody()}</div>`,
     `<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();location.hash='#errors'">🧭 Error Queue</button><button class="btn btn-gold" onclick="closeModal();location.hash='#barinv'">🍾 Open Beverage Control</button>`);
   const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+/* repaint IN PLACE — modal() again would stack a second copy (v2.40.0) */
+function smRepaint(){ const b=document.getElementById('smBody'); if(b) b.innerHTML=saleAuditBody(); }
+function saleFixCat(name, cat){
+  if(!cat) return;
+  const t=tallyItems.find(x=>norm(x.name)===norm(name)); if(!t) return;
+  const old=t.category||''; if(cat===old) return;
+  t.category=cat; bsv('tally',tallyItems);
+  if(typeof rebuildIndexes==='function') rebuildIndexes();
+  invalidateCalcCache(); toast('Category changed',`${name} · ${old||'(blank)'} → ${cat}`,'ok'); smRepaint();
+}
+function saleFixAllCat(from, cat){
+  if(!cat) return;
+  const hit=tallyItems.filter(t=>(t.category||'')===from);
+  if(!hit.length) return;
+  confirmAsk(`Move <strong>${fmt(hit.length)}</strong> brand${hit.length===1?'':'s'} out of <strong>${esc(from||'— no category')}</strong> and into <strong>${esc(cat)}</strong>?<br><span class="muted" style="font-size:12px">Only the category changes — their sale, stock and aliases stay exactly as they are. A move between ml and pieces does change how the stock pages count them, which is the point of it.</span>`,
+    ()=>{ hit.forEach(t=>t.category=cat); bsv('tally',tallyItems);
+      if(typeof rebuildIndexes==='function') rebuildIndexes();
+      invalidateCalcCache(); toast('Moved',`${fmt(hit.length)} brand${hit.length===1?'':'s'} → ${cat}`,'ok'); smRepaint(); },
+    {title:'Move a whole category', ok:'Move them'});
+}
+function saleFixDup(name){
+  const k=norm(name), ix=[]; tallyItems.forEach((t,i)=>{ if(norm(t.name)===k) ix.push(i); });
+  if(ix.length<2){ toast('Nothing to do', name+' is on the list once', 'ok'); smRepaint(); return; }
+  confirmAsk(`<strong>${esc(name)}</strong> is on the brand list <strong>${ix.length}</strong> times, so its sale is counted ${ix.length} times on the Tally Sheet <em>and</em> on Beverage Control. Keep one row and drop the other ${ix.length-1}?<br><span class="muted" style="font-size:12px">Its aliases, stock figures and rate are untouched — they live under the name, not the row.</span>`,
+    ()=>{ for(let j=ix.length-1;j>=1;j--) tallyItems.splice(ix[j],1);
+      bsv('tally',tallyItems); if(typeof rebuildIndexes==='function') rebuildIndexes();
+      invalidateCalcCache(); toast('Duplicate removed',`${name} · ${ix.length-1} extra row${ix.length===2?'':'s'} dropped`,'ok'); smRepaint(); },
+    {title:'The same brand twice', ok:'Keep one'});
+}
+function saleFixErr(name){
+  closeModal(); location.hash='#errors'; route();
+  setTimeout(()=>{ const L=window._errList||[]; const i=L.findIndex(x=>norm(x.name)===norm(name));
+    if(i>=0) openResolve(i); else toast('Already resolved', name, 'ok'); }, 60);
 }
 function saleMatchFind(name){ closeModal(); biFind=''; iq.bi=String(name||''); biCat=''; location.hash='#barinv'; route(); }
 function biRoyalData(){

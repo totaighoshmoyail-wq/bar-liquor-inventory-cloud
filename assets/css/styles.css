@@ -1576,6 +1576,17 @@ body.bv-glass{
 .smchip.ok{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent);background:color-mix(in srgb,var(--green) 8%,transparent)}
 .smchip.bad{color:var(--amber,#e0a33e);border-color:color-mix(in srgb,var(--amber,#e0a33e) 50%,transparent);background:color-mix(in srgb,var(--amber,#e0a33e) 8%,transparent)}
 .smchip.mu{color:var(--text-dim);cursor:default}
+/* v2.92.0 — the two pages agree but something is still worth putting right */
+.smchip.look{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 50%,transparent);background:color-mix(in srgb,var(--gold) 9%,transparent)}
+.smchip.look:hover{filter:brightness(1.18)}
+/* ⚖️ Sale match · the sections that list what to fix */
+.smsec{margin-top:12px;border:1px solid var(--border-soft);border-radius:10px;padding:9px 10px 10px;background:color-mix(in srgb,var(--gold) 2.5%,transparent)}
+.smsec .smsh{font-size:12.5px;margin-bottom:7px;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.smsec .smsh .muted{font-size:11px}
+.smsec .tbl td,.smsec .tbl th{padding:5px 8px;font-size:11.5px}
+.smsec .tbl .lrname{max-width:320px}
+.smsec select.input{background:var(--panel-2,var(--panel));color:var(--text)}
+@media (max-width:760px){ .smsec .tbl .lrname{max-width:170px} }
 .smchip.ok:hover,.smchip.bad:hover{filter:brightness(1.18)}
 .smline{display:flex;justify-content:flex-end;margin:0 0 12px}
 @media print{ .smline{display:none} .smchip{display:none} }

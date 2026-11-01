@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.91.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.92.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1906,29 +1906,44 @@ function periodBar(inline){
 }
 VIEWS.tally = () => {
   const { cmlMap, smlMap, posQtyMap } = calcGrandTotals();
-  const inScope = t => (talCat==='ALL'||t.category===talCat) && (!tQuery || norm(t.name).includes(norm(tQuery)) || norm(t.category).includes(norm(tQuery)));
+  const inScope = t => (talCat==='ALL'||(t.category||'')===talCat) && (!tQuery || norm(t.name).includes(norm(tQuery)) || norm(t.category).includes(norm(tQuery)));
   // Brand block — grouped by category (Excel order), with a GRAND TOTAL row
-  let gC=0,gS=0,gT=0, sl=0, rows=''; const catData=[];
-  CATEGORIES.forEach(cat=>{
-    const items = tallyItems.filter(t=>t.category===cat && inScope(t));
+  /* EVERY category the company actually uses, not only the twelve in CATEGORIES (v2.92.0).
+     This loop was CATEGORIES.forEach, so a brand filed under anything else was never drawn here and
+     never counted into the GRAND TOTAL — while Beverage Control, which walks every tallyItem, kept
+     counting it. MEASURED: moving one brand with a 5,280 ml sale into "SINGLE MALT WHISKY" took
+     5,280 off this sheet and left Beverage Control's Sale column untouched; on the Canteen company,
+     whose seed keeps its own workbook's group names, 165 of 330 brands sat outside the twelve, so
+     half the sheet was missing. The qty block below has always appended the extras (its own
+     catOrder) — the sale table does the same now, with the blank bucket last.
+     The totals are kept in ml and pcs SEPARATELY: beer, breezer and cigarettes are counted in
+     pieces (invUnit) and may not be added to a millilitre total (the v2.91.0 lesson — the strip was
+     split then, this GRAND TOTAL row was not). */
+  const catAll=[...CATEGORIES]; tallyItems.forEach(t=>{ const c=t.category||''; if(catAll.indexOf(c)<0) catAll.push(c); });
+  const catLabel=c=>c||'— no category', catOdd=c=>CATEGORIES.indexOf(c)<0;
+  const gC={ml:0,pcs:0}, gS={ml:0,pcs:0}, gT={ml:0,pcs:0}; let sl=0, rows=''; const catData=[];
+  const twoCell=o=>`${fmt(o.ml)}<small class="muted"> ml</small>${o.pcs?`<br>${fmt(o.pcs)}<small class="muted"> pcs</small>`:''}`;
+  catAll.forEach(cat=>{
+    const items = tallyItems.filter(t=>(t.category||'')===cat && inScope(t));
     if(!items.length) return;
+    const u=invUnit(cat), un=(u==='pcs')?'pcs':'ml';
     const arr=[];
     const bodyRows = items.map(t=>{
       const c=getEffectiveCocktailMl(t,cmlMap), s=getEffectiveStraightMl(t,smlMap), tot=c+s;   // Total = Cocktail + Straight (Excel-faithful)
-      gC+=c; gS+=s; gT+=tot; sl++; arr.push({name:t.name, c, s, tot});
+      gC[u]+=c; gS[u]+=s; gT[u]+=tot; sl++; arr.push({name:t.name, c, s, tot, u:un});
       return `<tr>
         <td class="muted">${sl}</td>
         <td><strong>${t.name}</strong></td>
         <td class="num ${c?'':'muted'}">${fmt(c)}</td>
         <td class="num ${s?'':'muted'}">${fmt(s)}</td>
-        <td class="num"><strong class="gold">${fmt(tot)}</strong></td>
+        <td class="num"><strong class="gold">${fmt(tot)}</strong><small class="muted"> ${un}</small></td>
         <td class="right nowrap"><button class="btn btn-ghost btn-sm" title="Edit brand" onclick='editBrand(${JSON.stringify(t.name)})'>✎</button><button class="btn btn-danger btn-sm" title="Remove brand (also from Bar Inventory)" onclick='removeBrand(${JSON.stringify(t.name)})'>✕</button></td>
       </tr>`; }).join('');
-    catData.push({cat, items:arr, sum:arr.reduce((a,x)=>a+x.tot,0)});
-    rows += `<tr class="grp-row"><td colspan="6">${cat} <span class="muted">· ${items.length}</span></td></tr>${bodyRows}`;
+    catData.push({cat, label:catLabel(cat), items:arr, sum:arr.reduce((a,x)=>a+x.tot,0), u:un});
+    rows += `<tr class="grp-row"><td colspan="6">${esc(catLabel(cat))} <span class="muted">· ${items.length} · in ${un}</span>${catOdd(cat)?` <span class="pill am" title="This is not one of the twelve standard categories. It is counted on both pages, and ⚖️ Sale match can file it under one of the twelve.">own category</span>`:''}</td></tr>${bodyRows}`;
   });
   if(!rows) rows = `<tr><td colspan="6" class="center muted" style="padding:24px">No brands match.</td></tr>`;
-  const grand = `<tr class="grp-row" style="background:var(--gold-dim)"><td></td><td><strong>GRAND TOTAL</strong></td><td class="num"><strong>${fmt(gC)}</strong></td><td class="num"><strong>${fmt(gS)}</strong></td><td class="num"><strong class="gold">${fmt(gT)}</strong></td><td></td></tr>`;
+  const grand = `<tr class="grp-row" style="background:var(--gold-dim)"><td></td><td><strong>GRAND TOTAL</strong></td><td class="num"><strong>${twoCell(gC)}</strong></td><td class="num"><strong>${twoCell(gS)}</strong></td><td class="num"><strong class="gold">${twoCell(gT)}</strong></td><td></td></tr>`;
 
   // COCKTAILS & STRAIGHT LIQUOR QTY — every system name (all cocktails + all tally brands), qty from linking.
   // New brands / new cocktails appear here automatically; unmatched POS junk never shows (that lives in Error Queue).
@@ -1937,6 +1952,7 @@ VIEWS.tally = () => {
   cocktails.forEach(c=>{ const idx=cocktails.indexOf(c); allQ.push({name:c.name, qty:resolveCocktailQty(c.name,qm2), ck:idx}); });
   tallyItems.forEach(t=>allQ.push({name:t.name, qty:getEffectivePosQty(t,posQtyMap), ck:null, cat:t.category}));
   const grandQty = allQ.reduce((a,x)=>a+(+x.qty||0),0);
+  const filtered = (talCat!=='ALL') || !!tQuery;   // the strip is the whole sheet, the table is not
   // Tally-sheet style: grouped rows — COCKTAILS first (recipes auto-appear here with qty),
   // then brands under their tally categories, each group with its own subtotal.
   const byName=(a,b)=>String(a.name).localeCompare(String(b.name));
@@ -1964,7 +1980,7 @@ VIEWS.tally = () => {
   });
   if(!qtyBody) qtyBody=`<tr><td colspan="4" class="center muted" style="padding:20px">No names yet — add brands/cocktails.</td></tr>`;
 
-  const chips = ['ALL',...CATEGORIES].map(c=>`<div class="tab ${talCat===c?'active':''}" onclick="talCat='${c}';route()">${c}</div>`).join('');
+  const chips = ['ALL',...catAll].map(c=>`<div class="tab ${talCat===c?'active':''}" onclick='talCat=${jatt(c)};route()'>${esc(c==='ALL'?'ALL':catLabel(c))}</div>`).join('');
   return `
     ${letterhead('Daily Bar Sale Tie-Up · Tally Sheet')}
     <div class="page-head"><div><h1>Tally Sheet</h1><p style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">DAILY BAR SALE TIE UP · FROM
@@ -1978,11 +1994,11 @@ VIEWS.tally = () => {
       const M=(typeof saleMatch==='function')?saleMatch():null;
       const two=(ml,pcs)=>`${fmt(ml)}<span class="muted" style="font-size:12px"> ml</span>${pcs?` · ${fmt(pcs)}<span class="muted" style="font-size:12px"> pcs</span>`:''}`;
       return `<div class="stat-strip barinv-strip" style="margin-bottom:${M?'6px':'12px'}">
-      <div class="s"><div class="l">Cocktail</div><div class="v">${M?two(M.cml,M.cpcs):fmt(gC)+' ml'}</div></div>
-      <div class="s"><div class="l">Straight</div><div class="v gold">${M?two(M.sml,M.spcs):fmt(gS)+' ml'}</div></div>
-      <div class="s"><div class="l">Grand Total</div><div class="v">${M?two(M.ml,M.pcs):fmt(gT)+' ml'}</div></div>
+      <div class="s"><div class="l">Cocktail</div><div class="v">${M?two(M.cml,M.cpcs):two(gC.ml,gC.pcs)}</div></div>
+      <div class="s"><div class="l">Straight</div><div class="v gold">${M?two(M.sml,M.spcs):two(gS.ml,gS.pcs)}</div></div>
+      <div class="s"><div class="l">Grand Total</div><div class="v">${M?two(M.ml,M.pcs):two(gT.ml,gT.pcs)}</div></div>
       <div class="s"><div class="l">Total Qty Sold</div><div class="v">${fmt(grandQty)}</div></div>
-    </div>${M?`<div class="smline noprint">${saleMatchChip()}</div>`:''}`; })()}
+    </div>${M?`<div class="smline noprint">${filtered?`<span class="muted" style="font-size:11px;margin-right:8px">the four figures above are the WHOLE sheet — the table below is filtered to ${sl} brand${sl===1?'':'s'}</span>`:''}${saleMatchChip()}</div>`:''}`; })()}
     <div class="tabs" style="overflow-x:auto">${chips}</div>
     ${(()=>{ const lay=pageLay('tally');
       const brandCard=`<div class="card barinv"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Bar Sale Tie-Up (brand-wise)</h3></div>
@@ -1992,10 +2008,10 @@ VIEWS.tally = () => {
         <tbody>${rows}${grand}</tbody></table></div></div>`;
       if(lay==='def') return brandCard;
       if(lay==='dense') return `<div class="laydense">${brandCard}</div>`;
-      const groups=catData.map(cd=>({ id:cd.cat, title:cd.cat, sub:`${cd.items.length} brands`,
-        right:`<span class="num gold" style="font-weight:700">${fmt(cd.sum)}</span>`,
+      const groups=catData.map(cd=>({ id:cd.cat, title:cd.label, sub:`${cd.items.length} brands · in ${cd.u}`,
+        right:`<span class="num gold" style="font-weight:700">${fmt(cd.sum)}<small class="muted"> ${cd.u}</small></span>`,
         detail: cd.items.map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>${x.name}</strong> <span class="muted">c ${fmt(x.c)} · s ${fmt(x.s)}</span></span><span class="nowrap"><strong class="gold">${fmt(x.tot)}</strong> <button class="btn btn-ghost btn-sm" onclick='editBrand(${jatt(x.name)})'>✎</button><button class="btn btn-danger btn-sm" onclick='removeBrand(${jatt(x.name)})'>✕</button></span></div>`).join('') }));
-      return renderLay('tally',lay,groups,{listTitle:'Categories', footer:`<div style="display:flex;justify-content:flex-end;padding:9px 14px"><span class="muted" style="margin-right:8px">GRAND TOTAL</span><strong class="gold">${fmt(gT)} ml</strong></div>`});
+      return renderLay('tally',lay,groups,{listTitle:'Categories', footer:`<div style="display:flex;justify-content:flex-end;padding:9px 14px"><span class="muted" style="margin-right:8px">GRAND TOTAL</span><strong class="gold">${fmt(gT.ml)} ml${gT.pcs?` · ${fmt(gT.pcs)} pcs`:''}</strong></div>`});
     })()}
     <div class="card barinv mt-16"><div class="card-head"><div><h3>🍸 Cocktails & Straight Liquor — Qty Sold</h3></div>
       <div><span class="pill gold">TOTAL QTY · ${fmt(totQty)}</span></div></div>
@@ -2781,7 +2797,8 @@ function removeBrand(brand){
 // ---- Tally: edit a brand (cascades rename to aliases + Bar Inventory) ----
 function editBrand(oldName){
   const t=tallyItems.find(x=>norm(x.name)===norm(oldName)); if(!t) return;
-  const catOpts=CATEGORIES.map(c=>`<option ${t.category===c?'selected':''}>${esc(c)}</option>`).join('');
+  const _ebC=[...CATEGORIES]; if(t.category && _ebC.indexOf(t.category)<0) _ebC.push(t.category);
+  const catOpts=_ebC.map(c=>`<option ${t.category===c?'selected':''}>${esc(c)}</option>`).join('');
   modal('Edit Brand', `
     <div class="field"><label>Brand name</label><input class="input" id="ebName" value="${esc(t.name)}"></div>
     <div class="field"><label>Category</label><select class="input" id="ebCat">${catOpts}</select></div>
