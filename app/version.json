@@ -1,5 +1,5 @@
 {
-  "version": "2.93.0",
+  "version": "2.94.0",
   "date": "2026-11-01",
-  "notes": "The Sale column now adds itself up, right underneath itself. Beverage Control’s bottom strip loses “Avg Variance %” (its figure moved into the Total Variance tooltip) and gains “Total Sale” — the Sale column’s own sum in millilitres and pieces, the very figures the Tally Sheet’s Grand Total prints. Its label carries the answer, “✔ Tally Sheet agrees” or “⚠ N brands differ”, and one click opens the two totals side by side."
+  "notes": "A new sign-in page, on both front doors — design ⑫ \"Imperial Gate\", drawn to the picture you sent: the crowned laurel crest over the bar, CLOUD BASED ERP in the corner, and a card with Company, Outlet, Username and Password on icon rows, Remember Me, a gold LOGIN pill, and Secure / Cloud / 24-7 under it. The gear panel gained an ADMIN block — photo, name, designation, mobile, e-mail, the outlets of the chosen company, and that company’s own username and password — and the admin shows on the sign-in card. The app itself is untouched; only the version number moved, so your devices pick the new page up."
 }

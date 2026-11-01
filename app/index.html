@@ -118,6 +118,136 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
   .gbrand{padding-bottom:42px}
   .gbrand,.gform{min-height:0}
 }
+/* ===== Imperial Gate (v2.94.0) — the same face the offline login wears as design ⑫, so both
+   front doors still match. Markup and looks only: the Supabase sign-in below is untouched,
+   and the fields stay what this door really needs — an e-mail and a password. The Company row
+   is the picker this page has always shown AFTER sign-in, now wearing the same row. ===== */
+body.gbody{background:#050403}
+.gwrap{margin:0;padding:0;border:none;border-radius:0;background:#050403;box-shadow:none;
+  gap:0;min-height:100vh}
+.gbrand{flex:1 1 560px;min-height:100vh;border-radius:0;padding:40px 44px 56px;
+  align-items:center;text-align:center}
+.gbrand .grade{background:linear-gradient(103deg,rgba(5,4,3,.80) 0%,rgba(5,4,3,.52) 44%,rgba(5,4,3,.88) 100%),
+  radial-gradient(118% 92% at 30% 44%,transparent 18%,rgba(0,0,0,.66) 100%)}
+/* the crowned laurel crest */
+.gcrest{width:112px;height:124px;margin:0 auto;border:none;border-radius:0;background:none;overflow:visible;
+  display:flex;align-items:center;justify-content:center;position:relative}
+.gcrest .in{display:none}
+.gcrest b{font-family:'Cormorant Garamond',Georgia,serif;font-size:40px;font-weight:700;color:#f3dba4;
+  position:relative;z-index:3;letter-spacing:1px;text-shadow:0 2px 10px rgba(0,0,0,.6)}
+.gcrest img{position:relative;z-index:3;width:62px;height:62px;border-radius:8px;object-fit:cover}
+.glau{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:250px;height:216px;z-index:1;
+  pointer-events:none}
+.gbn{font-family:'Cormorant Garamond',Georgia,serif;font-weight:700;line-height:1;letter-spacing:2px;
+  font-size:clamp(34px,5vw,60px);margin-top:20px;
+  background:linear-gradient(180deg,#fbeec2 0%,#e7c57e 48%,#b98f3e 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 3px 14px rgba(0,0,0,.55))}
+.gin{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:9px}
+.gin i{flex:1 1 40px;max-width:74px;height:1px;background:linear-gradient(90deg,transparent,#d8bd7f)}
+.gin i:last-child{background:linear-gradient(90deg,#d8bd7f,transparent)}
+.gin b{font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;color:#e7c57e;
+  font-size:clamp(14px,1.7vw,21px);letter-spacing:11px;white-space:nowrap}
+.gpm{font-size:10.5px;letter-spacing:4.4px;text-transform:uppercase;color:#a8997a;margin-top:14px}
+.gct{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:21px;color:#e0c078;
+  margin-top:16px;letter-spacing:1px}
+.gct span{color:#8e7c54;margin:0 10px;font-style:normal}
+.gname,.gtag,.ghair,.gmotto,.gaddr,.gcards,.gstrip{display:none}
+.genv{position:absolute;left:44px;bottom:22px;z-index:3}
+/* CLOUD BASED ERP, top right */
+.gerp{position:fixed;top:24px;right:46px;z-index:6;display:flex;align-items:center;gap:11px}
+.msg:empty{display:none}
+.gerp .tx{text-align:right}
+.gerp h6{margin:0;font-family:'Cormorant Garamond',Georgia,serif;font-size:15px;font-weight:600;
+  letter-spacing:3.4px;text-transform:uppercase;color:#edd49c}
+.gerp p{margin:2px 0 0;font-size:9px;letter-spacing:2.6px;text-transform:uppercase;color:#8f826a}
+/* the card */
+.gform{flex:1 1 440px;background:#060504;padding:46px 40px;display:flex;align-items:center;
+  justify-content:center;position:relative;min-height:100vh}
+.gform:before{content:'';position:absolute;top:0;bottom:0;right:0;width:26px;
+  background:linear-gradient(180deg,#120d06,#3a2a12 40%,#120d06);
+  box-shadow:inset 1px 0 0 rgba(201,164,95,.35);pointer-events:none}
+.gcard{max-width:452px;width:100%;box-sizing:border-box;border-radius:24px;padding:30px 30px 24px;
+  background:linear-gradient(180deg,#0d0b09 0%,#070605 100%);border:1px solid rgba(201,164,95,.5);
+  box-shadow:0 0 0 1px rgba(201,164,95,.1) inset,0 0 44px rgba(216,189,127,.16),0 28px 70px rgba(0,0,0,.8)}
+.gcloud{display:none}
+.gcrown{text-align:center;line-height:1;margin-bottom:4px}
+.gcrown svg{filter:drop-shadow(0 0 10px rgba(216,189,127,.5))}
+.gcard h1{font-family:'Cormorant Garamond',Georgia,serif;font-size:34px;font-weight:700;text-align:center;
+  color:#f6e7c2;margin:6px 0 0;letter-spacing:.5px}
+.gcard .sub{text-align:center;font-size:11.5px;color:#9a9078;margin:7px 0 18px}
+/* the admin strip — the same keys the offline login writes */
+.gadm{display:flex;align-items:center;gap:11px;justify-content:center;margin:0 0 16px;padding:9px 13px;
+  border:1px solid rgba(201,164,95,.26);border-radius:14px;background:rgba(216,189,127,.05)}
+.gadm .pic{width:40px;height:40px;border-radius:50%;flex:none;overflow:hidden;
+  border:1px solid rgba(201,164,95,.5);display:flex;align-items:center;justify-content:center;
+  background:#15120d;color:#e0c078;font-family:'Cormorant Garamond',Georgia,serif;font-size:16px}
+.gadm .pic img{width:100%;height:100%;object-fit:cover;display:block}
+.gadm .nm{font-size:13px;font-weight:600;color:#f0e4c6;line-height:1.3}
+.gadm .dg{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#9a8a63;margin-top:2px}
+/* the rows */
+.grw{display:flex;align-items:center;gap:13px;margin-bottom:11px;padding:9px 14px;
+  border:1px solid rgba(201,164,95,.3);border-radius:15px;background:rgba(255,255,255,.018);
+  transition:border-color .16s,background .16s}
+.grw:focus-within{border-color:rgba(216,189,127,.72);background:rgba(216,189,127,.05)}
+.grw .ic{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center}
+.grw .tx{flex:1;min-width:0}
+.grw .lb{font-size:12.5px;font-weight:600;color:#eadcb8;line-height:1.25}
+.grw .ct{display:flex;align-items:center;gap:6px}
+.grw input,.grw select{width:100%;background:none;border:none;outline:none;padding:1px 0 0;
+  font-family:'Inter',sans-serif;font-size:12.5px;color:#c8bb9b;-webkit-appearance:none;appearance:none}
+.grw select option{background:#0c0a08;color:#e6dcc2}
+.grw input::placeholder{color:#7c725d}
+.grw .cv{flex:none;color:#9a8a63;font-size:12px;pointer-events:none}
+.grw .eye{flex:none;background:none;border:none;cursor:pointer;color:#9a8a63;padding:0;line-height:1}
+.gfld{display:none}
+.grow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 2px 18px;flex-wrap:wrap}
+.grow label{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#cbbf9f;cursor:pointer}
+.grow input[type=checkbox]{-webkit-appearance:none;appearance:none;width:17px;height:17px;margin:0;
+  border:1px solid rgba(201,164,95,.6);border-radius:5px;background:transparent;cursor:pointer;position:relative}
+.grow input[type=checkbox]:checked{background:rgba(216,189,127,.16)}
+.grow input[type=checkbox]:checked:after{content:'\2713';position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;font-size:12px;color:#edd49c}
+.grow .glink{color:#d8bd7f;font-size:12px}
+/* the LOGIN pill between two ornaments */
+.glgrow{display:flex;align-items:center;gap:10px}
+.gorn{flex:1;height:14px;color:rgba(216,189,127,.55);font-size:11px;letter-spacing:2px;display:flex;
+  align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
+.gbtn{flex:none;min-width:208px;width:auto;border:none;cursor:pointer;border-radius:999px;padding:14px 30px;
+  font-family:'Inter',sans-serif;font-size:15px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
+  color:#2a1c05;background:linear-gradient(180deg,#fbe8ab 0%,#edc97e 50%,#c89a3e 100%);
+  box-shadow:0 0 26px rgba(233,197,126,.45),0 8px 22px rgba(0,0,0,.55);transition:filter .15s,transform .15s}
+.gbtn:hover{filter:brightness(1.07)}
+.gbtn:active{transform:translateY(1px)}
+.gbtn[disabled]{filter:grayscale(.4) brightness(.8);cursor:default}
+.ghair12{height:1px;margin:20px 0 14px;background:linear-gradient(90deg,transparent,rgba(201,164,95,.42),transparent)}
+.gf3{display:flex;gap:6px}
+.gf3 .c{flex:1;display:flex;align-items:center;gap:8px;min-width:0;justify-content:center}
+.gf3 .ic{flex:none;line-height:1}
+.gf3 h5{margin:0;font-size:11.5px;font-weight:600;color:#e4d6b2;line-height:1.25}
+.gf3 p{margin:1px 0 0;font-size:9.5px;color:#8a8069;line-height:1.25}
+.gtagline{text-align:center;margin-top:16px;padding-top:13px;border-top:1px solid rgba(201,164,95,.2)}
+.gtagline .cw{color:#d8bd7f;font-size:13px;line-height:1}
+.gtagline p{margin:5px 0 0;font-size:9.5px;letter-spacing:3.4px;text-transform:uppercase;color:#857b65}
+.gco{border:none;padding:0;margin-top:4px}
+.gco > label{display:none}
+.gco .gbtn{width:100%;min-width:0;margin-top:4px}
+.gcopy{margin-top:14px}
+@media (max-width:1040px){
+  .gerp{position:static;justify-content:center;margin:0 0 18px}
+  .gerp .tx{text-align:center}
+  .gbrand{padding:70px 26px 56px;min-height:0}
+  .gform{min-height:0}
+  .gform:before{display:none}
+}
+@media (max-width:560px){
+  .gform{padding:26px 16px}
+  .gcard{padding:22px 18px 18px}
+  .gbtn{min-width:0;flex:1;letter-spacing:2px;font-size:14px}
+  .gorn{display:none}
+  .gf3{flex-wrap:wrap}
+  .gf3 .c{flex:1 1 44%}
+}
 </style>
 </head>
 <body class="gbody">
@@ -164,7 +294,40 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
       <span class="grade"></span>
     </div>
 
-    <div class="gcrest"><span class="in"></span><b>BL</b></div>
+    <div class="gerp" aria-hidden="true">
+      <svg width="30" height="21" viewBox="0 0 84 56" fill="none">
+        <path d="M23 43a13 13 0 0 1 1.4-25.9A18 18 0 0 1 58 13.5 12 12 0 0 1 63 36" stroke="#e8cf95" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <div class="tx"><h6>Cloud Based ERP</h6><p>Access anytime, anywhere</p></div>
+    </div>
+    <div class="gcrest">
+      <svg class="glau" viewBox="0 0 250 216" fill="none" aria-hidden="true">
+        <path d="M103 44l7 16h30l7-16 10 13 9-17 3 28h-88l3-28 9 17z" fill="#e7c57e"/>
+        <circle cx="113" cy="38" r="3.4" fill="#f6e4b4"/><circle cx="137" cy="38" r="3.4" fill="#f6e4b4"/>
+        <circle cx="125" cy="31" r="4.4" fill="#f6e4b4"/>
+        <rect x="97" y="75" width="56" height="7" rx="3" fill="#d8bd7f"/>
+        <path d="M125 86l38 11v30c0 27-17 44-38 52-21-8-38-25-38-52V97z" fill="#0e0c08" stroke="#e7c57e" stroke-width="3"/>
+        <path d="M125 94l31 9v25c0 22-14 36-31 43-17-7-31-21-31-43v-25z" fill="none" stroke="rgba(231,197,126,.45)" stroke-width="1.4"/>
+        <path d="M72 96c-16 14-22 38-16 60 5 20 19 34 36 41" stroke="#d8bd7f" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M178 96c16 14 22 38 16 60-5 20-19 34-36 41" stroke="#d8bd7f" stroke-width="2.6" stroke-linecap="round"/>
+        <g fill="#d8bd7f">
+          <ellipse cx="63" cy="110" rx="9" ry="4.6" transform="rotate(-36 63 110)"/>
+          <ellipse cx="57" cy="128" rx="9" ry="4.6" transform="rotate(-18 57 128)"/>
+          <ellipse cx="57" cy="147" rx="9" ry="4.6" transform="rotate(4 57 147)"/>
+          <ellipse cx="63" cy="165" rx="9" ry="4.6" transform="rotate(24 63 165)"/>
+          <ellipse cx="75" cy="181" rx="9" ry="4.6" transform="rotate(44 75 181)"/>
+          <ellipse cx="187" cy="110" rx="9" ry="4.6" transform="rotate(36 187 110)"/>
+          <ellipse cx="193" cy="128" rx="9" ry="4.6" transform="rotate(18 193 128)"/>
+          <ellipse cx="193" cy="147" rx="9" ry="4.6" transform="rotate(-4 193 147)"/>
+          <ellipse cx="187" cy="165" rx="9" ry="4.6" transform="rotate(-24 187 165)"/>
+          <ellipse cx="175" cy="181" rx="9" ry="4.6" transform="rotate(-44 175 181)"/>
+        </g>
+      </svg>
+      <span class="in"></span><b>BL</b></div>
+    <div class="gbn">BAR LIQUOR</div>
+    <div class="gin"><i></i><b>INVENTORY</b><i></i></div>
+    <div class="gpm">Premium Inventory Management System</div>
+    <div class="gct">Control <span>&bull;</span> Track <span>&bull;</span> Grow</div>
     <div class="gname">Bar Liquor<span class="l2">Inventory</span></div>
     <div class="gtag">Premium Inventory Management System</div>
     <div class="genv" title="This is the website — the live cloud copy; the desktop app on the office computer is the other copy">&#127760; WEBSITE &middot; live cloud</div>
@@ -193,31 +356,70 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
           <circle cx="42.5" cy="38.5" r="2.1" fill="#e8cf95"/>
         </svg>
       </div>
+      <div class="gcrown" aria-hidden="true">
+        <svg width="46" height="32" viewBox="0 0 60 42" fill="none">
+          <path d="M8 32l5-19 10 10 7-17 7 17 10-10 5 19z" fill="#e7c57e"/>
+          <rect x="8" y="34" width="44" height="5" rx="2.5" fill="#d8bd7f"/>
+          <circle cx="13" cy="10" r="3" fill="#f6e4b4"/><circle cx="47" cy="10" r="3" fill="#f6e4b4"/>
+          <circle cx="30" cy="4" r="3.6" fill="#f6e4b4"/>
+        </svg>
+      </div>
       <h1>Welcome Back</h1>
       <p class="sub">Sign in to access your Bar Liquor Inventory System</p>
+      <div id="gadm"></div>
 
       <form id="f">
-        <div class="gfld"><label for="em">Email address</label>
-          <div class="giw"><span class="ii"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9a8a63" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>
-            <input class="input" id="em" type="email" autocomplete="username" placeholder="you@example.com" required></div></div>
-        <div class="gfld"><label for="pw">Password</label>
-          <div class="giw"><span class="ii"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9a8a63" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
-            <input class="input" id="pw" type="password" autocomplete="current-password" placeholder="your password" required></div></div>
-        <div class="grow">
-          <label><input type="checkbox" id="rmb"> Remember me</label>
-          <button type="button" class="glink" id="fgBtn">Forgot password?</button>
+        <div class="grw">
+          <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0c078" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>
+          <div class="tx"><div class="lb">Email address</div>
+            <div class="ct"><input id="em" type="email" autocomplete="username" placeholder="you@example.com" required></div></div>
         </div>
-        <button class="gbtn" id="go" type="submit">Sign In &rarr;</button>
+        <div class="grw">
+          <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0c078" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+          <div class="tx"><div class="lb">Password</div>
+            <div class="ct"><input id="pw" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+              <button type="button" class="eye" onclick="gPeek()" title="Show / hide password">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>
+              </button></div></div>
+        </div>
+        <div class="grow">
+          <label><input type="checkbox" id="rmb"> Remember Me</label>
+          <button type="button" class="glink" id="fgBtn">Forgot Password?</button>
+        </div>
+        <div class="glgrow">
+          <span class="gorn">&#10022; &mdash;&mdash;&mdash;&mdash; &#10022;</span>
+          <button class="gbtn" id="go" type="submit">&rarr; Login</button>
+          <span class="gorn">&#10022; &mdash;&mdash;&mdash;&mdash; &#10022;</span>
+        </div>
       </form>
 
       <div class="msg" id="msg"></div>
 
       <div class="gco hide" id="coBox">
         <label for="coSel">Which company do you want to open?</label>
-        <select class="input" id="coSel"></select>
+        <div class="grw">
+          <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0c078" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16M14 10h4a1 1 0 0 1 1 1v10"/><path d="M8 8h3M8 12h3M8 16h3"/></svg></span>
+          <div class="tx"><div class="lb">Company</div>
+            <div class="ct"><select id="coSel"></select><span class="cv">&#9662;</span></div></div>
+        </div>
+        <div class="grw" id="outRow">
+          <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0c078" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M4 21V9l8-5 8 5v12"/><path d="M10 21v-6h4v6"/></svg></span>
+          <div class="tx"><div class="lb">Outlet</div>
+            <div class="ct"><select id="outSel"></select><span class="cv">&#9662;</span></div></div>
+        </div>
         <button class="gbtn" id="open" style="margin-top:10px">Open</button>
       </div>
 
+      <div class="ghair12"></div>
+      <div class="gf3">
+        <div class="c"><span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6z"/><path d="M9.4 12l1.9 1.9L15 10"/></svg></span>
+          <div><h5>Secure</h5><p>SSL Encrypted</p></div></div>
+        <div class="c"><span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 18a4 4 0 0 1 .4-8 6 6 0 0 1 11.3-1A3.8 3.8 0 0 1 18 18z"/></svg></span>
+          <div><h5>Cloud</h5><p>Always Online</p></div></div>
+        <div class="c"><span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#d5b477" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></svg></span>
+          <div><h5>24/7</h5><p>Support</p></div></div>
+      </div>
+      <div class="gtagline"><span class="cw">&#9819;</span><p>Your Inventory &bull; Our Priority</p></div>
       <p class="gcopy">Data entry only? Use the <a href="../">quick console</a>.<br>
         &copy; 2026 Bar Liquor Inventory. All rights reserved.</p>
     </div>
@@ -238,6 +440,42 @@ body.hasbar .gbrand{background-image:var(--barphoto);background-size:cover;backg
 
 <script>
 const $=id=>document.getElementById(id);
+/* --- Imperial Gate (v2.94.0): the eye, the admin strip and the outlet row. The admin
+   details and the outlets are the keys the offline login writes, read here so the same
+   browser shows the same face. Nothing below this block was changed. --- */
+function gPeek(){ const p=$('pw'); if(!p) return; p.type = p.type==='password' ? 'text' : 'password'; p.focus(); }
+function gAdmPaint(){
+  const box=$('gadm'); if(!box) return;
+  let A={}, pic='';
+  try{ A=JSON.parse(localStorage.getItem('tg2_admin')||'{}')||{}; }catch(e){}
+  try{ pic=localStorage.getItem('tg2_adminPic')||''; }catch(e){}
+  if(!(A.name||pic)){ box.className=''; box.innerHTML=''; return; }
+  box.className='gadm';
+  box.innerHTML='<div class="pic">'+(pic?'<img src="'+pic+'" alt="">':esc((A.name||'A').trim().charAt(0).toUpperCase()))+'</div>'
+    +'<div><div class="nm">'+esc(A.name||'Administrator')+'</div><div class="dg">'
+    +esc(A.desig||'Administrator')+(A.mobile?' &middot; '+esc(A.mobile):'')+'</div></div>';
+}
+function gOutList(id){ let m={}; try{ m=JSON.parse(localStorage.getItem('tg2_outlets')||'{}')||{}; }catch(e){}
+  const a=m[id]; return (Array.isArray(a)&&a.length)?a:['Main Outlet']; }
+function gOutPaint(){
+  const co=$('coSel'), os=$('outSel'); if(!co||!os) return;
+  const id=co.value||'main', l=gOutList(id);
+  let v=''; try{ v=localStorage.getItem('tg2_outlet_'+id)||''; }catch(e){}
+  if(l.indexOf(v)<0) v=l[0];
+  os.innerHTML=l.map(function(o){ return '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>'; }).join('');
+  try{ sessionStorage.setItem('tg2_outletName', v); }catch(e){}
+}
+document.addEventListener('DOMContentLoaded', function(){
+  gAdmPaint();
+  const co=$('coSel'), os=$('outSel');
+  if(co) co.addEventListener('change', gOutPaint);
+  if(os) os.addEventListener('change', function(){
+    try{ localStorage.setItem('tg2_outlet_'+(co?co.value:'main'), os.value);
+         sessionStorage.setItem('tg2_outletName', os.value); }catch(e){} });
+  const ob=$('open'); if(ob) ob.addEventListener('click', gOutPaint);
+  new MutationObserver(function(){ if(!$('coBox').classList.contains('hide')) gOutPaint(); })
+    .observe($('coBox'), {attributes:true, attributeFilter:['class']});
+});
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 /* baked so staff never handle the project details — safe because the cloud's read rule
    requires a signed-in user, so the key on its own opens nothing */
