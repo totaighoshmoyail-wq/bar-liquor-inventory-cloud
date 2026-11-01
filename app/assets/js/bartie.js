@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.90.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.91.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1972,12 +1972,17 @@ VIEWS.tally = () => {
       <input class="input" type="date" id="tpTo" value="${period.to}" style="width:auto;padding:3px 7px;font-size:12px" onchange="tallyPeriodSet()">
       · ${tallyItems.length} brands · Total = Cocktail + Straight.</p></div>
       <div class="page-actions">${layDrop('tally')}</div></div>
-    <div class="stat-strip barinv-strip" style="margin-bottom:12px">
-      <div class="s"><div class="l">Cocktail ml</div><div class="v">${fmt(gC)}</div></div>
-      <div class="s"><div class="l">Straight ml</div><div class="v gold">${fmt(gS)}</div></div>
-      <div class="s"><div class="l">Grand Total</div><div class="v">${fmt(gT)} <span class="muted" style="font-size:12px">ml</span></div></div>
+    ${(()=>{ /* beer · breezer · cigarettes are counted in PIECES (invUnit), and the engine returns
+         pieces for them, so they were being added into a millilitre total — that was the whole gap
+         against Beverage Control, which has always split them (v2.91.0). */
+      const M=(typeof saleMatch==='function')?saleMatch():null;
+      const two=(ml,pcs)=>`${fmt(ml)}<span class="muted" style="font-size:12px"> ml</span>${pcs?` · ${fmt(pcs)}<span class="muted" style="font-size:12px"> pcs</span>`:''}`;
+      return `<div class="stat-strip barinv-strip" style="margin-bottom:${M?'6px':'12px'}">
+      <div class="s"><div class="l">Cocktail</div><div class="v">${M?two(M.cml,M.cpcs):fmt(gC)+' ml'}</div></div>
+      <div class="s"><div class="l">Straight</div><div class="v gold">${M?two(M.sml,M.spcs):fmt(gS)+' ml'}</div></div>
+      <div class="s"><div class="l">Grand Total</div><div class="v">${M?two(M.ml,M.pcs):fmt(gT)+' ml'}</div></div>
       <div class="s"><div class="l">Total Qty Sold</div><div class="v">${fmt(grandQty)}</div></div>
-    </div>
+    </div>${M?`<div class="smline noprint">${saleMatchChip()}</div>`:''}`; })()}
     <div class="tabs" style="overflow-x:auto">${chips}</div>
     ${(()=>{ const lay=pageLay('tally');
       const brandCard=`<div class="card barinv"><div class="card-head" style="flex-wrap:wrap;gap:8px"><div><h3>Bar Sale Tie-Up (brand-wise)</h3></div>

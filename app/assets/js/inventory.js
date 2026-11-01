@@ -2912,6 +2912,82 @@ function bcRecvGapModal(){
     :`<p class="muted" style="font-size:11.5px">Every issued item has a row here, so the difference comes from a brand whose <em>receive name</em> is not set: its receipt is then matched on the brand name instead of exactly, which can pick a name up twice or miss one. Set the receive name on the Beverage Control row to make it exact.</p>`}`,
     `<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();location.hash='#mrdetail'">🔁 Open Bar Stock Issue</button>${names.length?`<button class="btn btn-gold" onclick="closeModal();bcAddAllAsk()">➕ Add ${fmt(names.length)} to this sheet</button>`:''}`);
 }
+/* ---- the Tally Sheet and Beverage Control tie, and the tie is ON THE PAGE (v2.91.0) -----------
+   Client, with both heads on screen — Tally "Grand Total 5,19,108 ml" against Beverage Control
+   "SALE · ml items 5,16,595 ml · pcs items 2,513 pcs": "pos sale update hobar por … tally sheet a
+   tally holo cocktails sale & stright sale & sei total ml ta beverage control er sange match korte
+   hobe 100% & kothai miss match hoche show korte hobe".
+   THEY ALREADY TIE, to the unit: 5,16,595 + 2,513 = 5,19,108. The Tally head was adding PIECES into
+   a millilitre total — beer, breezer and cigarettes are counted in pieces (invUnit), and
+   computeStraightMlMap returns pieces for them (the v2.65.0 lesson, fixed on the alias pages and
+   never carried to this one). Beverage Control splits them, so the two looked 2,513 apart.
+   Per brand the two can only ever be the same number: barRow's `sale` IS
+   getEffectiveCocktailMl + getEffectiveStraightMl, the very figures the Tally Sheet prints, and
+   biRoyalData walks every tallyItem with no filter. saleMatch() proves that on the page instead of
+   asking them to trust it, and names any brand where it stops being true. Nothing is computed here
+   that the two pages did not already compute. */
+function saleMatch(){
+  const G=calcGrandTotals();
+  const T={ml:0,pcs:0,cml:0,cpcs:0,sml:0,spcs:0}, B={ml:0,pcs:0};
+  const rows=[]; let raw=0, nml=0, npcs=0;
+  tallyItems.forEach(x=>{
+    const u=invUnit(x.category);
+    const c=getEffectiveCocktailMl(x,G.cmlMap), s=getEffectiveStraightMl(x,G.smlMap), tv=c+s;
+    raw+=tv;
+    if(u==='pcs'){ T.pcs+=tv; T.cpcs+=c; T.spcs+=s; if(tv) npcs++; }
+    else         { T.ml +=tv; T.cml +=c; T.sml +=s; if(tv) nml++; }
+    const bv=barRow(x).sale;                 // what the Beverage Control row prints for this brand
+    B[u]+=bv;
+    const d=bv-Math.round(tv);
+    if(Math.abs(d)>=1) rows.push({name:x.name, cat:x.category, u, tally:Math.round(tv), bev:bv, diff:d});
+  });
+  rows.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff) || String(a.name).localeCompare(String(b.name)));
+  const R=v=>Math.round(v);
+  const o={ ml:R(T.ml), pcs:R(T.pcs), cml:R(T.cml), cpcs:R(T.cpcs), sml:R(T.sml), spcs:R(T.spcs),
+            bevMl:R(B.ml), bevPcs:R(B.pcs), grand:R(raw), nml, npcs, rows, n:rows.length };
+  o.gapMl=o.bevMl-o.ml; o.gapPcs=o.bevPcs-o.pcs;
+  o.ok = !o.n && !o.gapMl && !o.gapPcs;
+  return o;
+}
+function saleMatchChip(small){
+  let M; try{ M=saleMatch(); }catch(e){ return ''; }
+  if(!M.ml && !M.pcs) return `<span class="smchip mu"${small?' style="font-size:10px"':''} title="Upload the month's POS sales first — Sales → POS Upload">no POS sale in this period yet</span>`;
+  if(M.ok) return `<button class="smchip ok"${small?' style="font-size:10px"':''} onclick="saleMatchModal()" title="Every brand's Cocktail + Straight on this Tally Sheet is the same number Beverage Control prints in its Sale column. Click to see it side by side.">✔ Beverage Control agrees</button>`;
+  const n=M.n || ((M.gapMl?1:0)+(M.gapPcs?1:0));
+  return `<button class="smchip bad"${small?' style="font-size:10px"':''} onclick="saleMatchModal()" title="Click to see which brands differ and by how much">⚠ ${fmt(n)} ${M.n?('brand'+(M.n===1?' differs':'s differ')):('total'+(n===1?' differs':'s differ'))}</button>`;
+}
+function saleMatchModal(){
+  const M=saleMatch();
+  const sign=v=> (v>0?'+':'')+fmt(v);
+  const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
+  const body=M.rows.map((r,i)=>`<tr><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(r.name)}</strong></td>
+      <td><span class="pill gray">${esc(r.cat||'')}</span></td>
+      <td class="num">${fmt(r.tally)}<small class="muted"> ${r.u}</small></td>
+      <td class="num">${fmt(r.bev)}<small class="muted"> ${r.u}</small></td>
+      <td class="num"><strong style="color:var(--red)">${sign(r.diff)}</strong></td>
+      <td class="right"><button class="btn btn-sm" title="Open this brand on Beverage Control" onclick="saleMatchFind(this.getAttribute('data-n'))" data-n="${esc(r.name)}">🔎</button></td></tr>`).join('');
+  modal('⚖️ Tally Sheet ⇄ Beverage Control · Sale', `<div class="bevxl">
+    <div class="k k3">
+      ${card('Tally Sheet · Sale', fmt(M.ml)+'<small>ml</small>', fmt(M.nml)+' brands counted in ml','gold')}
+      ${card('Beverage Control · Sale', fmt(M.bevMl)+'<small>ml</small>', M.gapMl?('difference '+sign(M.gapMl)):'the same figure, brand by brand', M.gapMl?'am':'')}
+      ${card('Pieces', fmt(M.pcs)+'<small>pcs</small>', M.gapPcs?('Beverage Control '+fmt(M.bevPcs)+' · difference '+sign(M.gapPcs)):fmt(M.npcs)+' brands · beer · breezer · cigarettes', M.gapPcs?'am':'')}
+    </div>
+    <div class="w" style="${M.ok?'border-color:color-mix(in srgb,var(--green) 45%,transparent);color:var(--green);background:color-mix(in srgb,var(--green) 7%,transparent)':''}">
+      ${M.ok
+        ? '✔ Every brand matches. Both pages read the same engine — a brand\'s Sale on Beverage Control <em>is</em> its Cocktail ml + Straight ml here.'
+        : '⚠ '+fmt(M.n)+(M.n===1?' brand below does not agree':' brands below do not agree')+'. Each row shows what this sheet says and what Beverage Control says.'}
+    </div>
+    <div class="muted" style="font-size:11.5px;margin:8px 0 4px">
+      <strong>Why the Grand Total is two numbers.</strong> Beer, breezer and cigarettes are counted in <strong>pieces</strong>, never in millilitres, so they cannot be added to the ml total — Beverage Control has always split them and this sheet now does too.
+      Cocktail ${fmt(M.cml)} ml${M.cpcs?' · '+fmt(M.cpcs)+' pcs':''} + Straight ${fmt(M.sml)} ml${M.spcs?' · '+fmt(M.spcs)+' pcs':''} = <strong class="gold">${fmt(M.ml)} ml</strong>${M.pcs?' · <strong class="gold">'+fmt(M.pcs)+' pcs</strong>':''}.
+    </div>
+    ${M.n?`<div class="table-wrap" style="max-height:300px"><table class="tbl"><thead><tr><th>#</th><th>Brand</th><th>Category</th><th class="num">Tally Sheet</th><th class="num">Beverage Control</th><th class="num">Difference</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`:''}
+    <div class="muted" style="font-size:10.5px;margin-top:6px">Both figures come from the POS sheet through your aliases and cocktail recipes. A name the engine cannot place is in the <strong>Error Queue</strong>, not here — resolve those first and these totals grow together.</div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();location.hash='#errors'">🧭 Error Queue</button><button class="btn btn-gold" onclick="closeModal();location.hash='#barinv'">🍾 Open Beverage Control</button>`);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+function saleMatchFind(name){ closeModal(); biFind=''; iq.bi=String(name||''); biCat=''; location.hash='#barinv'; route(); }
 function biRoyalData(){
   /* tot.hand = what is ON THE SHELF right now (v2.85.0): a brand whose Closing has been counted
      counts at its closing, one whose Closing is still empty counts at its OPENING — nothing has
@@ -3201,7 +3277,10 @@ function bcBlocks(){
   //   − Sale = Variance) and four rows down: Landing ₹ · ml items (kegs in ml, like the Excel) · pcs items · Σ column
   //   (the plain sum of the column as typed, = the sheet's TOTAL row; the three columns the sheet has no Σ for carry
   //   the formula / POS hint instead). Same figures as before (biRoyalData); .bcledger in styles.css, theme tokens only.
-  const noSale=!(D.tot.sale>0);
+  /* the QUANTITY sold, not the money: D.tot.sale is ₹, and a company that has not typed its
+     rates yet has ₹ 0 against a full POS sheet — it used to say "no POS sale in this period
+     yet" over 5,66,055 ml of sale (v2.91.0) */
+  const noSale=!(D.qty.ml.sale>0 || D.qty.pcs.sale>0);
   const sheetTxt=f=>{ if(!(f in D.qty.raw)) return ''; const v=D.qty.raw[f];
     return f==='rec' ? fmt(v)+' btl' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:3,maximumFractionDigits:3}); };
   const BCOLS=[['open','Opening'],['rec','Receipt'],['close','Closing'],['cons','Consumption'],['sale','Sale'],['varv','Variance']];
@@ -3210,7 +3289,7 @@ function bcBlocks(){
   const bcHint={cons:'opening + receipt − closing', sale:noSale?'no POS sale in this period yet':'from the POS sheet', varv:'sale − consumption'};
   const bcCell=(cls,f,v,unit)=>`<div class="${cls}${bcSign(f,v)}">${bcPlus(f,v)}${fmt(Math.round(v))}<small>${unit}</small></div>`;
   const bcHead=`<div class="card bcledger">
-      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f" title="Sale − Consumption: + (green) = sold more than the stock that moved · − (red) = stock gone with no sale">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption · Sale <b>−</b> Consumption <b>=</b> Variance</div><div class="p">${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
+      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f" title="Sale − Consumption: + (green) = sold more than the stock that moved · − (red) = stock gone with no sale">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption · Sale <b>−</b> Consumption <b>=</b> Variance</div><div class="p">${saleMatchChip(1)} ${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
       <div class="bclh">
         <div class="h c">Column</div>${BCOLS.map(([f,l])=>`<div class="h">${l}</div>`).join('')}
         <div class="k">Landing ₹</div>${BCOLS.map(([f])=>`<div class="rs${bcSign(f,D.tot[f])}">₹ ${R0(D.tot[f])}</div>`).join('')}
