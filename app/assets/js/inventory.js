@@ -2989,8 +2989,8 @@ function saleAudit(){
   return {M, odd, oddCats, dup, err, errQty:err.reduce((a,x)=>a+x.qty,0),
           nFix:M.n+oddCats.length+dup.length+err.length};
 }
-function saleMatchChip(small){
-  let A; try{ A=saleAudit(); }catch(e){ return ''; }
+function saleMatchChip(small, A){
+  if(!A){ try{ A=saleAudit(); }catch(e){ return ''; } }
   const M=A.M, st=small?' style="font-size:10px"':'';
   if(!M.ml && !M.pcs) return `<span class="smchip mu"${st} title="Upload the month's POS sales first — Sales → POS Upload">no POS sale in this period yet</span>`;
   if(!M.ok){ const n=M.n||((M.gapMl?1:0)+(M.gapPcs?1:0));
@@ -3395,10 +3395,11 @@ function bcBlocks(){
   const BCOLS=[['open','Opening'],['rec','Receipt'],['close','Closing'],['cons','Consumption'],['sale','Sale'],['varv','Variance']];
   const bcSign=(f,v)=>f==='varv'?(v>=0?' vp':' vn'):'';
   const bcPlus=(f,v)=>(f==='varv'&&v>0)?'+':'';
+  let AUD=null; try{ AUD=saleAudit(); }catch(e){}                     // worked out ONCE per build (v2.93.0)
   const bcHint={cons:'opening + receipt − closing', sale:noSale?'no POS sale in this period yet':'from the POS sheet', varv:'sale − consumption'};
   const bcCell=(cls,f,v,unit)=>`<div class="${cls}${bcSign(f,v)}">${bcPlus(f,v)}${fmt(Math.round(v))}<small>${unit}</small></div>`;
   const bcHead=`<div class="card bcledger">
-      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f" title="Sale − Consumption: + (green) = sold more than the stock that moved · − (red) = stock gone with no sale">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption · Sale <b>−</b> Consumption <b>=</b> Variance</div><div class="p">${saleMatchChip(1)} ${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
+      <div class="bh"><div class="t">Beverage Control Ledger</div><div class="f" title="Sale − Consumption: + (green) = sold more than the stock that moved · − (red) = stock gone with no sale">Opening <b>+</b> Receipt <b>−</b> Closing <b>=</b> Consumption · Sale <b>−</b> Consumption <b>=</b> Variance</div><div class="p">${saleMatchChip(1,AUD)} ${D.rows.length} items · ${esc(period.from)} → ${esc(period.to)}</div></div>
       <div class="bclh">
         <div class="h c">Column</div>${BCOLS.map(([f,l])=>`<div class="h">${l}</div>`).join('')}
         <div class="k">Landing ₹</div>${BCOLS.map(([f])=>`<div class="rs${bcSign(f,D.tot[f])}">₹ ${R0(D.tot[f])}</div>`).join('')}
@@ -3443,16 +3444,34 @@ function bcBlocks(){
         ${cats.map((c,i)=>ledRow(i+1,c)).join('')}${ledTot('ml',TM)}${ledTot('pcs',TP)}</div>`
       :'<span class="muted" style="font-size:12px">Type an opening, or switch on ☰ All brands — the categories appear here</span>'}
     </div></div>`;
-  // ④ bottom summary tiles
+  /* ④ bottom summary tiles — the last one is the SALE COLUMN'S OWN SUM (v2.93.0).
+     Client: "tally sheet a 5,16,595 ml · 2,513 pcs … beverage control a sell column er sange ki
+     match korche & ki kore bujhbo match korche · avg variance % remove kore total sale column er
+     total ta sum kore dau". Nothing new is computed: D.qty.ml.sale / D.qty.pcs.sale are the very
+     figures the Sale cells above are built from, so the tile IS that column added up — printed
+     directly under it, with the Tally Sheet's own answer on the label and the side-by-side proof
+     one click away. Avg Variance % is gone at their word; its figure moved into the Total
+     Variance tile's tooltip, so nothing was lost. */
   const avgVarPct = D.tot.sale ? (D.tot.varv/D.tot.sale*100) : 0;
+  const saleML=Math.round(D.qty.ml.sale), salePC=Math.round(D.qty.pcs.sale);
+  const smOK=AUD&&AUD.M.ok, smN=AUD?AUD.M.n:0;
+  const saleVal=(saleML||!salePC)
+      ? `${fmt(saleML)}<small> ml</small>${salePC?`<div class="v2">${fmt(salePC)} pcs</div>`:''}`
+      : `${fmt(salePC)}<small> pcs</small>`;
+  const saleLab=!AUD ? 'Total Sale — the Sale column'
+      : (smOK ? 'Total Sale · ✔ Tally agrees'
+              : `Total Sale · ⚠ ${fmt(smN||1)} brand${smN===1?'':'s'} differ${smN===1?'s':''}`);
+  const saleTitle=!AUD ? 'The Sale column added up.'
+      : (smOK ? `The Sale column added up: ${fmt(saleML)} ml${salePC?' and '+fmt(salePC)+' pcs':''}. The Tally Sheet's Grand Total reads the same — Cocktail + Straight on that sheet IS this column, brand by brand. Click to see them side by side.`
+              : `The Sale column adds up to ${fmt(saleML)} ml${salePC?' and '+fmt(salePC)+' pcs':''}, and ${fmt(smN)} brand${smN===1?'':'s'} do not agree with the Tally Sheet. Click to see which.`);
   const footHtml=`<div class="bcfoot">
-    ${[['📦','Items Available', fmt(activeN), '#25c685','var(--text)'],
-       ['🧊','Total Stock (pcs)', fmt(Math.round(pcsStock*100)/100), '#4f8cff','var(--text)'],
-       ['💧','Total Stock (ml)', fmt(Math.round(mlStock)), '#8b5cf6','var(--text)'],
-       ['💰','Total Sale Value', '₹ '+R0(D.tot.sale), '#e8c94b','var(--gold)'],
-       ['⚖️','Total Variance', '₹ '+R0(D.tot.varv), D.tot.varv>=0?'#25c685':'#ef4f57', D.tot.varv>=0?'var(--green)':'var(--red)'],
-       ['📉','Avg Variance %', (avgVarPct>0?'+':'')+avgVarPct.toFixed(2)+'%', avgVarPct>=0?'#25c685':'#ef4f57', avgVarPct>=0?'var(--green)':'var(--red)']]
-      .map(x=>`<div class="f"><div class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[0]}</div>
+    ${[['📦','Items Available', fmt(activeN), '#25c685','var(--text)', activeN+' brands have an opening, a receipt, a closing or a sale in this period'],
+       ['🧊','Total Stock (pcs)', fmt(Math.round(pcsStock*100)/100), '#4f8cff','var(--text)', 'beer · breezer · cigarettes — counted in pieces'],
+       ['💧','Total Stock (ml)', fmt(Math.round(mlStock)), '#8b5cf6','var(--text)', 'spirits · wine · draught — counted in millilitres'],
+       ['💰','Total Sale Value', '₹ '+R0(D.tot.sale), '#e8c94b','var(--gold)', 'the Sale column priced at the landing rate'],
+       ['⚖️','Total Variance', '₹ '+R0(D.tot.varv), D.tot.varv>=0?'#25c685':'#ef4f57', D.tot.varv>=0?'var(--green)':'var(--red)', 'sale − consumption, priced · average '+(avgVarPct>0?'+':'')+avgVarPct.toFixed(2)+'% of sale'],
+       ['🧾', saleLab, saleVal, smOK?'#25c685':(AUD?'#e0a33e':'#8b5cf6'), smOK?'var(--green)':(AUD?'var(--amber,#e0a33e)':'var(--text)'), saleTitle, AUD?'saleMatchModal()':'']]
+      .map(x=>`<div class="f${x[6]?' tap':''}" title="${esc(x[5]||'')}"${x[6]?` onclick="${x[6]}"`:''}><div class="ic" style="background:${x[3]}1f;border:1px solid ${x[3]}55">${x[0]}</div>
         <div class="v" style="color:${x[4]}">${x[2]}</div><div class="l">${x[1]}</div></div>`).join('')}
   </div>`;
   return { top: bcHead + bcLedger, foot: footHtml, audit: bcAuditHtml() };

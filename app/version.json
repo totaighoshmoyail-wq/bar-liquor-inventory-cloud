@@ -1,5 +1,5 @@
 {
-  "version": "2.92.0",
+  "version": "2.93.0",
   "date": "2026-11-01",
-  "notes": "The Tally Sheet draws EVERY category. Its sale table only ever looped the twelve standard ones, so a brand filed under anything else was never shown there and never counted into the GRAND TOTAL — while Beverage Control, which walks every brand, kept counting it. On the Canteen company that was 174 of 369 brands. The GRAND TOTAL row also splits millilitres from pieces now, as the strip above it already did. And the match chip on both pages opens “Sale match”, which lists everything that can still keep the two totals apart — a category of its own, the same brand twice, a POS name the engine could not place — each with the button that puts it right."
+  "notes": "The Sale column now adds itself up, right underneath itself. Beverage Control’s bottom strip loses “Avg Variance %” (its figure moved into the Total Variance tooltip) and gains “Total Sale” — the Sale column’s own sum in millilitres and pieces, the very figures the Tally Sheet’s Grand Total prints. Its label carries the answer, “✔ Tally Sheet agrees” or “⚠ N brands differ”, and one click opens the two totals side by side."
 }
