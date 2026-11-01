@@ -1,5 +1,5 @@
 {
-  "version": "2.89.0",
-  "date": "2026-10-31",
-  "notes": "Typing a figure no longer rebuilds the page. On Beverage Control an Opening or Closing now lands in 16 ms instead of 369, and on the Liquor Room in 28 ms instead of 538 — only the edited row is redrawn, and the ledger head, the category register and the totals follow a beat later. The Liquor Room Opening box also stopped losing a typed sum: it promised 12+12 but stored the text, which counted as 0."
+  "version": "2.90.0",
+  "date": "2026-11-01",
+  "notes": "A name that is issued in Bar Stock Issue but has no row on Beverage Control can now be added straight from the Receipt alert — one at a time or all at once — with its category and bottle size found from the name, its receive name set, and a refusal if that brand is already there. The same form is on the toolbar as New brand. Carry is now called New month. The Liquor Room search filters without rebuilding the page (538 ms a letter → 6 ms). A layout, look or theme no longer flips back to the other device’s choice. Opening and Closing say what the typed figure means — .3 is 300 ml."
 }

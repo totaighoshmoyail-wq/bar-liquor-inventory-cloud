@@ -2174,7 +2174,43 @@ function lrFindDD(q){
 var _lrFindMine = false;
 function _lrFindPut(){ _lrFindMine=true; const b=document.getElementById('searchBox');
   if(b){ b.focus(); try{ b.setSelectionRange(b.value.length,b.value.length); }catch(e){} } _lrFindMine=false; }
-function lrFindType(v){ _lrFindOpen=true; _lrFindSel=-1; isearch('lr', v); }   // isearch keeps the box focused through the re-render
+/* Show or hide the rows that are already there instead of building the page again. Returns the
+   number of rows left on the sheet, or -1 when this layout has no sheet (cards / two-pane / the
+   accordion), where the old whole-page road is still the only one. */
+function lrSheetFilter(){
+  const tb=document.querySelector('#view .tbl.rawhead tbody'); if(!tb) return -1;
+  const nq=iq.lr?norm(iq.lr):'';
+  const rows=tb.children; let shown=0, gi=-1; const groups=[];
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i];
+    if(r.classList.contains('grp-row')){ groups.push({row:r, n:0, sub:null, name:(r.querySelector('.rdselg')||{getAttribute:()=>''}).getAttribute('data-g')||''}); gi=groups.length-1; continue; }
+    if(r.hasAttribute('data-lrsub')){ if(gi>=0) groups[gi].sub=r; continue; }
+    if(!r.hasAttribute('data-lr')) continue;
+    const nm=r.querySelector('.lrname strong'), g=r.querySelector('.rdsel');
+    const name=nm?nm.textContent:'', grp=g?(g.getAttribute('data-g')||''):'';
+    const hit = !nq || norm(name).includes(nq) || norm(grp).includes(nq);   // the sheet's own rule (groupRaw)
+    r.style.display = hit?'':'none';
+    if(hit){ shown++; if(gi>=0) groups[gi].n++; }
+  }
+  groups.forEach(g=>{ const on=g.n>0;
+    g.row.style.display = on?'':'none';
+    if(g.sub){ g.sub.style.display = on?'':'none'; if(on && g.name) lrPaintSub(g.name); } });
+  return shown;
+}
+function lrFindCntPaint(shown){
+  const c=document.querySelector('#view .lrfind .cnt'); if(!c) return;
+  const has=!!iq.lr, total=rawData.length+unmatchedNames().length;
+  c.className='cnt'+(has&&!shown?' no':'');
+  c.innerHTML = has ? (shown ? '<strong>'+fmt(shown)+'</strong> of '+fmt(total)+' items' : 'nothing matches that name')
+                    : '<strong>'+fmt(shown)+'</strong> items';
+}
+function lrFindDDPaint(){ const h=document.getElementById('lrddHost'); if(h) h.innerHTML=lrFindDD(iq.lr); }
+function lrFindType(v){
+  _lrFindOpen=true; _lrFindSel=-1; iq.lr=v;
+  const shown=lrSheetFilter();
+  if(shown<0){ isearch('lr', v); return; }      // no sheet on this layout — the whole page it is
+  lrFindDDPaint(); lrFindCntPaint(shown); lrPaintTotSoon();
+}
 function lrFindFocus(){ if(_lrFindMine) return; if(iq.lr && !_lrFindOpen){ _lrFindOpen=true; routeQuiet(); _lrFindPut(); } }
 function lrFindHide(){ _lrFindOpen=false; _lrFindSel=-1; const d=document.querySelector('.lrfind .lrdd'); if(d) d.classList.remove('open'); }
 /* A re-render removes the focused input, which Chrome reports as a blur, so the timer must ask
@@ -2185,8 +2221,18 @@ function lrFindBlur(){ setTimeout(function(){
   if(b && document.activeElement===b) return;   // the cursor is still in the box — only the element changed
   lrFindHide();
 }, 170); }
-function lrFindPick(name){ _lrFindOpen=false; _lrFindSel=-1; iq.lr=String(name||''); routeQuiet(); _lrFindPut(); }
-function lrFindClear(){ _lrFindOpen=false; _lrFindSel=-1; iq.lr=''; routeQuiet(); _lrFindPut(); }
+function lrFindGo(q){                            // one road for pick / clear / Esc
+  iq.lr=String(q||'');
+  const b=document.getElementById('searchBox'); if(b) b.value=iq.lr;
+  const shown=lrSheetFilter();
+  if(shown<0){ routeQuiet(); _lrFindPut(); return; }
+  lrFindDDPaint(); lrFindCntPaint(shown); lrPaintTotSoon();
+  const btn=document.querySelector('#view .lrfind .clr');          // the ✕ appears / goes with the text
+  if(!!iq.lr !== !!btn){ const bar=document.querySelector('#view .lrfind'); if(bar) bar.classList.toggle('on', !!iq.lr); }
+  _lrFindPut();
+}
+function lrFindPick(name){ _lrFindOpen=false; _lrFindSel=-1; lrFindGo(name); }
+function lrFindClear(){ _lrFindOpen=false; _lrFindSel=-1; lrFindGo(''); routeQuiet(); }
 /* The arrows and Enter move INSIDE the open list, in the DOM — a 300-row sheet is not rebuilt on
    every keypress, which is the Resolve box's own rule (v2.66.0). */
 function lrFindKey(e){
@@ -2215,7 +2261,7 @@ function lrFindBar(q, shown, total){
       <input id="searchBox" autocomplete="off" spellcheck="false" value="${esc(q)}"
         placeholder="Search the items below — type a name or a group, the sheet filters as you type…"
         oninput="lrFindType(this.value)" onkeydown="lrFindKey(event)" onfocus="lrFindFocus()" onblur="lrFindBlur()">
-      ${lrFindDD(q)}
+      <span id="lrddHost">${lrFindDD(q)}</span>
     </div>
     ${has?`<button class="clr" onclick="lrFindClear()" title="Clear the search (Esc)">✕</button>`:''}
     <span class="cnt${has&&!shown?' no':''}" title="${has?'rows on the sheet below that match what you typed':'items on the sheet below'}">${
@@ -2235,12 +2281,12 @@ const lrPassB = v => lrBlank==='none'
   || (lrBlank==='op'&&v.op===0) || (lrBlank==='rv'&&v.rv===0) || (lrBlank==='is'&&v.is===0) || (lrBlank==='cl'&&v.cl===0)
   || (lrBlank==='hop'&&v.op!==0) || (lrBlank==='hrv'&&v.rv>0)  || (lrBlank==='his'&&v.is>0)  || (lrBlank==='hcl'&&v.cl!==0);
 function lrCalc(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op,rv,is,cl:op+rv-is}; }
-function lrRowHtml(name,idx,grpKnown,op,rv,is,cl,grp){
+function lrRowHtml(name,idx,grpKnown,op,rv,is,cl,grp,hide){
   const land=invGet(name).land, mrp=invGet(name).mrp, val=cl*landOf(name);
   const sgn=(n,cls,pre)=> n>0 ? `<span class="lrsg ${cls}">${pre}${fmt(n)}</span>` : `<span class="lrsg zero">0</span>`;
   const nq=esc(name).replace(/'/g,"\\'");
   const set=k=> idx>=0 ? `lrEdit(${idx},'${k}',this.value)` : `lrEditName('${nq}','${k}',this.value)`;
-  return `<tr class="${grpKnown?'':'row-alert'}" data-lr="${esc(norm(name))}">
+  return `<tr class="${grpKnown?'':'row-alert'}" data-lr="${esc(norm(name))}"${hide?' style="display:none"':''}>
       <td class="lrname">${idx>=0?`<input type="checkbox" class="rdsel selcb" data-n="${esc(norm(name))}" data-g="${esc(grp||'')}" ${_rdSel.has(norm(name))?'checked':''} title="Select" onchange="rdSelToggle(this)"> `:''}<strong>${name}</strong>${grpKnown?'':' '+redBadge()}</td>
       <td class="num"><input class="cell-input lrland" value="${land!=null?land:''}" placeholder="${landOf(name)?Math.round(landOf(name)*100)/100:'₹'}" title="${land!=null&&land!==''?'Your Item Master rate — values this item everywhere':'Automatic: the latest BEVCO invoice rate (or MRP) — type a rate to make it yours'}" onchange="${set('land')}"></td>
       <td class="num"><input class="cell-input lrobox" value="${invGet(name).lrOpen!=null?invGet(name).lrOpen:''}" placeholder="0" title="Opening bottles — or 12+12" onchange="${set('lrOpen')}"></td>
@@ -2261,9 +2307,9 @@ function lrGroupTot(grp){
     T.gO+=v.op; T.gR+=v.rv; T.gI+=v.is; T.gC+=v.cl; T.gV+=v.cl*landOf(r.item); });
   return T;
 }
-function lrSubHtml(grp,T){
+function lrSubHtml(grp,T,hide){
   const t=T||lrGroupTot(grp);
-  return `<tr class="lrsub" data-lrsub="${esc(grp||'')}"><td colspan="2" class="right"><strong>${grp} — TOTAL</strong></td>
+  return `<tr class="lrsub" data-lrsub="${esc(grp||'')}"${hide?' style="display:none"':''}><td colspan="2" class="right"><strong>${grp} — TOTAL</strong></td>
       <td class="num"><strong>${fmt(t.gO)}</strong></td><td class="num"><strong class="lrsg ${t.gR>0?'plus':'zero'}">${t.gR>0?'+':''}${fmt(t.gR)}</strong></td>
       <td class="num"><strong class="lrsg ${t.gI>0?'minus':'zero'}">${t.gI>0?'−':''}${fmt(t.gI)}</strong></td><td class="num"><strong class="lrclose">${fmt(t.gC)}</strong></td>
       <td class="num"><strong class="lrval">₹ ${fmt(Math.round(t.gV))}</strong></td><td></td></tr>`;
@@ -2321,7 +2367,11 @@ function lrPaintTot(){
 }
 VIEWS.liquorroom = () => {
   const q=iq.lr;
-  const groups=groupRaw(r=> !q || norm(r.item).includes(norm(q)) || norm(r.group).includes(norm(q)));
+  /* The SEARCH no longer removes rows from this sheet — every row is drawn and the ones that do not
+     match are hidden, so deleting a letter brings them back with no rebuild at all (v2.90.0). */
+  const _nq = q ? norm(q) : '';
+  const lrHit = r => !_nq || norm(r.item).includes(_nq) || norm(r.group||'').includes(_nq);
+  const groups=groupRaw();
   let tOpen=0,tRecv=0,tIss=0,tClose=0, tValO=0,tValR=0,tValI=0, shownN=0, shownSel=0;
   let shownX=0;   // rows of the red NOT-IN-ITEM-MASTER section — on the sheet, but outside shownN (v2.88.0)
   const pass=lrPass, passB=lrPassB;   // moved out so a repaint filters exactly as the sheet does (v2.89.0)
@@ -2329,23 +2379,27 @@ VIEWS.liquorroom = () => {
   const rowHtml=lrRowHtml, calc=lrCalc;   // both moved out of the view (v2.89.0)
   let body=groups.map(g=>{
     let gO=0,gR=0,gI=0,gC=0, gN=0, gSel=0;
-    const rows=g.items.map(r=>{ const v=calc(r.item); if(!pass(v.cl)||!passB(v)) return ''; gN++; shownN++; if(_rdSel.has(norm(r.item))){ gSel++; shownSel++; }
-      gO+=v.op; gR+=v.rv; gI+=v.is; gC+=v.cl;
-      const m=landOf(r.item);
-      tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
-      return rowHtml(r.item, rawData.indexOf(r), true, v.op,v.rv,v.is,v.cl, g.group); }).join('');
+    const rows=g.items.map(r=>{ const v=calc(r.item); if(!pass(v.cl)||!passB(v)) return '';
+      const hit=lrHit(r);
+      if(hit){ gN++; shownN++; if(_rdSel.has(norm(r.item))){ gSel++; shownSel++; }
+        gO+=v.op; gR+=v.rv; gI+=v.is; gC+=v.cl;
+        const m=landOf(r.item);
+        tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m; }
+      return rowHtml(r.item, rawData.indexOf(r), true, v.op,v.rv,v.is,v.cl, g.group, !hit); }).join('');
     if(!rows) return '';
     // per-group separate totals: Opening · Received · Issued · Closing · Value
-    const gV=g.items.reduce((a,r)=>{ const v=calc(r.item); return (pass(v.cl)&&passB(v)) ? a+v.cl*landOf(r.item) : a; },0);
-    const sub=lrSubHtml(g.group,{gO,gR,gI,gC,gV});
-    return `<tr class="grp-row lrgrp"><td colspan="8"><input type="checkbox" class="rdselg selcb" data-g="${esc(g.group)}" ${gN&&gSel===gN?'checked':''} title="Select this group" onchange="rdSelGroup(this)"> <span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
+    const gV=g.items.reduce((a,r)=>{ const v=calc(r.item); return (pass(v.cl)&&passB(v)&&lrHit(r)) ? a+v.cl*landOf(r.item) : a; },0);
+    const sub=lrSubHtml(g.group,{gO,gR,gI,gC,gV}, !gN);
+    return `<tr class="grp-row lrgrp"${gN?'':' style="display:none"'}><td colspan="8"><input type="checkbox" class="rdselg selcb" data-g="${esc(g.group)}" ${gN&&gSel===gN?'checked':''} title="Select this group" onchange="rdSelGroup(this)"> <span class="g">${g.group}</span><span class="n">${g.items.length} items</span></td></tr>${rows}${sub}`;
   }).join('');
   const extraAll=unmatchedNames();   // the red NOT-IN-ITEM-MASTER rows are on the sheet, so the search bar counts them on both sides of its "N of M"
-  const extra=extraAll.filter(n=> !q || norm(n).includes(norm(q)));
-  if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return ''; shownX++;
-      const m=landOf(n);
-      tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m;
-      return rowHtml(n,-1,false,v.op,v.rv,v.is,v.cl); }).join('');
+  const extra=extraAll;   // drawn whatever the search says; the ones that do not match are hidden (v2.90.0)
+  if(extra.length){ const erows=extra.map(n=>{ const v=calc(n); if(!pass(v.cl)||!passB(v)) return '';
+      const hit=!_nq || norm(n).includes(_nq);
+      if(hit){ shownX++;
+        const m=landOf(n);
+        tOpen+=v.op; tRecv+=v.rv; tIss+=v.is; tClose+=v.cl; tValO+=v.op*m; tValR+=v.rv*m; tValI+=v.is*m; tVal+=v.cl*m; }
+      return rowHtml(n,-1,false,v.op,v.rv,v.is,v.cl,'',!hit); }).join('');
     if(erows) body += `<tr class="grp-row"><td colspan="8" style="color:var(--red)">⚠ NOT IN ITEM MASTER — add these to Item Master</td></tr>`+erows; }
   const ftab=(id,lbl)=>`<div class="tab ${lrFilter===id?'active':''}" onclick="lrFilter='${id}';route()">${lbl}</div>`;
   const lay=pageLay('liquorroom');
@@ -2357,7 +2411,7 @@ VIEWS.liquorroom = () => {
   else if(lay==='dense') bodyHtml=`<div class="laydense">${defCard}</div>`;
   else {
     const grp=groups.map(g=>{
-      const its=g.items.map(r=>{ const name=r.item, op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name), cl=op+rv-is; return {name, idx:rawData.indexOf(r), op, rv, is, cl}; })
+      const its=g.items.filter(lrHit).map(r=>{ const name=r.item, op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name), cl=op+rv-is; return {name, idx:rawData.indexOf(r), op, rv, is, cl}; })
         .filter(x=>pass(x.cl)&&passB(x));
       return { id:g.group, title:g.group, sub:`${its.length} items`,
         right:`<span class="num gold" style="font-weight:700">${fmt(its.reduce((a,x)=>a+x.cl,0))}</span>`,
@@ -2646,6 +2700,9 @@ function bcPaintNow(idx, rateShared){
 function biRowHtml(t){
   const idx=tallyItems.indexOf(t); const R=barRow(t); const iv=R.iv; const A=biAmt(t,R); const u=R.u;
   const amtLine=(v,col)=>{ const r=Math.round(v); return r?`<div class="biamt"${col?` style="color:${col}"`:''}>₹ ${fmt(r)}</div>`:''; };
+  /* …and under Opening / Closing, what the figure AS TYPED means — client: ".3 korla jano excel moto
+     300 ml ney & .03 mane 30 ml hoi". The arithmetic always read it that way; now it is on the page. */
+  const qtyLine=(raw)=>{ const m=bcMeanTxt(raw, sizeOf(t.name)||0, u); return m?`<div class="biamt bcmean" title="how this sheet reads what you typed">${m}</div>`:''; };
   const mrpRaw=A.mrpDisp;
   const vcol=R.varv>0?'var(--green)':(R.varv<0?'var(--red)':'var(--text-muted)');
   const vbg=R.varv>0?'var(--green-dim)':(R.varv<0?'var(--red-dim)':'transparent');
@@ -2659,9 +2716,9 @@ function biRowHtml(t){
       <div style="margin-top:2px"><input class="cell-input rname" style="text-align:left;color:${rnMissing?'var(--red)':'var(--text-muted)'}" list="rawItems" value="${esc(R.rname||'')}" placeholder="↳ receive name (Item Master col A)…" title="Item Master full name — receipts in Bar Stock Issue / Purchase / Liquor Room are matched against THIS (Excel col A). Edit if blank/wrong." onchange="invSetT(${idx},'rawName',this.value);route()"></div></td>
     ${sizeCell}
     <td class="num"><input class="cell-input mrpcell" value="${mrpRaw!=null?mrpRaw:''}" placeholder="₹" title="Landing ₹ ${u==='pcs'?'per pc':'per bottle'} — shared with Item Master / Liquor Room / Purchase (auto-set by BEVCO invoice)" onchange='invSet(${jatt(A.key)},"land",this.value);bcPaint(${idx},1)'></td>
-    <td class="num"><input class="cell-input obox" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${u==='pcs'?'pieces':'bottle.loose 2.35 — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);bcPaint(${idx})">${amtLine(A.open)}</td>
+    <td class="num"><input class="cell-input obox" value="${iv.openBL!=null?iv.openBL:''}" placeholder="0" title="${u==='pcs'?'pieces':'bottle.loose: 2.35 = 2 bottles + 350 ml · .3 = 300 ml · .03 = 30 ml — or 12+12'}" onchange="invSetTNum(${idx},'openBL',this.value);bcPaint(${idx})">${qtyLine(iv.openBL)}${amtLine(A.open)}</td>
     <td class="num calc" title="Bar Stock Issue entries for '${esc(R.rname||t.name)}' within the period">${R.recBtl}${amtLine(A.rec)}</td>
-    <td class="num"><input class="cell-input cbox" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${u==='pcs'?'pieces — or 12+12':'physical · 12+12 = 24'}" onchange="invSetTNum(${idx},'closeBL',this.value);bcPaint(${idx})">${amtLine(A.close)}</td>
+    <td class="num"><input class="cell-input cbox" value="${iv.closeBL!=null?iv.closeBL:''}" placeholder="0" title="${u==='pcs'?'pieces — or 12+12':'physical count · 2.35 = 2 bottles + 350 ml · .3 = 300 ml — or 12+12'}" onchange="invSetTNum(${idx},'closeBL',this.value);bcPaint(${idx})">${qtyLine(iv.closeBL)}${amtLine(A.close)}</td>
     <td class="num"><input class="cell-input cv" style="color:${R.consOver!=null?'var(--gold)':'inherit'}" value="${R.consOver!=null?R.consOver:''}" placeholder="${fmt(R.consAuto)}" title="auto = Opening + Receipt − Closing · type a value to override (e.g. Draught keg)" onchange="invSetTNum(${idx},'consOverride',this.value);bcPaint(${idx})">${amtLine(A.cons)}</td>
     <td class="num gold">${fmt(R.sale)}${amtLine(A.sale)}</td>
     <td class="num"><input class="cell-input cv vcell" style="color:${vcol};background:${vbg}" value="${R.varOver!=null?R.varOver:''}" placeholder="${R.varAuto>0?'+':''}${fmt(R.varAuto)}" title="auto = Sale − Consumption · + = sold more than the stock that moved · type a value to override (${u==='pcs'?'pcs':'ml'})" onchange="invSetTNum(${idx},'varOverride',this.value);bcPaint(${idx})">${varSub}</td>
@@ -2681,17 +2738,179 @@ function bcRecvAudit(){
   let got=0; tallyItems.forEach(x=>{ got+=barRow(x).recBtl; });
   return {n, q, got, lost, gap:Math.round((q-got)*1000)/1000};
 }
+/* ---- add a brand to this sheet, from the alert or by hand (v2.90.0) ---------------------------
+   Client: "kono name jokhon beverage control a na takhche & bar issue korche sai name er alart
+   jamon diche tamni akhana add to beverage control er optision dau … catagory, ml & baki sob
+   mathai rakhe … kono name double add hole alart deba & manual name o add korbar er option dau".
+   The ⚠ Receipt alert already NAMED the items whose bottles have nowhere to land (v2.71.0) and then
+   left them there. One form now serves both roads — the alert's ＋ Add and the toolbar's ＋ New
+   brand — so they ask the same questions and cannot drift apart.
+   It goes through newItemEverywhere() (v2.74.0), so a new product lands on Item Master, Liquor Room,
+   Tally Sheet and Beverage Control together with its receive name set — never rawData.push alone. */
+var _bcAdd={name:'',cat:'',grp:'',size:'',land:'',open:'',rname:'',catTouched:false,sizeTouched:false,src:''};
+
+/* what a typed bottle.loose figure actually MEANS — client: ".3 korla jano excel moto 300 ml ney
+   & .03 mane 30 ml hoi". The arithmetic has always read it that way (toLitres); what was missing is
+   being able to SEE it. Kegs are typed in ml, like their own sheet (v2.42.0). */
+function bcMeanTxt(v, sizeL, unit){
+  const s=String(v==null?'':v).trim(); if(s==='') return '';
+  const x=fnum(evalNum(s)); if(!x) return '';
+  if(unit==='pcs') return fmt(x)+' pcs';
+  if(sizeL>=5) return fmt(Math.round(x))+' ml';
+  const b=Math.trunc(x), loose=Math.round((x-b)*1000);
+  if(b && loose) return fmt(b)+' btl + '+fmt(loose)+' ml';
+  if(b) return fmt(b)+(b===1?' bottle':' bottles');
+  return fmt(loose)+' ml';
+}
+function bcAddDupe(nm){
+  const n=String(nm||'').trim();
+  return { brand: n?getTallyItem(n):null, item: n?findRawExact(n):null };
+}
+function bcAddGuessSize(nm){ const m=String(nm||'').match(/(\d{2,5})\s*ML/i); if(m) return +m[1];
+  return Math.round(deriveSizeL(nm)*1000); }
+/* A pcs brand (beer · breezer · cigarettes) is counted in PIECES, so the ml in its name is not a
+   size to fill in — "BUDWEISER … 330 ML" would otherwise come out as a pack of 330 pieces. Its
+   Pack size stays blank unless they type one; only an ml brand takes the ml from its name. */
+function bcAddAutoSize(nm, cat){ return invUnit(cat)==='pcs' ? '' : String(bcAddGuessSize(nm)); }
+function bcAddAsk(name, fromIssue){
+  const nm=String(name||'').trim();
+  const ex=nm?findRawExact(nm):null;
+  _bcAdd={ name:nm, cat:nm?catFindFor(nm, ex?(ex.group||''):''):'', grp:ex?(ex.group||''):'',
+           size:'', land:'', open:'', rname:nm,
+           catTouched:false, sizeTouched:false, src:fromIssue?String(name||''):'' };
+  _bcAdd.size = nm ? bcAddAutoSize(nm, _bcAdd.cat) : '';
+  modal('➕ Add a brand to Beverage Control', `<div class="bevxl bcadd">
+      <div id="bcAddWarn"></div>
+      <div class="rw"><label>Name</label><input class="input" id="bcAddName" value="${esc(_bcAdd.name)}" placeholder="e.g. JAMESON WHISKY 750 ML" oninput="bcAddSet('name',this.value)" autocomplete="off"></div>
+      <div class="rw"><label>Category</label><select class="input gold" id="bcAddCat" onchange="bcAddSet('cat',this.value)">${tallyCatOpts(_bcAdd.cat)}</select>
+        <span class="hint" id="bcAddUnit"></span></div>
+      <div class="rw"><label id="bcAddSizeL">Bottle size</label><input class="input" id="bcAddSize" value="${esc(_bcAdd.size)}" placeholder="750" oninput="bcAddSet('size',this.value)" autocomplete="off">
+        <span class="hint" id="bcAddSizeH"></span></div>
+      <div class="rw"><label>Item Master group</label><input class="input" id="bcAddGrp" list="bcAddGrps" value="${esc(_bcAdd.grp)}" placeholder="e.g. IMFL WHISKY 750 ML" oninput="bcAddSet('grp',this.value)" autocomplete="off">
+        <datalist id="bcAddGrps">${[...new Set(rawData.map(r=>String(r.group||'').trim()).filter(Boolean))].sort().map(g=>`<option value="${esc(g)}"></option>`).join('')}</datalist></div>
+      <div class="rw"><label>Receive name</label><input class="input" id="bcAddRn" list="rawItems" value="${esc(_bcAdd.rname)}" oninput="bcAddSet('rname',this.value)" autocomplete="off">
+        <span class="hint">the Item Master name its Bar Stock Issue bottles are matched on</span></div>
+      <div class="rw"><label>Landing ₹</label><input class="input" id="bcAddLand" value="" placeholder="optional" oninput="bcAddSet('land',this.value)" autocomplete="off">
+        <span class="hint">per bottle — leave blank and the latest invoice rate (or MRP) is used</span></div>
+      <div class="rw"><label>Opening</label><input class="input" id="bcAddOpen" value="" placeholder="optional" oninput="bcAddSet('open',this.value)" autocomplete="off">
+        <span class="hint" id="bcAddOpenH"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:8px">It is created in one go on <strong>Item Master · Liquor Room · Tally Sheet · Beverage Control</strong>, with its receive name set so its issues are received on its own row.</div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><span id="bcAddGo"></span>`);
+  bcAddPaint();
+}
+function bcAddSet(f,v){
+  _bcAdd[f]=v;
+  if(f==='cat'){ _bcAdd.catTouched=true;                 // ml ⇄ pcs changes what the size field even means
+    if(!_bcAdd.sizeTouched){ const z=bcAddAutoSize(_bcAdd.name,v); _bcAdd.size=z; const b=document.getElementById('bcAddSize'); if(b) b.value=z; } }
+  if(f==='size') _bcAdd.sizeTouched=true;
+  if(f==='name'){                                     // the guesses follow the name until they are touched
+    if(!_bcAdd.catTouched){ const c=catFindFor(v,_bcAdd.grp); if(c){ _bcAdd.cat=c; const b=document.getElementById('bcAddCat'); if(b) b.value=c; } }
+    if(!_bcAdd.sizeTouched){ const z=bcAddAutoSize(v,_bcAdd.cat); _bcAdd.size=z; const b=document.getElementById('bcAddSize'); if(b) b.value=z; }
+    if(!_bcAdd.src){ _bcAdd.rname=v; const b=document.getElementById('bcAddRn'); if(b) b.value=v; }
+  }
+  bcAddPaint();
+}
+/* repainted IN PLACE — modal() again would stack a second dialog (v2.40.0) */
+function bcAddPaint(){
+  const nm=String(_bcAdd.name||'').trim(), D=bcAddDupe(nm);
+  const unit=invUnit(_bcAdd.cat), sz=fnum(_bcAdd.size)/1000;
+  const set=(id,h)=>{ const e=document.getElementById(id); if(e) e.innerHTML=h; };
+  const txt=(id,t)=>{ const e=document.getElementById(id); if(e) e.textContent=t; };
+  set('bcAddUnit', unit==='pcs'
+    ? '<span class="pill gray">counted in pieces</span>'
+    : '<span class="pill gray">counted in ml</span>');
+  txt('bcAddSizeL', unit==='pcs' ? 'Pack size (pcs)' : 'Bottle size (ml)');
+  set('bcAddSizeH', unit==='pcs' ? 'pieces in one pack — display only' : (fnum(_bcAdd.size)>=5000?'a keg: its figures are typed in ml, like your sheet':'750 · 700 · 375 …'));
+  set('bcAddOpenH', unit==='pcs' ? 'pieces' :
+    `<strong>2.35</strong> = 2 bottles + 350 ml · <strong>.3</strong> = 300 ml${_bcAdd.open?` → <strong class="gold">${esc(bcMeanTxt(_bcAdd.open, sz, unit))}</strong>`:''}`);
+  /* the duplicate alert the client asked for */
+  let warn='', can=true;
+  if(!nm){ warn=`<div class="w">Type the brand name.</div>`; can=false; }
+  else if(D.brand){
+    can=false;
+    warn=`<div class="w" style="border-color:color-mix(in srgb,var(--red) 45%,transparent);color:var(--red);background:color-mix(in srgb,var(--red) 7%,transparent)">
+      ⛔ <strong>${esc(D.brand.name)}</strong> is already on Beverage Control (${esc(D.brand.category||'—')}) — adding it again would make two rows for one brand.
+      ${_bcAdd.src?`<br><span class="muted" style="color:inherit">Its bottles are issued as “${esc(_bcAdd.src)}”, so point that row's receive name at the issued name instead.</span>`:''}</div>`;
+  }
+  else if(D.item) warn=`<div class="w">“${esc(D.item.item)}” is already in your Item Master (${esc(D.item.group||'no group')}) — only the Beverage Control brand will be created, and it keeps that group.</div>`;
+  set('bcAddWarn', warn);
+  set('bcAddGo', can
+    ? `<button class="btn btn-gold" onclick="bcAddSave()">✅ Add to all four pages</button>`
+    : (D.brand && _bcAdd.src
+       ? `<button class="btn btn-gold" onclick="bcAddPoint()">🔗 Point ${esc(D.brand.name)} at this item</button>`
+       : `<button class="btn" disabled style="opacity:.5;cursor:not-allowed">✅ Add</button>`));
+}
+/* the near-duplicate road: the brand exists under its own spelling, the issue arrives under another */
+function bcAddPoint(){
+  const D=bcAddDupe(_bcAdd.name); if(!D.brand||!_bcAdd.src) return;
+  invSet(D.brand.name,'rawName', _bcAdd.src); bsv('inv',invData);
+  try{ invalidateCalcCache(); }catch(e){}
+  closeModal(); route();
+  toast('Pointed', esc(D.brand.name)+' now receives the bottles issued as “'+esc(_bcAdd.src)+'”','ok');
+}
+function bcAddSave(){
+  const nm=String(_bcAdd.name||'').trim(); if(!nm) return;
+  if(bcAddDupe(nm).brand){ toast('Already here','That brand is already on Beverage Control','err'); bcAddPaint(); return; }
+  const cat=_bcAdd.cat||catFindFor(nm,_bcAdd.grp), unit=invUnit(cat);
+  const res=newItemEverywhere(nm, _bcAdd.grp, cat);
+  if(!res){ toast('Name?','Type the brand name','err'); return; }
+  const iv=invData[norm(nm)]||(invData[norm(nm)]={});
+  const sz=fnum(_bcAdd.size);
+  if(sz>0){ if(unit==='pcs') iv.sizePcs=sz; else iv.sizeL=sz/1000; }
+  const rn=String(_bcAdd.rname||'').trim(); if(rn) iv.rawName=rn;
+  if(String(_bcAdd.land||'').trim()!=='') iv.land=evalNum(_bcAdd.land);
+  if(String(_bcAdd.open||'').trim()!=='') iv.openBL=evalNum(_bcAdd.open);
+  newItemCommit([res]); bsv('inv',invData);
+  closeModal(); route();
+  const R=barRow(getTallyItem(nm));
+  toast('Added', nm+' · '+cat+' — on Item Master, Liquor Room, Tally Sheet and Beverage Control'
+    + (R.recBtl?' · it receives '+fmt(R.recBtl)+' btl in this period':''), 'ok');
+}
+/* every missing name at once, from the ⚠ Receipt alert */
+function bcAddAllAsk(){
+  const A=bcRecvAudit(); const names=Object.keys(A.lost).sort((a,b)=>A.lost[b]-A.lost[a]);
+  if(!names.length){ toast('Nothing to add','Every issued item already has a row here','err'); return; }
+  const rows=names.map((k,i)=>{ const ex=findRawExact(k); const cat=catFindFor(k, ex?(ex.group||''):''); const dup=!!getTallyItem(k);
+    return `<tr${dup?' class="row-alert"':''}><td class="num muted">${i+1}</td><td class="lrname"><strong>${esc(k)}</strong>${dup?' '+redBadge():''}</td>
+      <td><span class="pill gray">${esc(cat)}</span></td><td class="num">${fmt(bcAddGuessSize(k))}<small class="muted"> ${invUnit(cat)==='pcs'?'pcs':'ml'}</small></td>
+      <td class="num"><strong>${fmt(A.lost[k])}</strong></td>
+      <td class="right"><button class="btn btn-sm" title="Add this one, with its category and size to check first" onclick="closeModal();bcAddAsk(this.getAttribute('data-n'),1)" data-n="${esc(k)}">＋ Add</button></td></tr>`; }).join('');
+  const dup=names.filter(k=>getTallyItem(k)).length;
+  modal('➕ Add '+fmt(names.length)+' issued name'+(names.length===1?'':'s')+' to Beverage Control', `<div class="bevxl">
+    <p style="font-size:12px;margin:0 0 8px">These names are issued in Bar Stock Issue but have no row on this sheet, so their bottles cannot be received. Each is given the category and bottle size found from its name — check them, then add.</p>
+    ${dup?`<div class="w" style="border-color:color-mix(in srgb,var(--red) 45%,transparent);color:var(--red);background:color-mix(in srgb,var(--red) 7%,transparent)">⛔ ${fmt(dup)} of them already exist as a brand here (marked) and are skipped — open one with ＋ Add to point the existing row's receive name at it instead.</div>`:''}
+    <div class="table-wrap" style="max-height:330px"><table class="tbl"><thead><tr><th>#</th><th>Item issued</th><th>Category</th><th class="num">Size</th><th class="num">Bottles</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:6px">Each one is created on Item Master · Liquor Room · Tally Sheet · Beverage Control together, with its receive name set to the issued name.</div></div>`,
+    `<button class="btn" onclick="closeModal()">Close</button><button class="btn btn-gold" onclick="bcAddAllDo()">✅ Add ${fmt(names.length-dup)} now</button>`);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+function bcAddAllDo(){
+  const A=bcRecvAudit(); const names=Object.keys(A.lost).filter(k=>!getTallyItem(k));
+  if(!names.length){ toast('Nothing to add','Every one of them already has a brand here','err'); return; }
+  const res=names.map(k=>{ const ex=findRawExact(k); const cat=catFindFor(k, ex?(ex.group||''):'');
+    const r=newItemEverywhere(k, ex?(ex.group||''):'', cat);
+    if(r && invUnit(cat)!=='pcs'){ const sz=bcAddGuessSize(k);
+      if(sz>0) invData[norm(k)]=Object.assign(invData[norm(k)]||{},{sizeL:sz/1000}); }
+    return r; });
+  const made=newItemCommit(res); bsv('inv',invData);
+  closeModal(); route();
+  const A2=bcRecvAudit();
+  toast('Added', fmt(made.brands)+' brand'+(made.brands===1?'':'s')+' · '+fmt(made.items)+' Item Master name'+(made.items===1?'':'s')
+    +' — this sheet now receipts '+fmt(A2.got)+' of '+fmt(A2.q)+' btl', 'ok');
+}
 function bcRecvGapModal(){
   const A=bcRecvAudit(); const names=Object.keys(A.lost).sort((a,b)=>A.lost[b]-A.lost[a]);
   const lostQ=names.reduce((s,k)=>s+A.lost[k],0);
   modal('📅 Receipt · '+esc(period.from)+' → '+esc(period.to), `
     <p style="font-size:12px;margin:0 0 8px">Bar Stock Issue holds <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> bottle${A.q===1?'':'s'} in these dates. This sheet receipts <strong class="gold">${fmt(A.got)}</strong>.</p>
     ${names.length?`<p class="muted" style="font-size:11.5px;margin:0 0 6px">These item names have no row on this sheet, so their bottles cannot appear here. Add the brand in the Tally Sheet, or point an existing brand's <em>receive name</em> at the item.</p>
-    <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead><tr><th>Item issued</th><th class="right" style="width:90px">Bottles</th></tr></thead>
-    <tbody>${names.map(k=>`<tr><td>${esc(k)}</td><td class="num"><strong>${fmt(A.lost[k])}</strong></td></tr>`).join('')}</tbody>
-    <tfoot><tr class="lrsub"><td class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(lostQ)}</strong></td></tr></tfoot></table></div>`
+    <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead><tr><th>Item issued</th><th class="right" style="width:90px">Bottles</th><th style="width:86px"></th></tr></thead>
+    <tbody>${names.map(k=>`<tr><td>${esc(k)}</td><td class="num"><strong>${fmt(A.lost[k])}</strong></td>
+      <td class="right"><button class="btn btn-sm" title="Add this brand to Beverage Control — its category and bottle size are found for you first" onclick="closeModal();bcAddAsk(this.getAttribute('data-n'),1)" data-n="${esc(k)}" style="white-space:nowrap">＋ Add</button></td></tr>`).join('')}</tbody>
+    <tfoot><tr class="lrsub"><td class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(lostQ)}</strong></td><td></td></tr></tfoot></table></div>`
     :`<p class="muted" style="font-size:11.5px">Every issued item has a row here, so the difference comes from a brand whose <em>receive name</em> is not set: its receipt is then matched on the brand name instead of exactly, which can pick a name up twice or miss one. Set the receive name on the Beverage Control row to make it exact.</p>`}`,
-    `<button class="btn" onclick="closeModal()">Close</button><button class="btn btn-gold" onclick="closeModal();location.hash='#mrdetail'">🔁 Open Bar Stock Issue</button>`);
+    `<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();location.hash='#mrdetail'">🔁 Open Bar Stock Issue</button>${names.length?`<button class="btn btn-gold" onclick="closeModal();bcAddAllAsk()">➕ Add ${fmt(names.length)} to this sheet</button>`:''}`);
 }
 function biRoyalData(){
   /* tot.hand = what is ON THE SHELF right now (v2.85.0): a brand whose Closing has been counted
@@ -3112,12 +3331,13 @@ VIEWS.barinv = () => {
         ${invFixNoteHtml()}
       </div>
       <div class="flex items-center" style="gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-gold" onclick="bcAddAsk('')" title="Add a brand to this sheet by hand — category, bottle size and receive name are asked for, and a name that is already here is refused">➕ New brand</button>
         <button class="btn btn-sm btn-gold" onclick="openBevClone()" title="Create / delete clone pages">📑 Page Clone${bevPages.length?' ('+bevPages.length+')':''}</button>
         <button class="btn btn-sm" onclick="expReport('bev','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('bev')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your own Liquor Inventory workbook — the month sheet with OPENING BAL and CLOSING BAL. Every brand is matched to yours, you see what would change, and only then is it put in.">📥 From Excel<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="bevXlUpload(this)"></label>
         <button class="btn btn-sm" onclick="invFixRun()" title="Put every opening and closing back to what your Liquor Inventory workbook says — brand by brand. Your figures as they are now are kept first.">🔄 Sheet match</button>
-        <button class="btn btn-sm" onclick="cloneBarInv()" title="Closing → Opening carry-forward (new period)">🧬 Carry</button>
+        <button class="btn btn-sm" onclick="cloneBarInv()" title="Close the month: this month's Closing becomes next month's Opening, and the Closing column is emptied for the new count. Only when the month is finished.">📅 New month</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('openBL')" title="Clears EVERY Opening value">🧹 Opening</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
       </div>
@@ -3220,7 +3440,7 @@ function cloneBarInv(){
   let nC=0, nOver=0, sumC=0;
   tallyItems.forEach(t=>{ const iv=invGet(t.name);
     if(iv.closeBL!=null&&iv.closeBL!==''){ nC++; sumC+=(+iv.closeBL||0); if(iv.openBL!=null&&iv.openBL!=='') nOver++; } });
-  modal('🧬 Carry Closing → Opening — only when the month is finished', `
+  modal('📅 New month — this month\'s Closing becomes the Opening', `
     <div class="bevxl"><div class="k k3">
       <div class="c"><div class="l">Closings that move up</div><div class="v gold">${fmt(nC)}</div><div class="s">Σ column ${esc((Math.round(sumC*1000)/1000).toFixed(3))}</div></div>
       <div class="c"><div class="l">Openings replaced</div><div class="v ${nOver?'am':''}">${fmt(nOver)}</div><div class="s">what is in Opening now is overwritten</div></div>
@@ -3230,7 +3450,7 @@ function cloneBarInv(){
       ⚠ Do this only when THIS month is closed. In the middle of a month it empties the Closing column, and then Consumption and Variance read the whole opening stock.</div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">Only the Beverage Control sheet is touched — Item Master, Bar Stock Issue and Purchase stay as they are.
       Your figures as they are now are kept, and <strong>🔄 Sheet match</strong> on this page puts your workbook's openings and closings back.</div></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doCloneBarInv()">🧬 Carry ${fmt(nC)} closing${nC===1?'':'s'} up</button>`);
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doCloneBarInv()">📅 Start the new month · ${fmt(nC)} closing${nC===1?'':'s'}</button>`);
 }
 function doCloneBarInv(){
   let n=0; const st=activeInv();
@@ -3238,7 +3458,7 @@ function doCloneBarInv(){
   try{ if(st===invData) localStorage.setItem(CO_PREFIX+'invbak', JSON.stringify({at:new Date().toISOString(), why:'carry', inv:invData})); }catch(e){}
   tallyItems.forEach(t=>{ const iv=invGet(t.name); if(iv.closeBL!=null&&iv.closeBL!==''){ st[norm(t.name)]={...iv, openBL:iv.closeBL, closeBL:'', saleOverride:undefined}; n++; } });
   activeInvSave(); closeModal(); route();
-  toast('Carried', `${n} closing${n===1?'':'s'} moved up to Opening · Closing cleared — 🔄 Sheet match puts your workbook figures back`,'ok');
+  toast('New month started', `${n} closing${n===1?'':'s'} moved up to Opening · the Closing column is empty for this month's count — 🔄 Sheet match puts your workbook figures back`,'ok');
 }
 /* ---- Clone Pages popup: create a full duplicate page (own sheet in the nav) / delete one ---- */
 function openBevClone(){

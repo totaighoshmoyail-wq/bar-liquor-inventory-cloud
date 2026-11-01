@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.89.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.90.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -274,6 +274,22 @@ function _cloudMeta(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cl
 const CLOUD_LISTKEYS={recv:1, mr:1, invoices:1, rawdata2:1, tally:1, lifting:1};
 const CLOUD_OBJKEYS={inv:1, bevmap:1, pref:1};   // pref per SETTING (v2.65.0) — whole-key, the other device's
                                                  // push used to carry its own theme/look/layout over this one's
+/* …and since v2.90.0 the DISPLAY settings inside pref do not travel at all. Client: "smart maping jai
+   optison kori 2-3 minite er modha sei two pane defelt hoye jai". Merging per setting stops a whole-key
+   overwrite, but it cannot stop the other machine from having its own layout — whichever saved last
+   wins, so the choice flips back on the next poll. A layout, a look, a theme, a font size belongs to
+   the screen in front of you. Everything else in pref (the Landing sheet's TCS %, the peg) still syncs. */
+const PREF_LOCAL=/^(lay_|aliasLayout$|ckaLayout$|linkLayout$|recvLook$|barLook$|dbLook$|lrLook$|lrHead$|theme$|edition$|font$|fsize$|anims$|clk12$|clk$|biAll$|asstSpeak$|asstLang$)/;
+function _prefPart(str, want){                      // want=true → only the device's own, false → only the shared
+  let o={}; try{ const v=JSON.parse(str||'{}'); if(v&&typeof v==='object'&&!Array.isArray(v)) o=v; }catch(e){}
+  const out={}; Object.keys(o).forEach(k=>{ if(PREF_LOCAL.test(k)===!!want) out[k]=o[k]; });
+  return out;
+}
+function _prefShared(str){ return JSON.stringify(_prefPart(str,false)); }                     // what may go up
+function _prefKeepLocal(incoming){                                                            // what may come down
+  const mine=_prefPart(localStorage.getItem(CO_PREFIX+'pref'), true);
+  return JSON.stringify(Object.assign(_prefPart(incoming,false), mine));
+}
 function _cloudKeyOf(k,e){ if(k==='rawdata2') return 'it:'+norm((e&&e.item)||''); if(k==='tally') return 'br:'+norm((e&&e.name)||''); return _cloudEntryKey(e); }
 function _cloudBaseGet(){ try{ return JSON.parse(localStorage.getItem(CO_PREFIX+'cloudbase')||'{}')||{}; }catch(e){ return {}; } }
 function _cloudBaseSave(data){ const b={}; Object.keys(CLOUD_LISTKEYS).concat(Object.keys(CLOUD_OBJKEYS)).forEach(k=>{ if(data&&data[k]!=null) b[k]=data[k]; });
@@ -311,7 +327,8 @@ function cloudMergeObj(serverStr, baseStr, mineStr){   // {key: value} objects (
 /* lay a merged copy into this device: only keys that differ; returns true when memory is now stale */
 function _cloudApplyLocal(data, skip){
   const changed=[];
-  Object.keys(data||{}).forEach(k=>{ if(skip&&skip[k]) return; const v=data[k]; if(typeof v!=='string') return;
+  Object.keys(data||{}).forEach(k=>{ if(skip&&skip[k]) return; let v=data[k]; if(typeof v!=='string') return;
+    if(k==='pref') v=_prefKeepLocal(v);              // this screen's own layout / look / theme is never overwritten (v2.90.0)
     if(/^(cloudmeta|cloudbase|cloud|cloudsess|ai|lastUser|companies|activeCo|logo|sysname|sysaddr|loginDesign|smsgw)$/.test(k)) return;   // device/global keys never come from the cloud
     if(localStorage.getItem(CO_PREFIX+k)!==v){ try{ localStorage.setItem(CO_PREFIX+k, v); changed.push(k); }catch(e){} } });
   return changed;
@@ -363,6 +380,7 @@ async function _cloudPushCore(silent, force){
   const co=(coList().find(c=>c.id===ACTIVE_CO)||{}).name||ACTIVE_CO;
   const seq0=_cloudMarkSeq;                      // anything saved after this line is NOT in this push (v2.69.0)
   const keys={}; _coSubKeys().forEach(sub=>{ keys[sub]=localStorage.getItem(CO_PREFIX+sub); });
+  if(keys.pref!=null) keys.pref=_prefShared(keys.pref);   // the display choices stay here (v2.90.0)
   /* A key that was never edited is still sitting on its seed defaults — it exists in
      memory but not in storage, so it used to be left out of the push and the console
      showed it as empty. Fill any missing key from what the app is actually using. */

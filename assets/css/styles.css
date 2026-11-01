@@ -1557,6 +1557,19 @@ body.bv-glass{
 .bizoom .cell-input.rname { font-size:12px; }
 .bizoom .cell-input.obox, .bizoom .cell-input.cbox { width:122px; height:46px; font-size:22px; font-weight:700; }
 .bizoom .biamt { font-size:11px; }
+/* ---- ➕ Add a brand to Beverage Control (v2.90.0): one form for the ⚠ alert and the toolbar ---- */
+.bcadd .rw{display:grid;grid-template-columns:134px minmax(140px,230px) 1fr;gap:10px;align-items:center;
+  padding:6px 0;border-bottom:1px solid var(--border-soft)}
+.bcadd .rw:last-of-type{border-bottom:0}
+.bcadd .rw>label{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted)}
+.bcadd .rw .input{width:100%;padding:6px 9px;font-size:13px}
+.bcadd .rw .input.gold{border-color:var(--gold-dim);color:var(--gold)}
+.bcadd .hint{font-size:10.5px;color:var(--text-dim);line-height:1.35}
+.bcadd .hint strong{color:var(--text-muted)}
+.bcadd .w:first-child{margin-top:0}
+@media (max-width:640px){ .bcadd .rw{grid-template-columns:1fr;gap:3px;padding:7px 0} }
+/* what the figure AS TYPED means, under the Opening / Closing box */
+.bcmean{color:var(--text-muted);font-size:10px;letter-spacing:.02em}
 /* ---- Reports: compact professional (screen) ---- */
 .rptc .tbl th, .rptc .tbl td { padding:4px 8px; font-size:11.5px; }
 .rptc .card-head h3 { font-family:Georgia,'Times New Roman',serif; letter-spacing:.3px; }
