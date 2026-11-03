@@ -1592,6 +1592,12 @@ body.bv-glass{
 .smsec .tbl td,.smsec .tbl th{padding:5px 8px;font-size:11.5px}
 .smsec .tbl .lrname{max-width:320px}
 .smsec select.input{background:var(--panel-2,var(--panel));color:var(--text)}
+/* v2.95.0 — 🔍 Deep check: Receipt and Opening in one place */
+.bcdeepb{border-color:var(--amber,#e0a33e);color:var(--amber,#e0a33e)}
+.bcdeepb:hover{filter:brightness(1.15)}
+.bcdeepnote{font-size:11.5px;line-height:1.55;margin:9px 0 2px;padding:8px 10px;border-radius:9px;
+  border:1px solid var(--border-soft);background:color-mix(in srgb,var(--gold) 3%,transparent)}
+.smsec input.bcdeepin{width:100%;box-sizing:border-box;padding:4px 7px;font-size:11.5px}
 @media (max-width:760px){ .smsec .tbl .lrname{max-width:170px} }
 .smchip.ok:hover,.smchip.bad:hover{filter:brightness(1.18)}
 .smline{display:flex;justify-content:flex-end;margin:0 0 12px}

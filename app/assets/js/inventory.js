@@ -2735,8 +2735,20 @@ function bcRecvAudit(){
   tallyItems.forEach(x=>{ claim[norm(rawNameFor(x.name)||x.name)]=1; });
   mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) return;
     const v=fnum(r.qty); n++; q+=v; if(!claim[norm(r.item)]) lost[r.item]=(lost[r.item]||0)+v; });
-  let got=0; tallyItems.forEach(x=>{ got+=barRow(x).recBtl; });
-  return {n, q, got, lost, gap:Math.round((q-got)*1000)/1000};
+  /* ONE pass over the brands (v2.95.0): the receipt total, the brands that received with no
+     opening typed, the receive names that point at nothing, and a brand listed twice. barRow()
+     is called exactly as often as before. */
+  let got=0; const openMiss=[], dead=[], dup=[], seen=Object.create(null);
+  tallyItems.forEach(x=>{
+    const k=norm(x.name); if(seen[k]) dup.push(x.name); else seen[k]=1;
+    const R=barRow(x); got+=R.recBtl;
+    if(R.recBtl>0 && (R.iv.openBL==null||R.iv.openBL===''))
+      openMiss.push({name:x.name, cat:x.category, u:R.u, rec:R.recBtl, cons:R.cons});
+    const rn=rawNameFor(x.name);
+    if(rn && !findRawExact(rn)) dead.push({name:x.name, rn, rec:R.recBtl});
+  });
+  openMiss.sort((a,b)=>b.rec-a.rec); dead.sort((a,b)=>b.rec-a.rec);
+  return {n, q, got, lost, gap:Math.round((q-got)*1000)/1000, openMiss, dead, dup};
 }
 /* ---- add a brand to this sheet, from the alert or by hand (v2.90.0) ---------------------------
    Client: "kono name jokhon beverage control a na takhche & bar issue korche sai name er alart
@@ -2898,6 +2910,140 @@ function bcAddAllDo(){
   const A2=bcRecvAudit();
   toast('Added', fmt(made.brands)+' brand'+(made.brands===1?'':'s')+' · '+fmt(made.items)+' Item Master name'+(made.items===1?'':'s')
     +' — this sheet now receipts '+fmt(A2.got)+' of '+fmt(A2.q)+' btl', 'ok');
+}
+/* ---- 🔍 Deep check — Receipt AND Opening, every name that is left out, with its fix ----------
+   Client, with the ledger head (variance −₹10,56,082) and the sheet on screen: "reciving bottle
+   match korche na cheack koro & beverage control er reciving er sange match koro & sob cheak koro
+   opning & reciving all, kichu name jodi bad pore alat er optision & add korbar o jaiga, deeply
+   cheak koro".
+
+   MEASURED FIRST, on a Canteen store shaped like theirs (298 items, 120 purchases, 90 issues):
+     · the store room's ISSUED and this sheet's RECEIPT tie exactly (223 = 223) — the receipt link
+       itself is sound, and the only gap was the one issued name with no row (10 btl);
+     · but the Liquor Room / Purchase RECEIVED reads 480 — bottles bought INTO the store room, a
+       different question that nothing on this page named, and the likeliest thing being compared;
+     · and 67 of the 90 brands that received have NO OPENING typed, 59 of them no closing either,
+       so Consumption IS the whole receipt and the Variance is as large and as negative as the
+       receipt. That is exactly the picture in their screenshot;
+     · 32 brands carry a receive name the Item Master does not hold, so they can never receive by
+       the exact path.
+   All four are reported here, each with the button that fixes it. No figure is computed twice:
+   every number below comes from barRow / lrTotals / _receiptOwner, the page's own sources. */
+function bcDeep(){
+  const A=bcRecvAudit();                       // issues in the period · what the sheet receipts · the gap
+  const own=_receiptOwner(), f=period.from, t=period.to;
+  const by=Object.create(null);
+  mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) return;
+    const k=norm(r.item); if(!by[k]) by[k]={name:r.item, q:0}; by[k].q+=fnum(r.qty); });
+  const noRow=[], ghostLands=[];
+  Object.keys(by).forEach(k=>{ const e=by[k], inM=!!findRawExact(e.name);
+    if(!own[k]) noRow.push({name:e.name, q:e.q, inM});
+    else if(!inM) ghostLands.push({name:e.name, q:e.q, on:own[k]}); });
+  noRow.sort((a,b)=>b.q-a.q); ghostLands.sort((a,b)=>b.q-a.q);
+  const LR=lrTotals();
+  return { A, noRow, ghostLands, openMiss:A.openMiss, dead:A.dead, dup:A.dup,
+           room:{rv:LR.rv, is:LR.is},
+           n: noRow.length + A.openMiss.length + A.dead.length + A.dup.length };
+}
+function bcDeepChip(){
+  let D; try{ D=bcDeep(); }catch(e){ return ''; }
+  if(!D.n) return `<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet, every brand that received has an opening, and every receive name points at a real item.">🔍 checked · all clear</span>`;
+  return `<button class="btn btn-sm bcdeepb" title="Receipt, opening and the names that are left out — with the button that puts each one right" onclick="bcDeepModal()">🔍 Deep check · ${fmt(D.n)} to fix</button>`;
+}
+function bcDeepBody(){
+  const D=bcDeep(), A=D.A, ok=Math.abs(A.gap)<0.001;
+  const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
+  const sec=(ico,title,sub,inner)=>`<div class="smsec"><div class="smsh">${ico} <strong>${title}</strong> <span class="muted">${sub}</span></div>${inner}</div>`;
+  let out=`${rawNamesDatalist()}
+    <div class="k k3">
+      ${card('Issued to the bar', fmt(A.q)+'<small>btl</small>', fmt(A.n)+' issues · '+esc(period.from)+' → '+esc(period.to),'gold')}
+      ${card('Receipt on this sheet', fmt(A.got)+'<small>btl</small>', ok?'the same figure — nothing is missing':'the two do not agree', ok?'':'am')}
+      ${card('Difference', (A.gap>0?'+':'')+fmt(A.gap)+'<small>btl</small>', A.gap>0?'issued but nowhere to land':(A.gap<0?'counted twice':'none'), A.gap?'am':'')}
+    </div>
+    <div class="w" style="${ok?'border-color:color-mix(in srgb,var(--green) 45%,transparent);color:var(--green);background:color-mix(in srgb,var(--green) 7%,transparent)':''}">
+      ${ok?'✔ Every bottle the store room issued in these dates is on this sheet.'
+          :'⚠ '+fmt(Math.abs(A.gap))+' bottle'+(Math.abs(A.gap)===1?'':'s')+' '+(A.gap>0?'issued in these dates are not on this sheet':'are counted twice on this sheet')+'. The list below names them.'}
+    </div>
+    <div class="muted bcdeepnote">
+      <strong>Two different “receiving”.</strong> Purchase put <strong class="gold">${fmt(D.room.rv)}</strong> bottle${D.room.rv===1?'':'s'} INTO the store room (every date) — that is the Liquor Room's <em>Received</em>.
+      This sheet's <strong>Receipt</strong> is what the store room <strong>ISSUED to the bar</strong> in the period above: <strong class="gold">${fmt(A.q)}</strong>. They are not meant to be equal.
+    </div>`;
+
+  if(D.noRow.length){
+    const q=D.noRow.reduce((s,x)=>s+x.q,0);
+    out+=sec('⚠️','Issued, but there is no row here for it',
+      `${fmt(D.noRow.length)} name${D.noRow.length===1?'':'s'} · ${fmt(q)} btl · fix: add the brand, or point an existing brand's receive name at it`,
+      `<div class="table-wrap" style="max-height:260px"><table class="tbl"><thead><tr><th>Item issued</th><th class="num">Bottles</th><th></th></tr></thead><tbody>${
+        D.noRow.map(x=>`<tr class="row-alert"><td class="lrname"><strong>${esc(x.name)}</strong>${x.inM?'':' <span class="pill red" title="This name is not in the Item Master either">not in Item Master</span>'}</td>
+          <td class="num"><strong>${fmt(x.q)}</strong></td>
+          <td class="right"><button class="btn btn-sm" onclick="closeModal();bcAddAsk(this.getAttribute('data-n'),1)" data-n="${esc(x.name)}" style="white-space:nowrap">＋ Add</button></td></tr>`).join('')
+      }</tbody><tfoot><tr class="lrsub"><td class="right"><strong>TOTAL</strong></td><td class="num"><strong>${fmt(q)}</strong></td><td></td></tr></tfoot></table></div>`);
+  }
+  if(D.ghostLands.length){
+    out+=sec('📦','Issued on a name the Item Master does not hold',
+      `${fmt(D.ghostLands.length)} · the bottles DO land (on the brand named beside each one) · fix: add the item so the store room counts it too`,
+      `<div class="table-wrap" style="max-height:200px"><table class="tbl"><thead><tr><th>Item issued</th><th>Lands on</th><th class="num">Bottles</th><th></th></tr></thead><tbody>${
+        D.ghostLands.slice(0,30).map(x=>`<tr><td class="lrname">${esc(x.name)}</td><td class="muted">${esc(x.on)}</td><td class="num">${fmt(x.q)}</td>
+          <td class="right"><button class="btn btn-sm" onclick="closeModal();bcAddAsk(this.getAttribute('data-n'),1)" data-n="${esc(x.name)}">＋ Add</button></td></tr>`).join('')
+      }</tbody></table></div>`);
+  }
+  if(D.openMiss.length){
+    const rec=D.openMiss.reduce((s,x)=>s+x.rec,0);
+    out+=sec('📥','Received stock, but no OPENING was ever typed',
+      `${fmt(D.openMiss.length)} brand${D.openMiss.length===1?'':'s'} · ${fmt(rec)} btl received · fix: type the opening here, or press 🔄 Sheet match`,
+      `<div class="muted" style="font-size:11px;margin:2px 0 6px">With the Opening box empty the sheet reads <strong>0 + receipt − closing</strong>, so <strong>Consumption becomes the whole receipt</strong> and the Variance is as large and as negative as it. Type what was on the shelf when the month began — <strong>2.35</strong> means 2 bottles + 350 ml, <strong>.3</strong> means 300 ml.</div>
+       <div class="table-wrap" style="max-height:300px"><table class="tbl"><thead><tr><th>Brand</th><th>Category</th><th class="num">Received</th><th class="num">Consumption</th><th style="width:150px">Opening</th></tr></thead><tbody>${
+        D.openMiss.slice(0,60).map(x=>`<tr class="row-alert"><td class="lrname"><strong>${esc(x.name)}</strong></td>
+          <td><span class="pill gray">${esc(x.cat||'')}</span></td>
+          <td class="num">${fmt(x.rec)}<small class="muted"> btl</small></td>
+          <td class="num" style="color:var(--red)">${fmt(Math.round(x.cons))}<small class="muted"> ${x.u}</small></td>
+          <td><input class="input bcdeepin" placeholder="—" onchange="bcDeepOpen(this.getAttribute('data-n'), this.value)" data-n="${esc(x.name)}"></td></tr>`).join('')
+      }</tbody></table>${D.openMiss.length>60?`<div class="muted center" style="font-size:11px;padding:6px">+ ${fmt(D.openMiss.length-60)} more — 🔄 Sheet match fills every one your workbook holds</div>`:''}</div>`);
+  }
+  if(D.dead.length){
+    out+=sec('🔗','Receive name points at an item that does not exist',
+      `${fmt(D.dead.length)} brand${D.dead.length===1?'':'s'} · they can never receive by name · fix: point it at a real item, or clear it`,
+      `<div class="muted" style="font-size:11px;margin:2px 0 6px">A brand receives the bottles issued on its <em>receive name</em>. When that name is not one of your Item Master items, nothing can ever reach it. It only bites once you start issuing that brand — but it is the quiet reason a receipt goes missing. Pick the item it really is; the suggestion is already filled in where the app is sure. <strong>Leaving the box empty puts the original name back</strong> (it comes from your workbook), so point it somewhere real instead.</div>
+       <div class="table-wrap" style="max-height:280px"><table class="tbl"><thead><tr><th>Brand</th><th>Points at</th><th>Set it to</th></tr></thead><tbody>${
+        D.dead.slice(0,40).map(x=>{ let sug=''; try{ const m=bevcoMatch(x.rn); if(m&&m.sure) sug=m.name; }catch(e){}
+          return `<tr><td class="lrname"><strong>${esc(x.name)}</strong></td>
+          <td class="muted" style="text-decoration:line-through">${esc(x.rn)}</td>
+          <td><input class="input bcdeepin" list="rawItems" value="${esc(sug)}" placeholder="Item Master name" onchange="bcDeepRname(this.getAttribute('data-n'), this.value)" data-n="${esc(x.name)}" style="min-width:190px"></td></tr>`; }).join('')
+      }</tbody></table>${D.dead.length>40?`<div class="muted center" style="font-size:11px;padding:6px">+ ${fmt(D.dead.length-40)} more</div>`:''}</div>`);
+  }
+  if(D.dup.length){
+    out+=sec('🧬','The same brand twice',
+      `${fmt(D.dup.length)} · its receipt and its sale are counted twice · fix: ⚖️ Sale match keeps one`,
+      `<div class="muted" style="font-size:11.5px">${D.dup.map(n=>esc(n)).join(' · ')}</div>`);
+  }
+  if(!D.n) out+=`<div class="w" style="border-color:color-mix(in srgb,var(--green) 45%,transparent);color:var(--green);background:color-mix(in srgb,var(--green) 7%,transparent);margin-top:12px">✔ Nothing is left out — every issued name has a row, every brand that received has an opening, and every receive name points at a real item.</div>`;
+  return out;
+}
+function bcDeepModal(){
+  modal('🔍 Deep check · Receipt &amp; Opening', `<div class="bevxl" id="bcDeepBody">${bcDeepBody()}</div>`,
+    `<button class="btn" onclick="closeModal();route()">Close</button>
+     <button class="btn" onclick="closeModal();location.hash='#mrdetail'">🔁 Bar Stock Issue</button>
+     <button class="btn" onclick="closeModal();invFixRun()">🔄 Sheet match</button>
+     <button class="btn btn-gold" onclick="closeModal();route()">✅ Done</button>`);
+  const ms=document.querySelectorAll('.modal-back'); const m=ms.length&&ms[ms.length-1].querySelector('.modal'); if(m) m.classList.add('xwide');
+}
+/* repaint IN PLACE — modal() again would stack a second copy (v2.40.0) */
+function bcDeepRepaint(){ const b=document.getElementById('bcDeepBody'); if(b) b.innerHTML=bcDeepBody(); }
+function bcDeepOpen(name, v){
+  const s=String(v==null?'':v).trim(); if(s==='') return;
+  invSet(name, 'openBL', evalNum(s)); invalidateCalcCache();
+  const t=getTallyItem(name)||{name};
+  toast('Opening set', name+' · '+(bcMeanTxt(s, sizeOf(name), invUnit(t.category||'')) || s), 'ok');
+  bcDeepRepaint();
+}
+function bcDeepRname(name, v){
+  const s=String(v==null?'':v).trim();
+  invSet(name, 'rawName', s); invalidateCalcCache();
+  /* rawNameFor() falls back to the workbook's own INV_MAP entry when the stored value is empty,
+     so a blank box does NOT clear it — say that instead of pretending otherwise. */
+  if(s) toast('Receive name set', name+' ⇢ '+s, 'ok');
+  else toast('Left as it was', name+' ⇢ '+(rawNameFor(name)||'nothing')+' — a blank box puts your workbook\'s own name back', 'warn');
+  bcDeepRepaint();
 }
 function bcRecvGapModal(){
   const A=bcRecvAudit(); const names=Object.keys(A.lost).sort((a,b)=>A.lost[b]-A.lost[a]);
@@ -3375,7 +3521,7 @@ function bevXlResult(S){
    expensive part and an edit only touches ONE of its rows). Same figures, same markup. */
 function bcAuditHtml(){
   const A=bcRecvAudit(); const ok=Math.abs(A.gap)<0.001;
-  return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`}`;
+  return `<span class="muted" style="font-size:9.5px">Receipt = Bar Stock Issue in these dates · <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> btl</span>${ok?`<span class="lrinv bev" title="Every bottle issued in these dates is on this sheet">✔ matched</span>`:`<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" title="This sheet receipts ${fmt(A.got)} of them — click to see which bottles are missing and why" onclick="bcRecvGapModal()">⚠ ${fmt(Math.abs(A.gap))} btl ${A.gap>0?'not on this sheet':'counted twice'}</button>`} ${bcDeepChip()}`;
 }
 function bcBlocks(){
   const D=biRoyalData();
