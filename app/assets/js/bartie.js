@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.96.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.97.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1100,7 +1100,7 @@ function computeStraightMlMap(){
     // and the inventory sheet; a stray alias mlPerUnit (e.g. 30) must never inflate a pcs item.
     // A deliberate ×N multiplier (offers like 1+1) still applies to both ml and pcs items.
     const xm=(res.x>0)?res.x:1;
-    const isPcs = item.unit && item.unit!=='ml';
+    const isPcs = tallyUnit(item)==='pcs';                          // v2.97.0: one rule (was item.unit alone)
     const mlPerUnit = isPcs ? xm : (((res.mlPerUnit!=null)?res.mlPerUnit:(item.pegMl||30))*xm);
     const key=norm(item.name);
     map[key]=(map[key]||0)+(p.qty*mlPerUnit);
@@ -1926,20 +1926,27 @@ VIEWS.tally = () => {
   catAll.forEach(cat=>{
     const items = tallyItems.filter(t=>(t.category||'')===cat && inScope(t));
     if(!items.length) return;
-    const u=invUnit(cat), un=(u==='pcs')?'pcs':'ml';
+    /* v2.97.0: the unit is the BRAND's now, not the category's — one category can hold both
+       (a breezer counted in pieces beside a wine counted in ml), so the group is labelled with
+       whatever it actually holds and each row carries its own word. */
+    const units=[...new Set(items.map(t=>tallyUnit(t)))];
+    const un=units.join(' and ');
     const arr=[];
     const bodyRows = items.map(t=>{
       const c=getEffectiveCocktailMl(t,cmlMap), s=getEffectiveStraightMl(t,smlMap), tot=c+s;   // Total = Cocktail + Straight (Excel-faithful)
-      gC[u]+=c; gS[u]+=s; gT[u]+=tot; sl++; arr.push({name:t.name, c, s, tot, u:un});
+      const ut=tallyUnit(t);
+      gC[ut]+=c; gS[ut]+=s; gT[ut]+=tot; sl++; arr.push({name:t.name, c, s, tot, u:ut});
       return `<tr>
         <td class="muted">${sl}</td>
         <td><strong>${t.name}</strong></td>
         <td class="num ${c?'':'muted'}">${fmt(c)}</td>
         <td class="num ${s?'':'muted'}">${fmt(s)}</td>
-        <td class="num"><strong class="gold">${fmt(tot)}</strong><small class="muted"> ${un}</small></td>
+        <td class="num"><strong class="gold">${fmt(tot)}</strong><small class="muted"> ${ut}</small></td>
         <td class="right nowrap"><button class="btn btn-ghost btn-sm" title="Edit brand" onclick='editBrand(${JSON.stringify(t.name)})'>✎</button><button class="btn btn-danger btn-sm" title="Remove brand (also from Bar Inventory)" onclick='removeBrand(${JSON.stringify(t.name)})'>✕</button></td>
       </tr>`; }).join('');
-    catData.push({cat, label:catLabel(cat), items:arr, sum:arr.reduce((a,x)=>a+x.tot,0), u:un});
+    const sML=arr.filter(x=>x.u==='ml').reduce((a,x)=>a+x.tot,0), sPC=arr.filter(x=>x.u==='pcs').reduce((a,x)=>a+x.tot,0);
+    catData.push({cat, label:catLabel(cat), items:arr, sum:sML+sPC, u:un,
+      sumTxt:(sML||!sPC) ? (fmt(sML)+' ml'+(sPC?' · '+fmt(sPC)+' pcs':'')) : (fmt(sPC)+' pcs')});
     rows += `<tr class="grp-row"><td colspan="6">${esc(catLabel(cat))} <span class="muted">· ${items.length} · in ${un}</span>${catOdd(cat)?` <span class="pill am" title="This is not one of the twelve standard categories. It is counted on both pages, and ⚖️ Sale match can file it under one of the twelve.">own category</span>`:''}</td></tr>${bodyRows}`;
   });
   if(!rows) rows = `<tr><td colspan="6" class="center muted" style="padding:24px">No brands match.</td></tr>`;
@@ -2009,7 +2016,7 @@ VIEWS.tally = () => {
       if(lay==='def') return brandCard;
       if(lay==='dense') return `<div class="laydense">${brandCard}</div>`;
       const groups=catData.map(cd=>({ id:cd.cat, title:cd.label, sub:`${cd.items.length} brands · in ${cd.u}`,
-        right:`<span class="num gold" style="font-weight:700">${fmt(cd.sum)}<small class="muted"> ${cd.u}</small></span>`,
+        right:`<span class="num gold" style="font-weight:700">${cd.sumTxt}</span>`,
         detail: cd.items.map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>${x.name}</strong> <span class="muted">c ${fmt(x.c)} · s ${fmt(x.s)}</span></span><span class="nowrap"><strong class="gold">${fmt(x.tot)}</strong> <button class="btn btn-ghost btn-sm" onclick='editBrand(${jatt(x.name)})'>✎</button><button class="btn btn-danger btn-sm" onclick='removeBrand(${jatt(x.name)})'>✕</button></span></div>`).join('') }));
       return renderLay('tally',lay,groups,{listTitle:'Categories', footer:`<div style="display:flex;justify-content:flex-end;padding:9px 14px"><span class="muted" style="margin-right:8px">GRAND TOTAL</span><strong class="gold">${fmt(gT.ml)} ml${gT.pcs?` · ${fmt(gT.pcs)} pcs`:''}</strong></div>`});
     })()}
@@ -2361,7 +2368,38 @@ function rvGuessCat(name){
 function rvNewCatSuggest(v){ const g=rvGuessCat(v); if(!g) return;
   const s=$('#rvNewCat'); if(!s || s.dataset.touched) return;                  // a category they picked themselves stays
   s.value=g; try{ rvCatDefault(); }catch(e){} }
-function rvIsPcs(brand){ const it=getTallyItem(brand); return !!(it && it.unit && String(it.unit).toLowerCase()!=='ml'); }
+/* tallyUnit(t) — IS THIS BRAND COUNTED IN PIECES? One rule, one answer (v2.97.0).
+   Until now there were TWO answers and they could disagree: the engine read the brand's own
+   `unit` (computeStraightMlMap, rvIsPcs) while every stock page read invUnit(CATEGORY). On the
+   client's own Canteen company 15 brands carry unit "pcs" under the category WHITE WINE — DIET
+   COKE CAN, RED BULL, SCHWEPPES, PERRIER, CIGARETTE 10/20 PCS, VEEN WATER … — so a can SOLD as a
+   piece was STOCKED as a 750 ml bottle: 10 opening + 6 received − 4 closing came out as 9,000 ml
+   consumed and −9,000 variance instead of 12 pieces. Measured on their store before this was
+   written. The rule is a UNION, so nothing that is already counted in pieces can ever flip to ml:
+   the brand's own word first, its category second. That is also what lets a brand be counted in
+   pieces WHEREVER it is filed, which is what the client asked for — "beer to pcs a count hoi but
+   amar kache pcs a select korbar option nei to" — without moving their own category names. */
+const TU_PCS=['BEER','ALCOPOPS','BEVERAGE & CIGARETTE'];
+function tallyUnit(t){
+  const it=(t && typeof t==='object') ? t : getTallyItem(t);
+  if(!it) return 'ml';
+  const u=String(it.unit||'').trim().toLowerCase();
+  if(u && u!=='ml') return 'pcs';                                   // the brand says pieces
+  const c=it.category||'';
+  let cu=''; try{ cu=invUnit(c); }catch(e){ cu=(TU_PCS.indexOf(c)>=0?'pcs':'ml'); }
+  return cu==='pcs' ? 'pcs' : 'ml';                                 // else its category decides
+}
+function setBrandUnit(t, u){                       // '' no such brand · 'locked' its category decides · else the unit now in force
+  const it=(t && typeof t==='object') ? t : getTallyItem(t);
+  if(!it) return '';
+  const want=(u==='pcs')?'pcs':'ml';
+  if(want==='ml' && catIsPcs(it.category||'')) return 'locked';
+  if(tallyUnit(it)===want) return want;
+  it.unit=want; it.pegMl=(want==='pcs') ? 1 : ((+it.pegMl>1) ? +it.pegMl : 30);
+  return want;
+}
+function catIsPcs(cat){ let u=''; try{ u=invUnit(cat||''); }catch(e){ u=(TU_PCS.indexOf(cat||'')>=0?'pcs':'ml'); } return u==='pcs'; }
+function rvIsPcs(brand){ return tallyUnit(getTallyItem(brand))==='pcs'; }
 function rvServeOf(name, brand){                            // one POS sale = how much, before the offer
   if(!brand) return 30;
   if(rvIsPcs(brand)) return 1;                              // beer / breezer / cigarettes: pieces
@@ -2405,6 +2443,40 @@ function rvCandsHtml(){
   return `<span class="lb">Close names</span>`+R.cands.map(c=>
     `<button class="lrpill${norm(c.name)===norm(R.brand)?' on':''}" onclick='rvSetBrand(${jatt(c.name)})' title="${esc(c.group||'')} · match ${c.score}">${esc(c.name)}</button>`).join('');
 }
+/* The ml / pcs switch (v2.97.0). Client, on the Resolve box for "Bacardi Breezer" — it had found
+   BACARDI BREEZER CRANBERRY and printed "counted in ml · LAB" over 30/60/90 ml chips: "beer to pcs
+   a count hoi but amar kache pcs a select korbar option nei to". There was no such option ANYWHERE
+   in the app — editBrand never touched the unit either — so a breezer filed under their own group
+   name could only ever be counted in millilitres. The switch changes the BRAND, not this alias:
+   the alias cannot override a unit (the engine reads the brand), so anything else would be a lie. */
+function rvUnitHtml(){
+  const R=_rv, locked=R.pcs && catIsPcs(R.cat||'');
+  const note = locked
+    ? `${esc(R.cat)} is a pieces category — every brand in it is counted in pieces`
+    : R.pcs
+      ? `counted in pieces everywhere — Tally Sheet, Beverage Control, the alias pages`
+      : `a breezer, a beer, a can or a cigarette? press 🍺 pcs — the brand itself moves to pieces`;
+  return `<span class="rvunit">${R.pcs?'🍺 counted in pieces':'🥃 counted in ml'}${R.cat?' · '+esc(R.cat):''}</span>
+        <button class="lrpill${R.pcs?'':' on'}" onclick="rvSetUnit('ml')" title="${locked?'Its category decides this one — move the brand out of '+esc(R.cat)+' to count it in ml':'Count this brand in millilitres — a peg, a large, a bottle'}">🥃 ml</button>
+        <button class="lrpill${R.pcs?' on':''}" onclick="rvSetUnit('pcs')" title="Count this brand in PIECES: one sale is one bottle, can or packet, and its Opening and Closing on Beverage Control are counted as pieces too — not bottle.loose">🍺 pcs</button>
+        <span class="mu">${note}</span>`;
+}
+function rvSetUnit(u){
+  const it=getTallyItem(_rv.brand);
+  if(!it){ toast('Pick a brand first','The unit belongs to the brand — choose one on the left, then say ml or pieces','err'); return; }
+  const want=(u==='pcs')?'pcs':'ml', now=tallyUnit(it);
+  if(want===now) return;
+  const res=setBrandUnit(it, want);
+  if(res==='locked'){
+    toast('Its category decides this one', it.category+' is counted in pieces, so every brand in it is. Move '+it.name+' to another category (Tally Sheet → ✎ Edit) to count it in ml.','err'); return; }
+  bsv('tally',tallyItems);
+  if(typeof rebuildIndexes==='function') rebuildIndexes();
+  invalidateCalcCache();
+  _rv.pcs=(want==='pcs'); _rv.base=rvServeOf(_rv.name,_rv.brand);
+  toast(want==='pcs'?'Counted in pieces':'Counted in millilitres',
+    it.name+' — the Tally Sheet, Beverage Control and the alias pages all count it in '+(want==='pcs'?'pieces':'ml')+' now','ok');
+  rvPaint();
+}
 function rvServeHtml(){
   const R=_rv;
   const chips=(R.pcs?RV_PCS:RV_ML).map(v=>
@@ -2414,8 +2486,7 @@ function rvServeHtml(){
         <span class="rvunit ck">🍹 one ${esc(R.ck)}</span>
         <span class="mu">its recipe — ${ckRecipeTxt(R.ck)} — is what reaches the brands</span></div>`
     : R.brand ? `
-      <div class="rvrow"><span class="lb">One sale =</span>
-        <span class="rvunit">${R.pcs?'🍺 counted in pieces':'🥃 counted in ml'}${R.cat?' · '+esc(R.cat):''}</span></div>
+      <div class="rvrow"><span class="lb">One sale =</span>${rvUnitHtml()}</div>
       <div class="rvrow"><span class="lb"></span>${chips}
         <input class="input rvbox" id="${R.pcs?'rvPcs':'rvMl'}" type="number" min="0" step="${R.pcs?1:5}" value="${R.base}" onchange="rvSetBase(this.value)" title="${R.pcs?'pieces':'ml'} per sale">
         <span class="mu">${R.pcs?'beer · breezer · cigarettes are counted in pieces, never in ml':'30 peg · 60 large · 750 full bottle'}</span></div>`
@@ -2802,14 +2873,23 @@ function editBrand(oldName){
   modal('Edit Brand', `
     <div class="field"><label>Brand name</label><input class="input" id="ebName" value="${esc(t.name)}"></div>
     <div class="field"><label>Category</label><select class="input" id="ebCat">${catOpts}</select></div>
+    <div class="field"><label>Counted in</label><select class="input" id="ebUnit">
+        <option value="ml" ${tallyUnit(t)==='ml'?'selected':''}>millilitres (ml) — spirits · wine · draught</option>
+        <option value="pcs" ${tallyUnit(t)==='pcs'?'selected':''}>pieces (pcs) — beer · breezer · cans · cigarettes</option>
+      </select></div>
     <div class="field"><label>ML / unit (peg)</label><input class="input" id="ebMl" type="number" value="${t.pegMl}"></div>
-    <p class="muted" style="font-size:11.5px">Renaming cascades to its POS aliases & Bar Inventory.</p>`,
+    <p class="muted" style="font-size:11.5px">Renaming cascades to its POS aliases & Bar Inventory. <strong>Counted in</strong> decides how this one brand is counted everywhere — a piece brand's Opening and Closing are pieces, not bottle.loose${catIsPcs(t.category||'')?' (its category '+esc(t.category)+' is a pieces category, so pieces it is)':''}.</p>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick='saveBrandEdit(${JSON.stringify(oldName)})'>Save</button>`);
 }
 function saveBrandEdit(oldName){
   const t=tallyItems.find(x=>norm(x.name)===norm(oldName)); if(!t) return;
   const nm=$('#ebName').value.trim()||t.name, cat=$('#ebCat').value, ml=+$('#ebMl').value||t.pegMl;
   const changed = norm(nm)!==norm(oldName);
+  const ub=$('#ebUnit'), want=ub?String(ub.value||''):'';                       // v2.97.0: the unit is editable
+  if(want){ const was=tallyUnit(t), res=setBrandUnit(t, want);
+    if(res==='locked') toast('Still counted in pieces', cat+' is a pieces category — move the brand out of it to count '+nm+' in ml','err');
+    else if(res!==was) toast(res==='pcs'?'Counted in pieces':'Counted in millilitres', nm+' — every page follows','ok');
+  }
   t.category=cat; t.pegMl=ml;
   if(changed){
     const oldKey=norm(oldName), newKey=norm(nm);

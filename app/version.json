@@ -1,5 +1,5 @@
 {
-  "version": "2.96.0",
+  "version": "2.97.0",
   "date": "2026-11-03",
-  "notes": "Beverage Control’s bottom strip leads with TOTAL RECEIVING — the Receipt column added up, millilitres over pieces with the bottle count on its label — and it opens the 🔍 Deep check. “Items Available” and “Total Stock (pcs)” are gone at your word; the pieces of stock still read in the ledger’s PCS ITEMS row above, and in the Total Stock tile’s tooltip."
+  "notes": "A brand can be counted in PIECES wherever it is filed. The Resolve box has a 🥃 ml / 🍺 pcs switch, the brand’s own edit box has a \"Counted in\" row, and ⚖️ Sale match lists every brand whose name says pieces while it is counted in millilitres — one click moves them all, and their category keeps its name. The unit now follows the BRAND first: 15 Canteen soft drinks, waters and cigarettes filed under WHITE WINE were sold by the piece but stocked as 750 ml bottles — 10 cans + 6 received − 4 left read 9,000 ml consumed instead of 12 pieces."
 }

@@ -2590,7 +2590,7 @@ AFTER.liquorroom = () => {
    ============================================================ */
 function barRow(t){
   const { cmlMap, smlMap } = calcGrandTotals(); // (cheap, cached)
-  const name=t.name, cat=t.category, u=invUnit(cat), iv=invGet(name);
+  const name=t.name, cat=t.category, u=tallyUnit(t), iv=invGet(name);   // v2.97.0: the brand's own unit, its category as the fallback
   const rname=rawNameFor(name);                                   // Raw Data full name (Excel col A)
   const _own=_receiptOwner();                                        // one owner per issued item (v2.73.0)
   const recBtl = rname ? (_own[norm(rname)]===norm(name) ? receiptExact(rname) : 0) : receiptInPeriod(name);
@@ -3077,7 +3077,7 @@ function saleMatch(){
   const T={ml:0,pcs:0,cml:0,cpcs:0,sml:0,spcs:0}, B={ml:0,pcs:0};
   const rows=[]; let raw=0, nml=0, npcs=0;
   tallyItems.forEach(x=>{
-    const u=invUnit(x.category);
+    const u=tallyUnit(x);
     const c=getEffectiveCocktailMl(x,G.cmlMap), s=getEffectiveStraightMl(x,G.smlMap), tv=c+s;
     raw+=tv;
     if(u==='pcs'){ T.pcs+=tv; T.cpcs+=c; T.spcs+=s; if(tv) npcs++; }
@@ -3131,9 +3131,21 @@ function saleAudit(){
     const best=Object.keys(g.guess).sort((a,b)=>g.guess[b]-g.guess[a])[0]||'';
     return {cat:g.cat, n:g.n, sale:g.sale, names:g.names, u:invUnit(c), best, wrongUnit: !!best && invUnit(best)!==invUnit(c)}; })
     .sort((a,b)=>b.n-a.n || String(a.cat).localeCompare(String(b.cat)));
+  /* 5 (v2.97.0) — a brand that READS like pieces and is counted in millilitres. Since the unit
+     follows the BRAND now (tallyUnit), this no longer needs a category move: one click counts
+     them in pieces and their own category keeps its name. The guess comes from the brand name
+     itself (rvGuessCat), so it is offered, never applied by itself. */
+  const pcsLike=[];
+  tallyItems.forEach(t=>{
+    if(tallyUnit(t)!=='ml') return;
+    let g=''; try{ g=(typeof rvGuessCat==='function')?(rvGuessCat(t.name)||''):''; }catch(e){}
+    if(!g || invUnit(g)!=='pcs') return;
+    pcsLike.push({name:t.name, cat:t.category||'', like:g, sale:saleOf(t)});
+  });
+  pcsLike.sort((a,b)=>b.sale-a.sale || String(a.name).localeCompare(String(b.name)));
   let err=[]; try{ err=errorRows().map(p=>({name:String(p.name), qty:+p.qty||0})).sort((a,b)=>b.qty-a.qty); }catch(e){}
-  return {M, odd, oddCats, dup, err, errQty:err.reduce((a,x)=>a+x.qty,0),
-          nFix:M.n+oddCats.length+dup.length+err.length};
+  return {M, odd, oddCats, dup, err, pcsLike, errQty:err.reduce((a,x)=>a+x.qty,0),
+          nFix:M.n+oddCats.length+dup.length+err.length+pcsLike.length};
 }
 function saleMatchChip(small, A){
   if(!A){ try{ A=saleAudit(); }catch(e){ return ''; } }
@@ -3185,6 +3197,17 @@ function saleAuditBody(){
         <td>${g.wrongUnit?`<span class="pill red" title="These names look like ${esc(g.best)}, which is counted in ${invUnit(g.best)} — right now they are counted in ${g.u}">${g.u} · should be ${invUnit(g.best)}</span>`:`<span class="pill gray">${g.u}</span>`}</td>
         <td><select class="input" style="padding:3px 6px;font-size:11.5px;min-width:150px" onchange="saleFixAllCat(this.getAttribute('data-c'), this.value)" data-c="${esc(g.cat)}">${smCatOpts(g.best)}</select></td></tr>`).join('')
     }</tbody></table></div>`);
+  /* 2b — counted in millilitres although the name says pieces (v2.97.0) */
+  if(A.pcsLike && A.pcsLike.length) out+=sec('🍺','Counted in millilitres, but the name says pieces',
+    `${fmt(A.pcsLike.length)} brand${A.pcsLike.length===1?'':'s'} · fix: count them in pieces — their category keeps its name`,
+    `<div class="muted" style="font-size:11px;margin:2px 0 6px">A beer, a breezer, a can or a cigarette is sold by the PIECE. Counted in ml it is given a bottle size, so its stock reads in millilitres and its Consumption and Variance are a bottle's worth of nonsense — <em>measured on this very data: 10 cans + 6 received − 4 left came out as 9,000 ml consumed instead of 12 pieces.</em> The unit belongs to the brand now, so one click is enough.</div>
+     <div class="table-wrap" style="max-height:240px"><table class="tbl"><thead><tr><th>Brand</th><th>Category</th><th class="num">Sale</th><th>Looks like</th><th class="right"><button class="btn btn-sm btn-gold" onclick="saleFixUnitAll()" title="Count every brand on this list in pieces">🍺 All ${fmt(A.pcsLike.length)} in pieces</button></th></tr></thead><tbody>${
+      A.pcsLike.slice(0,40).map(x=>`<tr class="row-alert"><td class="lrname"><strong>${esc(x.name)}</strong></td>
+        <td><span class="pill gray">${esc(x.cat||'— no category')}</span></td>
+        <td class="num">${fmt(x.sale)}<small class="muted"> ml</small></td>
+        <td><span class="pill am" title="Read from the brand name itself">${esc(x.like)}</span></td>
+        <td class="right"><button class="btn btn-sm" onclick="saleFixUnit(this.getAttribute('data-n'))" data-n="${esc(x.name)}">🍺 Pieces</button></td></tr>`).join('')
+    }</tbody></table>${A.pcsLike.length>40?`<div class="muted" style="font-size:11px;padding:4px 2px">${fmt(A.pcsLike.length-40)} more — the button above takes them all.</div>`:''}</div>`);
   /* 3 — the same brand twice */
   if(A.dup.length) out+=sec('🧬','The same brand twice',
     `${fmt(A.dup.length)} · counted twice on BOTH pages · fix: keep one row`,
@@ -3237,6 +3260,27 @@ function saleFixDup(name){
       invalidateCalcCache(); toast('Duplicate removed',`${name} · ${ix.length-1} extra row${ix.length===2?'':'s'} dropped`,'ok'); smRepaint(); },
     {title:'The same brand twice', ok:'Keep one'});
 }
+/* One brand, or every brand on the list, counted in pieces from now on (v2.97.0). setBrandUnit is
+   the only writer; this saves ONCE for the whole list. */
+function saleFixUnit(name){
+  const t=tallyItems.find(x=>norm(x.name)===norm(name)); if(!t) return;
+  const r=setBrandUnit(t,'pcs');
+  if(r==='locked'){ toast('Its category decides this one', t.category+' is counted in pieces already','err'); return; }
+  bsv('tally',tallyItems); if(typeof rebuildIndexes==='function') rebuildIndexes();
+  invalidateCalcCache(); toast('Counted in pieces', t.name+' — Tally Sheet, Beverage Control and the alias pages all follow','ok');
+  smRepaint();
+}
+function saleFixUnitAll(){
+  let L=[]; try{ L=saleAudit().pcsLike||[]; }catch(e){}
+  if(!L.length){ smRepaint(); return; }
+  confirmAsk(`Count <strong>${fmt(L.length)}</strong> brand${L.length===1?'':'s'} in <strong>pieces</strong> instead of millilitres?<br>
+    <span class="muted" style="font-size:12px">${esc(L.slice(0,6).map(x=>x.name).join(' · '))}${L.length>6?' +'+(L.length-6)+' more':''}.
+    Their categories keep their names — only the way they are counted changes: one sale is one bottle, can or packet, and their Opening and Closing on Beverage Control become pieces instead of bottle.loose.</span>`,
+    ()=>{ let k=0; L.forEach(x=>{ const t=tallyItems.find(y=>norm(y.name)===norm(x.name)); if(t && setBrandUnit(t,'pcs')==='pcs') k++; });
+      bsv('tally',tallyItems); if(typeof rebuildIndexes==='function') rebuildIndexes();
+      invalidateCalcCache(); toast('Counted in pieces', fmt(k)+' brand'+(k===1?'':'s')+' moved to pieces','ok'); smRepaint(); },
+    {title:'Counted in pieces', ok:'🍺 Count them in pieces'});
+}
 function saleFixErr(name){
   closeModal(); location.hash='#errors'; route();
   setTimeout(()=>{ const L=window._errList||[]; const i=L.findIndex(x=>norm(x.name)===norm(name));
@@ -3269,10 +3313,13 @@ function biRoyalData(){
     q.cons+=R.cons; q.sale+=R.sale; q.varv+=R.varv;
     d.qty.raw.open+=fnum(R.iv.openBL); d.qty.raw.rec+=R.recBtl; d.qty.raw.close+=fnum(R.iv.closeBL);
     // per category, in that category's unit (a category is all-ml or all-pcs): opening · received · closing · consumption · sale · variance (v2.43.2)
-    const cq=d.byCatQty[t.category]||(d.byCatQty[t.category]={u:R.u,ml:0,pcs:0,open:0,rec:0,close:0,cons:0,sale:0,varv:0});
+    /* v2.97.0: keyed by CATEGORY + the unit it is counted in — one category can hold both now,
+       and adding pieces into a millilitre total is the one mistake this ledger must never make. */
+    const _ck=t.category+' '+R.u;
+    const cq=d.byCatQty[_ck]||(d.byCatQty[_ck]={cat:t.category,u:R.u,ml:0,pcs:0,open:0,rec:0,close:0,cons:0,sale:0,varv:0,rs:0});
     if(R.u==='pcs'){ const o=fnum(R.iv.openBL); cq.pcs+=o; cq.open+=o; cq.rec+=R.recBtl; cq.close+=fnum(R.iv.closeBL); }
     else { const sl=sizeOf(t.name)||0, o=toLitres(fnum(R.iv.openBL),sl)*1000; cq.ml+=o; cq.open+=o; cq.rec+=R.recBtl*sl*1000; cq.close+=toLitres(fnum(R.iv.closeBL),sl)*1000; }
-    cq.cons+=R.cons; cq.sale+=R.sale; cq.varv+=R.varv;
+    cq.cons+=R.cons; cq.sale+=R.sale; cq.varv+=R.varv; cq.rs+=A.sale;
   });
   return d;
 }
@@ -3565,7 +3612,7 @@ function bcBlocks(){
   //   Closing in the category's unit (a category is all-ml or all-pcs), a share bar (of that unit's opening), Sale ₹
   //   (+ its % of the total sale once there is any), and Σ rows for the ml items and the pcs items. A grid, not .tbl —
   //   the .barinv .tbl fixed column widths (v2.13.4) would shape it. Theme tokens only (.bcled in styles.css).
-  const cats=Object.keys(D.byCatQty).map(n=>({n, q:D.byCatQty[n], sale:D.byCatSale[n]||0}));
+  const cats=Object.keys(D.byCatQty).map(k=>({n:D.byCatQty[k].cat||k, q:D.byCatQty[k], sale:D.byCatQty[k].rs||0}));
   const unOf=c=>c.q.u||invUnit(c.n);
   cats.sort((a,b)=>((unOf(a)==='pcs')-(unOf(b)==='pcs')) || (b.q.open-a.q.open) || a.n.localeCompare(b.n));
   const totU=u=>cats.filter(c=>unOf(c)===u).reduce((T,c)=>{ T.n++; T.open+=c.q.open; T.rec+=c.q.rec; T.sale+=c.q.sale; T.close+=c.q.close; T.rs+=c.sale; return T; },{n:0,open:0,rec:0,sale:0,close:0,rs:0});
@@ -4490,7 +4537,7 @@ const REPORTS=[
 // items whose physical Closing is empty/low (real, from entered stock)
 function lowStockList(){ const out=[];
   tallyItems.forEach(t=>{ const iv=invGet(t.name); if(!(iv.openBL!=null||iv.closeBL!=null)) return;   // only active items
-    const u=invUnit(t.category), close=fnum(iv.closeBL);
+    const u=tallyUnit(t), close=fnum(iv.closeBL);
     if(u==='pcs'){ if(close<=0) out.push({name:t.name,cat:t.category,closing:0,u,status:'OUT',sev:2});
       else if(close<6) out.push({name:t.name,cat:t.category,closing:close,u,status:'LOW',sev:1}); }
     else { const sl=sizeOf(t.name), ml=Math.round(toLitres(close,sl)*1000), sizeMl=Math.round(sl*1000);
