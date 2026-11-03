@@ -1469,7 +1469,7 @@ body.bv-glass{
 .bcled .lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt+.lt{border-top:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}   /* the second Σ row (pcs) sits under the first */
 @media print{.bcled .bar{display:none}}
 @media (max-width:1100px){.bcled{grid-template-columns:22px minmax(120px,1.4fr) repeat(4,minmax(60px,.9fr)) 64px minmax(76px,1fr)} .bcled .lh:nth-child(7),.bcled .lc:nth-child(9n+7),.bcled .lt:nth-child(9n+7){display:none}}
-.bcfoot{ display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-top:8px; }
+.bcfoot{ display:grid; grid-template-columns:repeat(5,1fr); gap:7px; margin-top:8px; }   /* v2.96.0: five tiles */
 .bcfoot .f{ background:var(--panel); border:1px solid var(--border-soft); border-radius:10px; padding:8px 9px; text-align:center; min-width:0; }
 .bcfoot .f .ic{ width:24px; height:24px; margin:0 auto 4px; border-radius:8px; display:flex; align-items:center;
   justify-content:center; font-size:12px; }

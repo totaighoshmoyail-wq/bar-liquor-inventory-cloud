@@ -3607,13 +3607,24 @@ function bcBlocks(){
   const saleLab=!AUD ? 'Total Sale — the Sale column'
       : (smOK ? 'Total Sale · ✔ Tally agrees'
               : `Total Sale · ⚠ ${fmt(smN||1)} brand${smN===1?'':'s'} differ${smN===1?'s':''}`);
+  /* RECEIVING, at the client's word (v2.96.0): "reciving total & pcs & ml er total ta niche koro,
+     item available & total stock pcs remove koro". D.qty.ml.rec / D.qty.pcs.rec are what
+     biRoyalData accumulates from the Receipt cells above, and D.qty.raw.rec is the plain bottle
+     count the Σ COLUMN row prints — nothing new is computed here either. */
+  const recML=Math.round(D.qty.ml.rec), recPC=Math.round(D.qty.pcs.rec), recBtl=Math.round(D.qty.raw.rec);
+  const recVal=(recML||!recPC)
+      ? `${fmt(recML)}<small> ml</small>${recPC?`<div class="v2">${fmt(recPC)} pcs</div>`:''}`
+      : `${fmt(recPC)}<small> pcs</small>`;
+  const recTitle=`What the store room ISSUED to the bar between ${esc(period.from)} and ${esc(period.to)}: `
+    +`${fmt(recBtl)} bottle${recBtl===1?'':'s'} — ${fmt(recML)} ml of spirits, wine and draught, `
+    +`${fmt(recPC)} piece${recPC===1?'':'s'} of beer, breezer and cigarettes. Click for the Receipt & Opening check. `
+    +`Purchase's own "Received" is a different figure: bottles bought INTO the store room.`;
   const saleTitle=!AUD ? 'The Sale column added up.'
       : (smOK ? `The Sale column added up: ${fmt(saleML)} ml${salePC?' and '+fmt(salePC)+' pcs':''}. The Tally Sheet's Grand Total reads the same — Cocktail + Straight on that sheet IS this column, brand by brand. Click to see them side by side.`
               : `The Sale column adds up to ${fmt(saleML)} ml${salePC?' and '+fmt(salePC)+' pcs':''}, and ${fmt(smN)} brand${smN===1?'':'s'} do not agree with the Tally Sheet. Click to see which.`);
   const footHtml=`<div class="bcfoot">
-    ${[['📦','Items Available', fmt(activeN), '#25c685','var(--text)', activeN+' brands have an opening, a receipt, a closing or a sale in this period'],
-       ['🧊','Total Stock (pcs)', fmt(Math.round(pcsStock*100)/100), '#4f8cff','var(--text)', 'beer · breezer · cigarettes — counted in pieces'],
-       ['💧','Total Stock (ml)', fmt(Math.round(mlStock)), '#8b5cf6','var(--text)', 'spirits · wine · draught — counted in millilitres'],
+    ${[['📥','Total Receiving · '+fmt(recBtl)+' btl', recVal, '#4f8cff','var(--text)', recTitle, 'bcDeepModal()'],
+       ['💧','Total Stock (ml)', fmt(Math.round(mlStock)), '#8b5cf6','var(--text)', 'spirits · wine · draught — counted in millilitres · beer, breezer and cigarettes hold '+fmt(Math.round(pcsStock*100)/100)+' pcs, in the PCS ITEMS row above · '+fmt(activeN)+' brands are active in this period'],
        ['💰','Total Sale Value', '₹ '+R0(D.tot.sale), '#e8c94b','var(--gold)', 'the Sale column priced at the landing rate'],
        ['⚖️','Total Variance', '₹ '+R0(D.tot.varv), D.tot.varv>=0?'#25c685':'#ef4f57', D.tot.varv>=0?'var(--green)':'var(--red)', 'sale − consumption, priced · average '+(avgVarPct>0?'+':'')+avgVarPct.toFixed(2)+'% of sale'],
        ['🧾', saleLab, saleVal, smOK?'#25c685':(AUD?'#e0a33e':'#8b5cf6'), smOK?'var(--green)':(AUD?'var(--amber,#e0a33e)':'var(--text)'), saleTitle, AUD?'saleMatchModal()':'']]

@@ -1,5 +1,5 @@
 {
-  "version": "2.95.0",
+  "version": "2.96.0",
   "date": "2026-11-03",
-  "notes": "🔍 Deep check on Beverage Control — Receipt AND Opening in one place, with the button that puts each thing right. It states the two different “receivings” side by side (what Purchase put INTO the store room, and what the store room ISSUED to the bar, which is this sheet’s Receipt), proves the difference equals the names it lists, and then names: every issued name with no row here (＋ Add), every name the Item Master does not hold, every brand that received stock with NO OPENING typed — type it straight into the list, because an empty Opening makes Consumption the whole receipt and the Variance as large and as negative as it — and every receive name pointing at an item that does not exist, with the right item suggested."
+  "notes": "Beverage Control’s bottom strip leads with TOTAL RECEIVING — the Receipt column added up, millilitres over pieces with the bottle count on its label — and it opens the 🔍 Deep check. “Items Available” and “Total Stock (pcs)” are gone at your word; the pieces of stock still read in the ledger’s PCS ITEMS row above, and in the Total Stock tile’s tooltip."
 }
