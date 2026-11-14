@@ -44,6 +44,36 @@ function bevPageId(){ const h=location.hash.slice(1); return h.indexOf('bev_')==
 function activeInv(){ const id=bevPageId(); if(!id) return invData;
   if(!bevStores[id]) bevStores[id]=bls('inv2_'+id, {}); return bevStores[id]; }
 function activeInvSave(){ const id=bevPageId(); bsv(id?('inv2_'+id):'inv', activeInv()); }
+/* A CLONE PAGE KEEPS ITS OWN PERIOD (v2.99.0). Client: "beverage control er clone page … tar period
+   jodi different kori original er theke, tahole seta jano alada na hoi — original a 1/10 → 25/10 &
+   clone a 5/10 → 15/10, tai thakbe". It is stored on the page itself (bevPages[].per), so a clone
+   that has never been given one simply follows the global period until it is. Everything else — the
+   Tally Sheet, the reports, every date box's default — still reads the global `period`; only the
+   Beverage Control sheet's own receipt window moves with the page you are on. */
+function bevPagePeriod(id){ const p=bevPages.find(x=>x.id===id);
+  return (p && p.per && p.per.from && p.per.to) ? p.per : null; }
+function activePeriod(){ const id=bevPageId(); return (id && bevPagePeriod(id)) || period; }
+function periodIsOwn(){ const id=bevPageId(); return !!(id && bevPagePeriod(id)); }
+function setActivePeriod(f, t){
+  const id=bevPageId(), cur=activePeriod();
+  const np={from:f||cur.from, to:t||cur.to};
+  if(id){ const p=bevPages.find(x=>x.id===id); if(p){ p.per=np; bsv('bevpages',bevPages); return np; } }
+  period={from:np.from, to:np.to}; bsv('period',period); return np;
+}
+function periodOwnPill(){
+  const id=bevPageId();
+  if(!id) return bevPages.length ? `<span class="pill gray" title="Each clone page keeps its own period — set one there and it stays there. This one is the company's period, which the Tally Sheet and the reports read too.">main period</span>` : '';
+  return periodIsOwn()
+    ? `<span class="pill am" title="This clone page has a period of its own. The main Beverage Control page and the other clones are not moved by it.">this page only</span>
+       <button class="btn btn-ghost btn-sm" onclick="clearPagePeriod()" title="Drop this page's own period and follow the company's period again">✕</button>`
+    : `<span class="pill gray" title="This clone has no period of its own yet, so it follows the company's. Change the dates here and it keeps them.">following the main period</span>`;
+}
+function clearPagePeriod(){
+  const id=bevPageId(); if(!id) return;
+  const p=bevPages.find(x=>x.id===id); if(!p) return;
+  delete p.per; bsv('bevpages',bevPages); _fiVer++; invalidateCalcCache(); route();
+  toast('Back on the main period', period.from+' → '+period.to,'ok');
+}
 
 /* ---------------- master matching ---------------- */
 let _rawIdx=null, _rawIdxVer=0;
@@ -129,7 +159,8 @@ var _fiVer=0, _fiFp='', _fiRecv=null, _fiIss=null, _fiExact=null, _fiMemoR=null,
 /* The day the Liquor Room's month was closed (v2.84.0). Everything dated before it is already
    inside the opening that count produced, so Received / Issued skip it. Blank = every date. */
 function lrFrom(){ try{ return String(bls('lrfrom','')||''); }catch(e){ return ''; } }
-function _fiFingerprint(){ return _fiVer+'|'+receivedStock.length+'|'+mrDetail.length+'|'+(period.from||'')+'|'+(period.to||'')+'|'+lrFrom(); }
+function _fiFingerprint(){ const P=(typeof activePeriod==='function')?activePeriod():period;   // v2.99.0: the page's own window is part of the key
+  return _fiVer+'|'+receivedStock.length+'|'+mrDetail.length+'|'+(bevPageId()||'')+'|'+(P.from||'')+'|'+(P.to||'')+'|'+lrFrom(); }
 function _fiEnsure(){
   const fp=_fiFingerprint(); if(_fiRecv && fp===_fiFp) return;
   _fiFp=fp; _fiMemoR=Object.create(null); _fiMemoI=Object.create(null);
@@ -139,7 +170,7 @@ function _fiEnsure(){
       if(lf && String(r.date||'')<lf) continue;        // already inside the opening that count produced
       const k=norm(r.item); m[k]=(m[k]||0)+fnum(r.qty); } return m; };
   _fiRecv=group(receivedStock); _fiIss=group(mrDetail);
-  _fiExact=Object.create(null); const f=period.from, t=period.to;
+  _fiExact=Object.create(null); const _P=activePeriod(), f=_P.from, t=_P.to;
   for(let i=0;i<mrDetail.length;i++){ const r=mrDetail[i], d=r.date||'';
     if((f&&d<f)||(t&&d>t)) continue; const k=norm(r.item); _fiExact[k]=(_fiExact[k]||0)+fnum(r.qty); }
 }
@@ -189,7 +220,7 @@ function _receiptOwner(){
     if(best) own[k]=best; });
   _rcOwnKey=key; return (_rcOwn=own);
 }
-function receiptInPeriod(name){ const nb=norm(name), f=period.from, t=period.to, own=_receiptOwner();
+function receiptInPeriod(name){ const _P=activePeriod(), nb=norm(name), f=_P.from, t=_P.to, own=_receiptOwner();
   return mrDetail.reduce((a,r)=>{ if(own[norm(r.item)]!==nb) return a;
     const d=r.date||''; return a+(((!f||d>=f)&&(!t||d<=t))?fnum(r.qty):0); },0); }
 // Excel-faithful receipt: EXACT name match on the Raw Data full name within the period (SUMIFS on col A).
@@ -2731,7 +2762,7 @@ function biRowHtml(t){
    that bottle has nowhere to land. So the two totals are compared on the page and any difference is
    named instead of disappearing. Nothing here changes a figure; it only reports. */
 function bcRecvAudit(){
-  const f=period.from, t=period.to; let n=0, q=0; const claim=Object.create(null), lost=Object.create(null);
+  const _P=activePeriod(), f=_P.from, t=_P.to; let n=0, q=0; const claim=Object.create(null), lost=Object.create(null);
   tallyItems.forEach(x=>{ claim[norm(rawNameFor(x.name)||x.name)]=1; });
   mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) return;
     const v=fnum(r.qty); n++; q+=v; if(!claim[norm(r.item)]) lost[r.item]=(lost[r.item]||0)+v; });
@@ -2931,7 +2962,7 @@ function bcAddAllDo(){
    every number below comes from barRow / lrTotals / _receiptOwner, the page's own sources. */
 function bcDeep(){
   const A=bcRecvAudit();                       // issues in the period · what the sheet receipts · the gap
-  const own=_receiptOwner(), f=period.from, t=period.to;
+  const _P=activePeriod(), own=_receiptOwner(), f=_P.from, t=_P.to;
   const by=Object.create(null);
   mrDetail.forEach(r=>{ const d=String(r.date||''); if((f&&d<f)||(t&&d>t)) return;
     const k=norm(r.item); if(!by[k]) by[k]={name:r.item, q:0}; by[k].q+=fnum(r.qty); });
@@ -2956,7 +2987,7 @@ function bcDeepBody(){
   const sec=(ico,title,sub,inner)=>`<div class="smsec"><div class="smsh">${ico} <strong>${title}</strong> <span class="muted">${sub}</span></div>${inner}</div>`;
   let out=`${rawNamesDatalist()}
     <div class="k k3">
-      ${card('Issued to the bar', fmt(A.q)+'<small>btl</small>', fmt(A.n)+' issues · '+esc(period.from)+' → '+esc(period.to),'gold')}
+      ${card('Issued to the bar', fmt(A.q)+'<small>btl</small>', fmt(A.n)+' issues · '+esc(activePeriod().from)+' → '+esc(activePeriod().to),'gold')}
       ${card('Receipt on this sheet', fmt(A.got)+'<small>btl</small>', ok?'the same figure — nothing is missing':'the two do not agree', ok?'':'am')}
       ${card('Difference', (A.gap>0?'+':'')+fmt(A.gap)+'<small>btl</small>', A.gap>0?'issued but nowhere to land':(A.gap<0?'counted twice':'none'), A.gap?'am':'')}
     </div>
@@ -3048,7 +3079,7 @@ function bcDeepRname(name, v){
 function bcRecvGapModal(){
   const A=bcRecvAudit(); const names=Object.keys(A.lost).sort((a,b)=>A.lost[b]-A.lost[a]);
   const lostQ=names.reduce((s,k)=>s+A.lost[k],0);
-  modal('📅 Receipt · '+esc(period.from)+' → '+esc(period.to), `
+  modal('📅 Receipt · '+esc(activePeriod().from)+' → '+esc(activePeriod().to), `
     <p style="font-size:12px;margin:0 0 8px">Bar Stock Issue holds <strong class="gold">${fmt(A.n)}</strong> issue${A.n===1?'':'s'} · <strong class="gold">${fmt(A.q)}</strong> bottle${A.q===1?'':'s'} in these dates. This sheet receipts <strong class="gold">${fmt(A.got)}</strong>.</p>
     ${names.length?`<p class="muted" style="font-size:11.5px;margin:0 0 6px">These item names have no row on this sheet, so their bottles cannot appear here. Add the brand in the Tally Sheet, or point an existing brand's <em>receive name</em> at the item.</p>
     <div class="table-wrap" style="max-height:300px;overflow:auto"><table class="tbl"><thead><tr><th>Item issued</th><th class="right" style="width:90px">Bottles</th><th style="width:86px"></th></tr></thead>
@@ -3662,7 +3693,7 @@ function bcBlocks(){
   const recVal=(recML||!recPC)
       ? `${fmt(recML)}<small> ml</small>${recPC?`<div class="v2">${fmt(recPC)} pcs</div>`:''}`
       : `${fmt(recPC)}<small> pcs</small>`;
-  const recTitle=`What the store room ISSUED to the bar between ${esc(period.from)} and ${esc(period.to)}: `
+  const recTitle=`What the store room ISSUED to the bar between ${esc(activePeriod().from)} and ${esc(activePeriod().to)}: `
     +`${fmt(recBtl)} bottle${recBtl===1?'':'s'} — ${fmt(recML)} ml of spirits, wine and draught, `
     +`${fmt(recPC)} piece${recPC===1?'':'s'} of beer, breezer and cigarettes. Click for the Receipt & Opening check. `
     +`Purchase's own "Received" is a different figure: bottles bought INTO the store room.`;
@@ -3735,9 +3766,10 @@ VIEWS.barinv = () => {
     <div class="card royalcard bcper" style="margin-bottom:8px"><div class="card-body flex items-center" style="flex-wrap:wrap;gap:8px 14px;padding:7px 12px;justify-content:space-between">
       <div class="flex items-center" style="gap:8px;flex-wrap:wrap">
         <span style="${SER};color:var(--gold);font-size:11.5px;letter-spacing:1.6px">🗓️ PERIOD</span>
-        <input class="input" type="date" id="biFrom" value="${period.from}" style="width:auto" onchange="setBarPeriod()">
+        <input class="input" type="date" id="biFrom" value="${activePeriod().from}" style="width:auto" onchange="setBarPeriod()">
         <span class="gold">→</span>
-        <input class="input" type="date" id="biTo" value="${period.to}" style="width:auto" onchange="setBarPeriod()">
+        <input class="input" type="date" id="biTo" value="${activePeriod().to}" style="width:auto" onchange="setBarPeriod()">
+        ${periodOwnPill()}
         <span id="bcAudit">${_BB.audit}</span>
         ${invFixNoteHtml()}
       </div>
@@ -3842,7 +3874,9 @@ AFTER.barinv = () => {
     backgroundColor:['#d8bd7f','#2a2620'],borderColor:'#161a23',borderWidth:2}]},
     options:{...noleg,cutout:'72%',rotation:270,circumference:180}});
 };
-function setBarPeriod(){ const f=$('#biFrom').value, t=$('#biTo').value; period={from:f||period.from, to:t||period.to}; bsv('period',period); route(); toast('Period set',`${period.from} → ${period.to}`,'ok'); }
+function setBarPeriod(){ const np=setActivePeriod($('#biFrom').value, $('#biTo').value);
+  _fiVer++; invalidateCalcCache(); route();
+  toast(periodIsOwn()?'This page\'s period':'Period set', np.from+' → '+np.to+(periodIsOwn()?' · this clone page only':''),'ok'); }
 function cloneBarInv(){
   /* say what it will actually do, with the figures (v2.81.0 — it was pressed mid-month once
      and wiped every closing; the wording alone did not make the size of it clear) */
@@ -3885,7 +3919,7 @@ function clearInvCol(key){
 function doClearInvCol(key){ const st=activeInv(); Object.keys(st).forEach(k=>{ if(st[k]) st[k][key]=''; }); activeInvSave(); closeModal(); route(); toast('Cleared',(key==='openBL'?'Opening':'Closing')+' cleared for all items','err'); }
 function exportBarInvExcel(){
   if(typeof XLSX==='undefined'){ toast('Reader not loaded','Reload the page','err'); return; }
-  const aoa=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Bar Inventory' ],[ 'Period', period.from+' to '+period.to ],[],
+  const aoa=[[ (cfg.company||'TRAFFIC GASTROPUB')+' — Bar Inventory' ],[ 'Period', activePeriod().from+' to '+activePeriod().to ],[],
     ['Item','Receive Name (Item Master)','Category','Unit','Size','Landing ₹','Opening','Receipt','Closing','Consumption','Sale','Variance','Var Btl','Var ml','Opening ₹','Receipt ₹','Closing ₹','Consumption ₹','Sale ₹','Variance ₹']];
   const TT={open:0,rec:0,close:0,cons:0,sale:0,varv:0};
   tallyItems.forEach(t=>{ const R=barRow(t); const iv=R.iv;
@@ -3895,7 +3929,7 @@ function exportBarInvExcel(){
       Math.round(A.open), Math.round(A.rec), Math.round(A.close), Math.round(A.cons), Math.round(A.sale), Math.round(A.varv)]); });
   aoa.push(['TOTAL AMOUNT (₹)','','','','','','','','','','','','','', Math.round(TT.open), Math.round(TT.rec), Math.round(TT.close), Math.round(TT.cons), Math.round(TT.sale), Math.round(TT.varv)]);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Bar Inventory');
-  XLSX.writeFile(wb,'bar_inventory_'+period.from+'_'+period.to+'.xlsx'); toast('Exported','Bar Inventory → Excel','ok');
+  XLSX.writeFile(wb,'bar_inventory_'+activePeriod().from+'_'+activePeriod().to+'.xlsx'); toast('Exported','Bar Inventory → Excel','ok');
 }
 
 /* ============================================================
@@ -4924,7 +4958,7 @@ function dbRoyalHead(look,X){
   const catTbl=()=>`<div class="dwrap"><table class="dtbl"><thead><tr><th>Category</th><th>Consumption ML</th><th>% share</th></tr></thead><tbody>${
     X.cats.map(c=>`<tr><td>${esc(c.cat)}</td><td><b>${fmt(R2(c.v))}</b></td><td>${pct(c.v).toFixed(1)}%</td></tr>`).join('')||'<tr><td colspan="3" class="muted">No data</td></tr>'}
     <tr><td><b style="color:var(--text)">TOTAL</b></td><td><b>${fmt(R2(catTot))}</b></td><td>100%</td></tr></tbody></table></div>`;
-  const head=`${esc(cfg.company||'Bar')}`, sub=`Beverage Control · ${period.from} → ${period.to}`;
+  const head=`${esc(cfg.company||'Bar')}`, sub=`Beverage Control · ${activePeriod().from} → ${activePeriod().to}`;
 
   if(look==='palace') return `<div class="dbr dbr-palace">
     <div class="flor">✦ ✦ ✦</div><h2>${head}</h2><div class="sub">${esc(sub)}</div>
@@ -5652,7 +5686,7 @@ function moStartModal(){
     <div class="k k3">
       ${card('Beverage Control', fmt(C.bcCarry), 'closings become the new opening', 'gold')}
       ${card('Liquor Room', fmt(C.lrN), fmt(C.lrBtl)+' btl in hand become the opening', 'gold')}
-      ${card('New period', np.from+' → '+np.to, 'the period moves with you')}
+      ${card('Period', period.from+' → '+period.to, 'left exactly where you set it')}
     </div>
     <div class="w">This is the month roll: <strong>what you counted becomes what you start with</strong>, and this month's entries are cleared so the new month is empty. Everything below is saved into 🗂 History first, and <strong>↩ Put it back</strong> undoes the whole thing.</div>
     <div class="smsec"><div class="smsh">🧹 <strong>Cleared for the new month</strong> <span class="muted">this month's entries — not your brands</span></div>
@@ -5700,21 +5734,22 @@ function moStartDo(){
   bsv('invoices',[]);                                      // the BEVCO import history
   try{ localStorage.removeItem(CO_PREFIX+'audit'); }catch(e){}
   bsv('lrfrom','');                                        // no entry is left, so every date is right again
-  period.from=np.from; period.to=np.to; bsv('period',period);
+  /* the period is NOT moved — the client sets it themselves ("period ame nija bosabo", v2.99.0).
+     It is still carried into the snapshot above, so ↩ Put it back restores whatever it was. */
   invalidateCalcCache();
   closeModal(); location.hash='#dashboard'; route();
-  toast('New month started', np.from+' → '+np.to+' · openings carried · the entries cleared','ok');
+  toast('New month started', 'openings carried · the entries cleared · the period is yours to set','ok');
   setTimeout(function(){ moDoneModal(mid, C, oldP, np); }, 280);
 }
 function moDoneModal(mid, C, oldP, np){
   const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
   modal('✅ The new month is open', `<div class="bevxl">
     <div class="k k3">
-      ${card('Period', np.from+' → '+np.to, 'was '+oldP.from+' → '+oldP.to, 'gold')}
+      ${card('Period', period.from+' → '+period.to, 'unchanged — set it when you are ready', 'gold')}
       ${card('Carried up', fmt(C.bcCarry)+' + '+fmt(C.lrN), 'Beverage Control + Liquor Room openings', 'gold')}
       ${card('Cleared', fmt(C.recv+C.mr+C.pos), 'purchase · issue · POS rows')}
     </div>
-    <div class="w">Count the bar at the end of THIS month and type it into the Closing column — until then Consumption reads the whole opening, which is normal at the start of a month.</div>
+    <div class="w">Set the period to the new month when you are ready — 🗓️ PERIOD on Beverage Control, and a clone page keeps its own. Count the bar at the end of THIS month and type it into the Closing column — until then Consumption reads the whole opening, which is normal at the start of a month.</div>
     <div class="muted" style="font-size:11.5px">Everything that was cleared is saved in 🗂 History as <strong>${esc(oldP.from)} → ${esc(oldP.to)}</strong> — its closing reports can still be downloaded from there at any time.</div></div>`,
     `<button class="btn btn-sm" onclick="closingReports('${mid}')">📊 Closing reports</button>
      <button class="btn btn-sm" onclick="closeModal();openMonths()">🗂 History</button>
