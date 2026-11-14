@@ -2477,7 +2477,7 @@ VIEWS.liquorroom = () => {
   const headSel=smallSel('Head look — how the top section is drawn','setLrHead(this.value)',LR_HEADS,headLook);
   const fpill=(id,lbl,d)=>`<button class="lrpill ${lrFilter===id?'on':''}" onclick="lrFilter='${id}';route()">${d?`<i class="d ${d}"></i>`:''}${lbl}</button>`;
   const tools=`${periodBar(true)}<span class="lrnote noprint" title="${esc(lrWhenTitle())}">${lrFrom()?`counts <strong>from ${esc(lrFrom())}</strong> · the month before it is in the opening`:`counts <strong>every date</strong> · the period is for Beverage Control &amp; reports`}</span><span class="lrsep"></span>${fpill('all','All')}${fpill('instock','In Stock','g')}${fpill('zero','Zero','z')}${fpill('neg','Negative','r')}${smallSel('Blank / zero filter','lrBlank=this.value;route()',BLANK_OPTS,lrBlank)}${rdSelBarHtml()}
-      <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button><button class="btn btn-sm" onclick="invFixRun()" title="Put every opening back to what your Liquor Inventory workbook says — item by item, this page and Beverage Control. Your figures as they are now are kept first.">🔄 Sheet match</button><button class="btn btn-sm" onclick="lrRollAsk()" title="Close the month: today's closing stock becomes the opening, and Received · Issued start counting again from that day. Your figures are kept, so it can be put back.">📅 New month</button>${invFixNoteHtml()}${lrRollNoteHtml()}`;
+      <button class="btn btn-sm" onclick="expReport('lroom','xlsx')" title="Download this sheet as Excel">📊 Excel</button><button class="btn btn-sm" onclick="printSheet('lroom')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>${invFixNoteHtml()}${lrRollNoteHtml()}`;
   const tl=`<div class="tl noprint">${headSel}${smallSel('Premium look','setLrLook(this.value)',LOOK_OPTS,look)}${layDrop('liquorroom')}</div>`;
   // ① Royal Ledger — the .bcledger title + .bclh grid of the Beverage Control head, five columns, the .lrflow ring
   const shareCell=(v,c,hi)=>{ const p=pctOf(v); return `<div class="s${hi?' hi':''}">${p.toFixed(1)}%<span class="bar ${c}"><i style="width:${Math.min(100,p).toFixed(1)}%"></i></span></div>`; };
@@ -3747,8 +3747,6 @@ VIEWS.barinv = () => {
         <button class="btn btn-sm" onclick="expReport('bev','xlsx')" title="Download this sheet as Excel">📊 Excel</button>
         <button class="btn btn-sm" onclick="printSheet('bev')" title="Clean print of this sheet — Save as PDF from the dialog">🖨 Print</button>
         <label class="btn btn-sm btn-gold" style="cursor:pointer" title="Your own Liquor Inventory workbook — the month sheet with OPENING BAL and CLOSING BAL. Every brand is matched to yours, you see what would change, and only then is it put in.">📥 From Excel<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="bevXlUpload(this)"></label>
-        <button class="btn btn-sm" onclick="invFixRun()" title="Put every opening and closing back to what your Liquor Inventory workbook says — brand by brand. Your figures as they are now are kept first.">🔄 Sheet match</button>
-        <button class="btn btn-sm" onclick="cloneBarInv()" title="Close the month: this month's Closing becomes next month's Opening, and the Closing column is emptied for the new count. Only when the month is finished.">📅 New month</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('openBL')" title="Clears EVERY Opening value">🧹 Opening</button>
         <button class="btn btn-danger btn-sm" onclick="clearInvCol('closeBL')" title="Clears EVERY Closing value">🧹 Closing</button>
       </div>
@@ -5612,31 +5610,135 @@ function printSheet(id){
   const name=_rptName(id);
   _printWin([{id, name, aoa:reportAoa(id)}], period.from+'_'+period.to, name.toUpperCase());
 }
-function monthClose(){
-  confirmAsk(`Close month <strong>${period.from} → ${period.to}</strong>?<br><span class="muted" style="font-size:11.5px">Snapshot + closing reports → history · Closing→Opening carries · POS/MR/Received clear for the new month.</span>`, ()=>{
-    const {totalC,totalS}=calcGrandTotals(); let D=null; try{ D=biRoyalData(); }catch(e){}
-    let aoas=null; try{ aoas=closingAoas(); }catch(e){}
-    const months=bls('months',[]); const mid='m'+Date.now();
-    months.unshift({ id:mid, ts:new Date().toLocaleString(), period:{...period},
-      tot:{ml:Math.round(totalC+totalS), c:Math.round(totalC), s:Math.round(totalS), sale:D?Math.round(D.tot.sale):0, varv:D?Math.round(D.tot.varv):0},
-      aoas:aoas,
-      data:{ inv:JSON.parse(JSON.stringify(invData)), recv:receivedStock, mr:mrDetail, pos:posData } });
-    if(months.length>18) months.length=18;
-    try{ bsv('months',months); }catch(e){ toast('Storage full','Delete an old month from History first','err'); return; }
-    const lrNew={}; rawData.forEach(r=>{ lrNew[norm(r.item)]=fnum(invGet(r.item).lrOpen)+receivedForItem(r.item)-issuedForItem(r.item); });
-    const nd=JSON.parse(JSON.stringify(invData));
-    Object.keys(nd).forEach(k=>{ const e=nd[k];
-      if(e.closeBL!=null && e.closeBL!==''){ e.openBL=e.closeBL; }
-      e.closeBL=''; delete e.consOverride; delete e.varOverride; delete e.saleOverride; });
-    Object.keys(lrNew).forEach(k=>{ (nd[k]=nd[k]||{}).lrOpen=lrNew[k]; });
-    invData=nd; bsv('inv',invData);
-    receivedStock=[]; bsv('recv',receivedStock);
-    mrDetail=[]; bsv('mr',mrDetail);
-    posData=[]; bsv('pos',posData);
-    closeModal(); route(); toast('Month closed','Snapshot archived · Opening carried · new month ready','ok');
-    setTimeout(()=>closingReports(mid),200);   // offer the closing bundle right away
-  });
+/* ── 📅 START A NEW MONTH (v2.98.0) ───────────────────────────────────────────
+   Client: "side bar a akta icon koro start a new month, a click kora akta popup asbe,
+   yes korla liquor room & beverage control er sob closing opening a asbe & purchase all
+   clear hobe, history clear hobe, bar issue sob clear hobe, sale report put takle clear
+   hobe — like fresh state hobe, sudhu last month er closing opening hobe."
+   monthClose() has carried and cleared since v2.2, buried in Settings behind a one-line
+   question. This is that act, asked for properly: every figure is counted BEFORE anything
+   is touched, the two registers it never cleared (the BEVCO invoice register and the audit
+   log) are cleared too, the Liquor Room's month-close floor is dropped (no entry is left to
+   count twice), the period moves to the new month, and the snapshot it already writes into
+   `months` is the one-click way back. ORDER MATTERS: the Liquor Room's closing is COMPUTED
+   from the purchases and the issues, so it must be worked out BEFORE they are cleared. */
+function moNextPeriod(){
+  const base=String(period.to||'').slice(0,10);
+  let d=new Date(base+'T00:00:00'); if(isNaN(d.getTime())) d=new Date();
+  const f=new Date(d.getFullYear(), d.getMonth()+1, 1), t=new Date(d.getFullYear(), d.getMonth()+2, 0);
+  const p2=x=>String(x).padStart(2,'0'), s=x=>x.getFullYear()+'-'+p2(x.getMonth()+1)+'-'+p2(x.getDate());
+  return {from:s(f), to:s(t)};
 }
+function moCounts(){
+  let bcCarry=0, bcNone=0, lrN=0, lrBtl=0;
+  tallyItems.forEach(t=>{ const iv=invGet(t.name);
+    const hasC=!(iv.closeBL==null||iv.closeBL===''), hasO=!(iv.openBL==null||iv.openBL==='');
+    if(hasC) bcCarry++; else if(hasO) bcNone++; });
+  rawData.forEach(r=>{ const c=fnum(invGet(r.item).lrOpen)+receivedForItem(r.item)-issuedForItem(r.item);
+    if(c){ lrN++; lrBtl+=c; } });
+  let au=0; try{ au=(JSON.parse(localStorage.getItem(CO_PREFIX+'audit')||'[]')).length; }catch(e){}
+  return {bcCarry, bcNone, lrN, lrBtl:Math.round(lrBtl*1000)/1000,
+    recv:receivedStock.length, rq:receivedStock.reduce((a,r)=>a+(+r.qty||0),0),
+    mr:mrDetail.length,       mq:mrDetail.reduce((a,r)=>a+(+r.qty||0),0),
+    pos:posData.length,       pq:posData.reduce((a,p)=>a+(+p.qty||0),0),
+    inv:(bls('invoices',[])||[]).length, audit:au, months:(bls('months',[])||[]).length};
+}
+function moStartModal(){
+  const C=moCounts(), np=moNextPeriod();
+  const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
+  const row=(ico,what,k,unit,sub)=>`<tr><td style="width:26px">${ico}</td><td class="lrname"><strong>${what}</strong>${sub?`<div class="muted" style="font-size:10.5px">${sub}</div>`:''}</td>
+      <td class="num"><strong style="color:${k?'var(--red)':'var(--text-muted)'}">${k?fmt(k):'—'}</strong><small class="muted"> ${unit}</small></td></tr>`;
+  modal('📅 Start a new month', `<div class="bevxl">
+    <div class="k k3">
+      ${card('Beverage Control', fmt(C.bcCarry), 'closings become the new opening', 'gold')}
+      ${card('Liquor Room', fmt(C.lrN), fmt(C.lrBtl)+' btl in hand become the opening', 'gold')}
+      ${card('New period', np.from+' → '+np.to, 'the period moves with you')}
+    </div>
+    <div class="w">This is the month roll: <strong>what you counted becomes what you start with</strong>, and this month's entries are cleared so the new month is empty. Everything below is saved into 🗂 History first, and <strong>↩ Put it back</strong> undoes the whole thing.</div>
+    <div class="smsec"><div class="smsh">🧹 <strong>Cleared for the new month</strong> <span class="muted">this month's entries — not your brands</span></div>
+      <table class="tbl"><tbody>
+        ${row('📦','Purchase entries', C.recv, 'rows', C.rq?fmt(C.rq)+' bottles in':'')}
+        ${row('🧾','BEVCO invoice register', C.inv, 'invoices', 'the import history')}
+        ${row('🍸','Bar Stock Issue entries', C.mr, 'rows', C.mq?fmt(C.mq)+' bottles issued':'')}
+        ${row('📊','POS sale rows', C.pos, 'rows', C.pq?fmt(C.pq)+' sold — Sale, Variance and the Error Queue empty with them':'')}
+        ${row('📝','Audit log', C.audit, 'lines', 'who changed what')}
+      </tbody></table></div>
+    <div class="smsec"><div class="smsh">✔ <strong>Kept, untouched</strong></div>
+      <div class="muted" style="font-size:11.5px;line-height:1.9">Every brand, category and unit · the POS aliases and cocktail recipes · the Item Master and its rates · the Landing Cost File · your company settings — and the ${fmt(C.months)} month${C.months===1?'':'s'} already in 🗂 History.${C.bcNone?` <strong>${fmt(C.bcNone)} brand${C.bcNone===1?' has':'s have'} no Closing typed</strong>, so ${C.bcNone===1?'its':'their'} Opening stays exactly as it is.`:''}</div></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Not a new month — just want your workbook's figures back? <button class="btn btn-sm" onclick="closeModal();setTimeout(invFixRun,120)">🔄 Sheet match</button></div></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-danger" onclick="moStartDo()">📅 Yes — start the new month</button>`);
+}
+function moStartDo(){
+  const C=moCounts(), np=moNextPeriod(), oldP={from:period.from, to:period.to};
+  const G=calcGrandTotals(), totalC=G.totalC, totalS=G.totalS;
+  let D=null; try{ D=biRoyalData(); }catch(e){}
+  let aoas=null; try{ aoas=closingAoas(); }catch(e){}
+  let au=[]; try{ au=JSON.parse(localStorage.getItem(CO_PREFIX+'audit')||'[]'); }catch(e){}
+  const months=bls('months',[]), mid='m'+Date.now();
+  months.unshift({ id:mid, ts:new Date().toLocaleString(), period:{from:oldP.from, to:oldP.to},
+    tot:{ml:Math.round(totalC+totalS), c:Math.round(totalC), s:Math.round(totalS),
+         sale:D?Math.round(D.tot.sale):0, varv:D?Math.round(D.tot.varv):0},
+    aoas:aoas,
+    data:{ inv:JSON.parse(JSON.stringify(invData)), recv:receivedStock, mr:mrDetail, pos:posData,
+           invoices:bls('invoices',[]), audit:au,
+           lrfrom:(typeof lrFrom==='function'?lrFrom():''), period:{from:oldP.from, to:oldP.to} } });
+  if(months.length>18) months.length=18;
+  try{ bsv('months',months); }catch(e){ toast('Storage full','Delete an old month from 🗂 History first','err'); return; }
+  /* the Liquor Room's closing is Opening + Received − Issued, so it is worked out HERE,
+     while the purchases and the issues are still on the device */
+  const lrNew={}; rawData.forEach(r=>{ lrNew[norm(r.item)]=fnum(invGet(r.item).lrOpen)+receivedForItem(r.item)-issuedForItem(r.item); });
+  const nd=JSON.parse(JSON.stringify(invData));
+  Object.keys(nd).forEach(k=>{ const e=nd[k];
+    if(e.closeBL!=null && e.closeBL!=='') e.openBL=e.closeBL;
+    e.closeBL=''; delete e.consOverride; delete e.varOverride; delete e.saleOverride; });
+  Object.keys(lrNew).forEach(k=>{ (nd[k]=nd[k]||{}).lrOpen=lrNew[k]; });
+  invData=nd; bsv('inv',invData);
+  receivedStock=[]; bsv('recv',receivedStock);
+  mrDetail=[];      bsv('mr',mrDetail);
+  posData=[];       bsv('pos',posData);
+  bsv('invoices',[]);                                      // the BEVCO import history
+  try{ localStorage.removeItem(CO_PREFIX+'audit'); }catch(e){}
+  bsv('lrfrom','');                                        // no entry is left, so every date is right again
+  period.from=np.from; period.to=np.to; bsv('period',period);
+  invalidateCalcCache();
+  closeModal(); location.hash='#dashboard'; route();
+  toast('New month started', np.from+' → '+np.to+' · openings carried · the entries cleared','ok');
+  setTimeout(function(){ moDoneModal(mid, C, oldP, np); }, 280);
+}
+function moDoneModal(mid, C, oldP, np){
+  const card=(l,v,s,cls)=>`<div class="c"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="s">${s}</div></div>`;
+  modal('✅ The new month is open', `<div class="bevxl">
+    <div class="k k3">
+      ${card('Period', np.from+' → '+np.to, 'was '+oldP.from+' → '+oldP.to, 'gold')}
+      ${card('Carried up', fmt(C.bcCarry)+' + '+fmt(C.lrN), 'Beverage Control + Liquor Room openings', 'gold')}
+      ${card('Cleared', fmt(C.recv+C.mr+C.pos), 'purchase · issue · POS rows')}
+    </div>
+    <div class="w">Count the bar at the end of THIS month and type it into the Closing column — until then Consumption reads the whole opening, which is normal at the start of a month.</div>
+    <div class="muted" style="font-size:11.5px">Everything that was cleared is saved in 🗂 History as <strong>${esc(oldP.from)} → ${esc(oldP.to)}</strong> — its closing reports can still be downloaded from there at any time.</div></div>`,
+    `<button class="btn btn-sm" onclick="closingReports('${mid}')">📊 Closing reports</button>
+     <button class="btn btn-sm" onclick="closeModal();openMonths()">🗂 History</button>
+     <button class="btn btn-gold" onclick="moUndo('${mid}')">↩ Put it back</button>
+     <button class="btn" onclick="closeModal()">Done</button>`);
+}
+function moUndo(mid){
+  const m=(bls('months',[])||[]).find(x=>x.id===mid);
+  if(!m){ toast('Nothing to put back','That snapshot is gone','err'); return; }
+  confirmAsk(`Put <strong>${esc(m.period.from)} → ${esc(m.period.to)}</strong> back exactly as it was?<br><span class="muted" style="font-size:12px">The openings go back to what they were, and every purchase, issue and POS row returns. Anything typed into the new month is replaced.</span>`,
+    function(){ const d=m.data||{};
+      invData=JSON.parse(JSON.stringify(d.inv||{})); bsv('inv',invData);
+      receivedStock=d.recv||[]; bsv('recv',receivedStock);
+      mrDetail=d.mr||[];        bsv('mr',mrDetail);
+      posData=d.pos||[];        bsv('pos',posData);
+      bsv('invoices', d.invoices||[]);
+      try{ if(d.audit && d.audit.length) localStorage.setItem(CO_PREFIX+'audit', JSON.stringify(d.audit)); }catch(e){}
+      bsv('lrfrom', d.lrfrom||'');
+      if(d.period){ period.from=d.period.from; period.to=d.period.to; bsv('period',period); }
+      invalidateCalcCache(); closeModal(); route();
+      toast('Put back', m.period.from+' → '+m.period.to+' is on the device again','ok'); },
+    {title:'↩ Put the month back', ok:'↩ Put it back'});
+}
+function monthClose(){ return moStartModal(); }   // Settings → Month Close and the sidebar meet here
 function openMonths(){
   const ms=bls('months',[]);
   const rows=ms.map(m=>`<div class="flex between items-center" style="padding:9px 0;border-bottom:1px solid var(--border-soft);gap:10px">

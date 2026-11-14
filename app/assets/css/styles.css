@@ -184,6 +184,13 @@ select.input { appearance: none; cursor: pointer; }
 .nav-item .ico::before { content: "◇"; }
 .nav-item:hover { background: transparent; color: var(--text); }
 .nav-item:hover .ico { color: var(--gold-soft); }
+/* v2.98.0 — the one sidebar row that DOES something instead of opening a page.
+   The rail draws a diamond for every item (.ico svg is hidden), so this one gets its own
+   marker and a gold tint, or it would be indistinguishable from a page. */
+.nav-item.act .ico::before { content: "📅"; font-size: 12px; }
+.nav-item.act { color: var(--gold-soft); }
+.nav-item.act .ico { color: var(--gold); }
+.nav-item.act:hover { background: color-mix(in srgb, var(--gold) 9%, transparent); color: var(--gold); }
 .nav-item.active { background: var(--gold-dim); color: var(--gold-soft); }
 .nav-item.active .ico { color: var(--gold); }
 .nav-item.active .ico::before { content: "◆"; }

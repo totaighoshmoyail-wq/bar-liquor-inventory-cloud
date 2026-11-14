@@ -1,5 +1,5 @@
 {
-  "version": "2.97.0",
-  "date": "2026-11-03",
-  "notes": "A brand can be counted in PIECES wherever it is filed. The Resolve box has a 🥃 ml / 🍺 pcs switch, the brand’s own edit box has a \"Counted in\" row, and ⚖️ Sale match lists every brand whose name says pieces while it is counted in millilitres — one click moves them all, and their category keeps its name. The unit now follows the BRAND first: 15 Canteen soft drinks, waters and cigarettes filed under WHITE WINE were sold by the piece but stocked as 750 ml bottles — 10 cans + 6 received − 4 left read 9,000 ml consumed instead of 12 pieces."
+  "version": "2.98.0",
+  "date": "2026-11-14",
+  "notes": "📅 Start a new month is a row of its own in the sidebar. One popup counts everything first — how many closings become the new opening on Beverage Control and the Liquor Room, and how many purchase, invoice, issue, POS and audit lines are cleared — then does it all at once, moves the period to the new month, and keeps the whole month in 🗂 History so ↩ Put it back undoes it. The notifications bell has 🧹 Clear all (nothing is deleted; it speaks again by itself when the count changes). 🔄 Sheet match and 📅 New month are off both toolbars — Sheet match now sits inside the new popup."
 }

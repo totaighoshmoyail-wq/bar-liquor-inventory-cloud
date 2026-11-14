@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.97.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.98.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1225,6 +1225,7 @@ const ICO = {
   issue:     _ic('<rect x="2.5" y="5" width="8.5" height="14" rx="1.5"/><path d="M13.5 12h8m0 0-3-3m3 3-3 3"/>'),
   bev:       _ic('<path d="M10 3h4v3.2l1.5 2.2c.3.5.5 1 .5 1.6V19a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9c0-.6.2-1.1.5-1.6L10 6.2z"/><path d="M8 13.5h8"/>'),
   reports:   _ic('<path d="M6 3h8l4 4v13.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V3.5A.5.5 0 0 1 6 3z"/><path d="M14 3v4h4"/><path d="M8.5 13h7M8.5 17h4"/>'),
+  month:     _ic('<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M8.5 14.5h3.5m0 0h3m-3 0v-2m0 2v2"/>'),
   settings:  _ic('<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2M12 19.5v2M4.4 4.4l1.5 1.5M18.1 18.1l1.5 1.5M2.5 12h2M19.5 12h2M4.4 19.6l1.5-1.5M18.1 5.9l1.5-1.5"/>'),
   clone:     _ic('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M4.5 15.5V6a2 2 0 0 1 2-2H16"/>'),
 };
@@ -1252,6 +1253,8 @@ const NAV = [
     {id:'reports', label:'All Reports', ico:ICO.reports},
   ]},
   { group:'System', items:[
+    {id:'newmonth', label:'Start a new month', ico:ICO.month, act:'moStartModal()',
+     tip:'Close this month: every Closing becomes the new Opening on Beverage Control and the Liquor Room, and this month\'s purchase, issue and POS entries are cleared. You are shown every figure first, and it can be put back.'},
     {id:'settings', label:'Settings', ico:ICO.settings},
   ]},
 ];
@@ -1289,7 +1292,7 @@ function boot(){ if(!location.hash) location.hash='#dashboard'; applyAppearance(
 function renderShell(){
   const nav = NAV.map(g=>`
     <div class="nav-group-label">${g.group}</div>
-    ${g.items.map(it=>`<div class="nav-item" data-nav="${it.id}"><span class="ico">${it.ico}</span><span>${it.label}</span>${it.badgeFn?`<span class="badge" data-badge="${it.id}"></span>`:''}</div>`).join('')}
+    ${g.items.map(it=>`<div class="nav-item${it.act?' act':''}" ${it.act?`data-act="${esc(it.act)}"`:`data-nav="${it.id}"`}${it.tip?` title="${esc(it.tip)}"`:''}><span class="ico">${it.ico}</span><span>${it.label}</span>${it.badgeFn?`<span class="badge" data-badge="${it.id}"></span>`:''}</div>`).join('')}
   `).join('');
   $('#app').innerHTML = `
     <aside class="sidebar" id="sidebar">
@@ -1322,6 +1325,8 @@ function renderShell(){
       </footer>
     </main>`;
   $$('[data-nav]').forEach(n=>n.onclick=()=>go(n.dataset.nav));
+  $$('[data-act]').forEach(n=>n.onclick=()=>{ toggleSidebar(false);                 // a row that DOES something
+    try{ (new Function(n.dataset.act))(); }catch(e){ toast('Not ready yet', e.message, 'err'); } });
   refreshBadges(); sbFill();
 }
 /* ---- status bar helpers ---- */
@@ -1386,11 +1391,18 @@ function openNotifs(){
   const errRows=errs.slice(0,8).map(r=>`<div class="flex between" style="gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</span><span class="muted">× ${fmt(+r.qty||0)}</span></div>`).join('')+more(errs.length);
   const lowRows=low.slice(0,8).map(x=>`<div class="flex between" style="gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.name)}</span><span class="pill ${x.status==='OUT'?'red':'amber'}" style="font-size:9.5px">${x.status}</span></div>`).join('')+more(low.length);
   const varRows=vars.slice(0,8).map(x=>`<div class="flex between" style="gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.name)}</span><strong style="color:${x.amt>=0?'var(--green)':'var(--red)'}">₹ ${fmt(Math.round(x.amt))}</strong></div>`).join('')+more(vars.length);
+  const quiet=notifCleared(), nTot=errs.length+low.length+vars.length;
   modal('🔔 Notifications',
-    sec('⚠️','Unmatched POS names',errs.length,errs.length?errRows:'','Error Queue','smartmap')
+    (quiet
+      ? `<div class="w" style="border-color:color-mix(in srgb,var(--green) 45%,transparent);color:var(--green);background:color-mix(in srgb,var(--green) 7%,transparent)">✔ Cleared — the bell is quiet. ${fmt(nTot)} thing${nTot===1?' is':'s are'} still on the pages below; nothing was deleted, and the bell speaks again by itself the moment the count changes.</div>`
+      : '')
+    +sec('⚠️','Unmatched POS names',errs.length,errs.length?errRows:'','Error Queue','smartmap')
     +sec('🚨','Low / Out of stock',low.length,low.length?lowRows:'','Liquor Room','liquorroom')
     +sec('⚖️','Variance ≥ ₹300',vars.length,vars.length?varRows:'','Beverage Control','barinv'),
-    `<button class="btn" onclick="closeModal()">Close</button>`);
+    (quiet
+      ? `<button class="btn btn-sm" onclick="notifShowAgain()">↺ Show them again</button>`
+      : `<button class="btn btn-sm" onclick="notifClearAll()" title="Stop the bell counting what you have already seen. Nothing is deleted — the lists are worked out from your data, and the bell comes back the moment that changes.">🧹 Clear all</button>`)
+    +`<button class="btn" onclick="closeModal()">Close</button>`);
 }
 /* ---- 🖨️ letterhead: logo + company + address + mobile on every printed page ----
    `letterhead(title)` = the in-app print block (shown only by @media print);
@@ -1459,6 +1471,16 @@ function showSplash(){
 }
 function go(id){ location.hash='#'+id; toggleSidebar(false); }
 function toggleSidebar(open){ const sb=$('#sidebar'), sc=$('#scrim'); if(!sb) return; if(open){sb.classList.add('open');sc.classList.remove('hidden');} else {sb.classList.remove('open');sc.classList.add('hidden');} }
+function notifFp(){                        // what the bell counts: unmatched POS names + low stock
+  let e=0, low=0;
+  try{ e=errorRows().length; }catch(err){}
+  try{ if(typeof lowStockList==='function') low=lowStockList().length; }catch(err){}
+  return e+'|'+low;
+}
+function notifCleared(){ try{ return bls('notifSeen','')===notifFp(); }catch(e){ return false; } }
+function notifClearAll(){ bsv('notifSeen', notifFp()); closeModal(); refreshBadges();
+  toast('Notifications cleared','The bell is quiet until something changes — nothing was deleted','ok'); }
+function notifShowAgain(){ bsv('notifSeen',''); refreshBadges(); closeModal(); setTimeout(openNotifs,80); }
 function refreshBadges(){
   const e = errorRows().length;
   NAV.forEach(g=>(g.items||[]).forEach(it=>{ if(!it.badgeFn) return;
@@ -1466,7 +1488,7 @@ function refreshBadges(){
     let v=0; try{ v=it.badgeFn()||0; }catch(err){}
     b.textContent=v; b.style.display=v?'inline-block':'none'; }));
   let low=0; try{ if(typeof lowStockList==='function') low=lowStockList().length; }catch(err){}
-  const tot=e+low;
+  const tot=notifCleared()?0:(e+low);
   const nb=$('#notifBadge'); if(nb){ nb.textContent=tot>99?'99+':tot; nb.style.display=tot?'inline-flex':'none'; }
 }
 /* Typing in a sheet cell fires onchange → route() → the page used to re-render from the
