@@ -5731,7 +5731,10 @@ function moStartDo(){
   receivedStock=[]; bsv('recv',receivedStock);
   mrDetail=[];      bsv('mr',mrDetail);
   posData=[];       bsv('pos',posData);
-  bsv('invoices',[]);                                      // the BEVCO import history
+  /* the BEVCO import history. `invoices` is a module-level array read once at load and the
+     Purchase page prints invoices.length ("47 in register"), so the ARRAY is emptied, not just
+     the key — writing the key alone left 47 on screen and the next save put them back (v2.99.1). */
+  if(typeof invoices!=='undefined'){ invoices.length=0; bsv('invoices',invoices); } else bsv('invoices',[]);
   try{ localStorage.removeItem(CO_PREFIX+'audit'); }catch(e){}
   bsv('lrfrom','');                                        // no entry is left, so every date is right again
   /* the period is NOT moved — the client sets it themselves ("period ame nija bosabo", v2.99.0).
@@ -5765,7 +5768,8 @@ function moUndo(mid){
       receivedStock=d.recv||[]; bsv('recv',receivedStock);
       mrDetail=d.mr||[];        bsv('mr',mrDetail);
       posData=d.pos||[];        bsv('pos',posData);
-      bsv('invoices', d.invoices||[]);
+      if(typeof invoices!=='undefined'){ invoices.length=0; (d.invoices||[]).forEach(v=>invoices.push(v)); bsv('invoices',invoices); }
+      else bsv('invoices', d.invoices||[]);
       try{ if(d.audit && d.audit.length) localStorage.setItem(CO_PREFIX+'audit', JSON.stringify(d.audit)); }catch(e){}
       bsv('lrfrom', d.lrfrom||'');
       if(d.period){ period.from=d.period.from; period.to=d.period.to; bsv('period',period); }

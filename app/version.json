@@ -1,5 +1,5 @@
 {
-  "version": "2.99.0",
-  "date": "2026-11-14",
-  "notes": "A Beverage Control CLONE PAGE keeps its own period. The main sheet can read 01-10 → 25-10 while a clone reads 05-10 → 15-10, and each stays where you put it — the Receipt column, the ⚠ alert, the 🔍 Deep check, the Excel and the print on each page count only the Bar Stock Issues inside THAT page’s start and end date. A pill says which period you are looking at (“main period” / “this page only”), and ✕ gives a clone back to the company’s period. 📅 Start a new month no longer moves the period — you set it yourself."
+  "version": "2.99.1",
+  "date": "2026-11-17",
+  "notes": "Fix: 📅 Start a new month left the BEVCO invoice register on screen. The stored list was cleared but the list the Purchase page actually reads was not, so it still said “Invoices (47)” — and the next import or delete would have written all 47 back. It clears for real now, and ↩ Put it back brings them back."
 }
