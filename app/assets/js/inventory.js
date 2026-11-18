@@ -1675,13 +1675,18 @@ function _msHits(q){ q=norm(q); if(!q) return []; const starts=[], incl=[];
   return byStock(starts).concat(byStock(incl)).slice(0,8); }
 function _msNewId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function mrSlipLinesHtml(){
-  const d=_mqDate||period.from; const all=mrDetail.map((r,i)=>({r,i})).filter(x=>x.r.date===d).reverse(); const show=all.slice(0,12);
+  /* EVERY line of this date is drawn now (v2.100.0). It used to be .slice(0,12) with a
+     "… N more on this date" note, so on a 21-line day the cursor could never reach the last
+     issue — the client's "last item issue porjonto carsarche na". The grid scrolls instead
+     (.mrslip .msg, with the heading and the typing row sticky), so a long day cannot stretch
+     the page either. */
+  const d=_mqDate||period.from; const all=mrDetail.map((r,i)=>({r,i})).filter(x=>x.r.date===d).reverse(); const show=all;
   if(!all.length) return `<div class="empty">No issue on ${esc(d)} yet — type an item above, pick it, enter the bottles and press <b>Enter</b>.</div>`;
   return show.map((x,k)=>{ const r=x.r, ok=inRaw(r.item), q=fnum(r.qty), amt=q*landOf(r.item); const cl=ok?_msStock(r.item).cl:null;
     return `<div class="c n ${x.i===_msLast?'new':''}">${all.length-k}</div>
-      <div class="c dt ${x.i===_msLast?'new':''}"><input class="msin dt" type="date" value="${esc(r.date||'')}" title="Issue date — change it and the line moves to that date" onchange="mrSetField(${x.i},'date',this.value)"></div>
+      <div class="c dt ${x.i===_msLast?'new':''}"><input class="msin dt" type="date" value="${esc(r.date||'')}" title="Issue date — change it and the line moves to that date · ↑↓ walk the lines" onkeydown="mrSlipKey(event,'dt')" onchange="mrSetField(${x.i},'date',this.value)"></div>
       <div class="c it ${x.i===_msLast?'new':''}"><strong title="${esc(r.item)}">${esc(r.item)}</strong>${ok?'':' '+redBadge()}</div><div class="c g">${mrSrcChip(r,x.i,true)}${ok?`<span class="pill gray">${esc(findRaw(r.item).group)}</span>`:'<span class="mu">—</span>'}</div>
-      <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−</span><input class="msin q ln" value="${esc(String(r.qty))}" title="Bottles issued — type to correct it (✕ removes the line)" onchange="mrSetField(${x.i},'qty',this.value)"></div>
+      <div class="c r stk">${cl==null?'<span class="mu">—</span>':`<b class="${cl<0?'neg':''}">${fmt(cl)}</b><small>btl</small>`}</div><div class="c r q"><span class="lrsg minus">−</span><input class="msin q ln" value="${esc(String(r.qty))}" title="Bottles issued — type to correct it · ↑↓ walk the lines (✕ removes the line)" onkeydown="mrSlipKey(event,'q')" onchange="mrSetField(${x.i},'qty',this.value)"></div>
       <div class="c r amt">${amt?'₹ '+fmt(Math.round(amt)):'<span class="mu">—</span>'}</div><div class="c x"><button class="btn rmx" onclick="delMr(${x.i})" title="Remove this issue">✕</button></div>`; }).join('')
     + (all.length>show.length?`<div class="more">… ${all.length-show.length} more on this date — the Issue Register below lists them all</div>`:'');
 }
@@ -1733,11 +1738,59 @@ function mrSlipItemKey(e){
   else if(e.key==='Enter'||e.key==='Tab'){ if(_ms.i<0 && _ms.hits.length){ e.preventDefault(); mrSlipPick(_ms.hits[_ms.sel]); } else if(e.key==='Enter' && _ms.i>=0){ e.preventDefault(); const q=$('#msQty'); if(q){ q.focus(); if(q.select) q.select(); } } }
   else if(e.key==='Escape'){ e.target.value=''; mrSlipType(''); }
 }
+/* THE SLIP'S OWN LINES ARE WALKED BY THE ARROWS (v2.100.0). Client, on the Bar Stock Issue page:
+   "item issue por down key page a one by one aseche na, carsar maja gap chole asche & last item
+   issue porjonto carsarche na". FOUR causes, all measured on their own screen shape:
+     (a) ↓ from the live qty box jumped STRAIGHT past every saved line into the Issue Register —
+         that is the "gap" (mrSlipQtyKey, v2.49.0);
+     (b) a saved line's qty box carried NO key handler at all, so ↓ did nothing;
+     (c) a saved line's DATE box is <input type="date">, where Chrome's own ↓ decrements the day:
+         onchange then MOVES that line to another date and it vanishes from under the cursor —
+         so preventDefault() comes FIRST here, before anything else;
+     (d) the slip drew only the newest 12 lines, so the last issue was not on the page to reach.
+   The walk stays in its own column and bridges on at both ends: past the last line into the
+   register below, above the first line back to the row you type in. */
+function mrSlipLineBoxes(kind){
+  return Array.prototype.slice.call(document.querySelectorAll('#view .msg .msin.'+(kind==='dt'?'dt':'q.ln')));
+}
+function mrSlipFocusBox(kind, ix){      // after a re-render the node is new — find it again by INDEX
+  const go=function(){
+    const all=mrSlipLineBoxes(kind); if(!all.length) return;
+    const b=all[Math.max(0, Math.min(ix, all.length-1))];
+    if(!b || b===document.activeElement) return;
+    b.focus({preventScroll:true}); if(b.select){ try{ b.select(); }catch(e){} }
+    b.scrollIntoView({block:'nearest'});
+  };
+  go();                 // AT ONCE — a held-down arrow fires again before a timer would run, and
+  setTimeout(go, 0);    // both presses would otherwise read the old focus and lose a step
+}
+function mrSlipRegBox(kind, last){
+  const all=Array.prototype.slice.call(document.querySelectorAll('#view .mrtbl .cell-input.'+(kind==='dt'?'rvdate':'rvqty')));
+  return last ? all[all.length-1] : all[0];
+}
+function mrSlipKey(e, kind){
+  const k=e.key;
+  if(k==='Enter'){ e.preventDefault(); e.target.blur(); return; }          // commit the figure, stay on the line
+  if(k!=='ArrowDown' && k!=='ArrowUp') return;
+  e.preventDefault();                                                      // (c) — never let a date box step a day
+  const all=mrSlipLineBoxes(kind), ix=all.indexOf(e.target); if(ix<0) return;
+  if(k==='ArrowDown'){
+    if(ix+1 < all.length){ mrSlipFocusBox(kind, ix+1); return; }
+    const q=mrSlipRegBox(kind, false);                                     // past the last line → the register below
+    if(q){ q.focus({preventScroll:true}); if(q.select) q.select(); q.scrollIntoView({block:'nearest',behavior:'smooth'}); }
+    return;
+  }
+  if(ix>0){ mrSlipFocusBox(kind, ix-1); return; }
+  const b=document.getElementById(kind==='dt'?'mqDate':'msQty');           // above the first line → the typing row
+  if(b){ b.focus(); if(b.select){ try{ b.select(); }catch(err){} } }
+}
 function mrSlipQtyKey(e){
   if(e.key==='Enter'){ e.preventDefault(); mrSlipAdd(); }
   else if(e.key==='Tab' && !e.shiftKey){ e.preventDefault(); if(fnum(e.target.value)>0) mrSlipAdd(); else { const b=$('#msItem'); if(b) b.focus(); } }   // Tab after the qty = save the line and jump to the next item (v2.48.2); an empty qty just goes back to the item box
   else if(e.key==='ArrowUp'){ e.preventDefault(); const b=$('#msItem'); if(b){ b.focus(); try{ b.select(); }catch(err){} } }
-  else if(e.key==='ArrowDown'){ const q=document.querySelector('#view .mrtbl .cell-input.rvqty'); if(q){ e.preventDefault(); q.focus({preventScroll:true}); if(q.select) q.select(); q.scrollIntoView({block:'nearest',behavior:'smooth'}); } }   // into the register (v2.49.0)
+  else if(e.key==='ArrowDown'){                                           // v2.100.0: the saved lines FIRST, the register after them
+    const ln=mrSlipLineBoxes('q')[0] || mrSlipRegBox('q', false);
+    if(ln){ e.preventDefault(); ln.focus({preventScroll:true}); if(ln.select) ln.select(); ln.scrollIntoView({block:'nearest',behavior:'smooth'}); } }
   else if(e.key==='Escape'){ e.target.value=''; mrSlipLive(); }
 }
 function mrSlipAdd(force){
@@ -4853,7 +4906,13 @@ document.addEventListener('keydown', function(e){
       if(cin.length){ target=cin[Math.min(Math.max(inTd,0),cin.length-1)]; break; }
     }
   }
-  if(!target){ if(k==='ArrowUp' && el.closest('.mrtbl') && $('#msQty')){ e.preventDefault(); $('#msQty').focus(); } return; }   // slip ↔ register (v2.49.0)
+  if(!target){                                                             // slip ↔ register (v2.49.0, the lines joined in v2.100.0)
+    if(k==='ArrowUp' && el.closest('.mrtbl')){
+      const kind=el.classList.contains('rvdate')?'dt':'q';
+      const ln=(typeof mrSlipLineBoxes==='function') ? mrSlipLineBoxes(kind).slice(-1)[0] : null;
+      const b=ln || document.getElementById(kind==='dt'?'mqDate':'msQty');
+      if(b){ e.preventDefault(); b.focus({preventScroll:true}); if(b.select){ try{ b.select(); }catch(err){} } b.scrollIntoView({block:'nearest'}); } }
+    return; }
   e.preventDefault();
   const tables=Array.from(document.querySelectorAll('#view table'));
   const ti=tables.indexOf(table), gIdx=all.indexOf(target);

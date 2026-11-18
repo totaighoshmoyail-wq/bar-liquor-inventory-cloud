@@ -1,5 +1,5 @@
 {
-  "version": "2.99.1",
+  "version": "2.100.0",
   "date": "2026-11-17",
-  "notes": "Fix: 📅 Start a new month left the BEVCO invoice register on screen. The stored list was cleared but the list the Purchase page actually reads was not, so it still said “Invoices (47)” — and the next import or delete would have written all 47 back. It clears for real now, and ↩ Put it back brings them back."
+  "notes": "Bar Stock Issue: ↑↓ now walk the Issue Slip’s own lines ONE BY ONE — from the row you type in, through every line, and on into the Issue Register (and back up the same way). The slip shows EVERY line of the date instead of the newest twelve, so the last issue can be reached; it scrolls with its heading and the typing row pinned. ↓ on a line’s date box no longer nudges the day and moves the line to another date. The Issue Register wears a premium skin — double gold head, banded ISSUED column, zebra rows and a gold focus ring."
 }

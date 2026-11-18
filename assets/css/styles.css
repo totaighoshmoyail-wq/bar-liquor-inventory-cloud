@@ -1958,6 +1958,35 @@ body.env-web .topbar{box-shadow:inset 0 2px 0 var(--gold)}
 .msg .h{font-family:Georgia,'Times New Roman',serif;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);border-bottom:2px solid var(--gold);background:color-mix(in srgb,var(--gold) 6%,var(--bg-2));min-height:24px;white-space:nowrap}
 .msg .h:first-child{border-top-left-radius:9px} .msg .h:nth-child(8){border-top-right-radius:9px}
 .msg .h.c{font-family:'Inter',sans-serif;font-size:8.5px;letter-spacing:.14em;color:var(--text-muted);justify-content:center}
+/* ── v2.100.0 ── the slip shows EVERY line of the date, so it scrolls instead of stretching the
+   page, with the heading row and the row you type in pinned to the top of that scroll. Both are
+   direct grid children, so position:sticky works per cell; #msLines is display:contents, so its
+   lines are grid children too and simply scroll under them. */
+.mrslip .msg{max-height:min(56vh,520px);overflow:auto;scrollbar-width:thin}
+.mrslip .msg .h{position:sticky;top:0;z-index:4}
+.mrslip .msg>.c.lv{position:sticky;top:24px;z-index:3;background:color-mix(in srgb,var(--gold) 4%,var(--panel));box-shadow:0 1px 0 color-mix(in srgb,var(--gold) 28%,transparent)}
+.mrslip .msg #msLines>div:hover{background:color-mix(in srgb,var(--gold) 5%,transparent)}
+.mrslip .msg .msin:focus{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 55%,transparent);border-radius:5px}
+
+/* ── v2.100.0 ── ISSUE REGISTER · premium skin (client: "issue register looks aro premium &
+   attractive looks dau"). Colour and weight only — not one column, figure or total moved.
+   Scoped to .mrtbl so the Liquor Alias ledger and Beverage Control keep their own looks. */
+.mrtbl .tbl thead th{background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 13%,var(--bg-2)),color-mix(in srgb,var(--gold) 5%,var(--bg-2)));
+  color:var(--gold);font-family:Georgia,'Times New Roman',serif;letter-spacing:.09em;text-transform:uppercase;border-bottom:3px double color-mix(in srgb,var(--gold) 58%,transparent)}
+.mrtbl .tbl tbody tr{transition:background .13s ease,box-shadow .13s ease}
+.mrtbl .tbl tbody tr:nth-child(even){background:color-mix(in srgb,var(--gold) 2.5%,transparent)}
+.mrtbl .tbl tbody tr:hover{background:color-mix(in srgb,var(--gold) 7%,transparent);box-shadow:inset 3px 0 0 var(--gold)}
+.mrtbl .tbl tbody tr:focus-within{background:color-mix(in srgb,var(--gold) 9%,transparent);box-shadow:inset 3px 0 0 var(--gold)}
+.mrtbl .tbl td:nth-child(5),.mrtbl .tbl th:nth-child(5){background:color-mix(in srgb,var(--gold) 6%,transparent);
+  box-shadow:inset 1px 0 0 color-mix(in srgb,var(--gold) 26%,transparent),inset -1px 0 0 color-mix(in srgb,var(--gold) 26%,transparent)}
+.mrtbl .tbl td:nth-child(6){font-family:Georgia,'Times New Roman',serif;font-size:12.5px}
+.mrtbl .tbl td:nth-child(6) .lrval{color:var(--gold-soft);font-weight:600}
+.mrtbl .tbl .mritem{font-weight:600;letter-spacing:.012em}
+.mrtbl .tbl tbody tr:hover .mritem{color:var(--gold-soft)}
+.mrtbl .cell-input:focus{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 55%,transparent);border-radius:5px}
+.mrtbl .tbl tfoot td,.mrtbl .tbl tr.rpttot td,.mrtbl .tbl tr.tot td{background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 12%,transparent),transparent);
+  border-top:2px solid color-mix(in srgb,var(--gold) 50%,transparent);font-weight:700}
+@media (max-width:760px){ .mrslip .msg{max-height:none} .mrslip .msg .h,.mrslip .msg>.c.lv{position:static} }
 .msg .r{justify-content:flex-end;text-align:right}
 .msg .lv{background:color-mix(in srgb,var(--gold) 5%,transparent);min-height:36px;border-bottom:2px solid color-mix(in srgb,var(--gold) 45%,var(--border))}
 .msg .lv.it{position:relative;overflow:visible;padding:2px 6px}
