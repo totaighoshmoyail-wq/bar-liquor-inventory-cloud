@@ -1,5 +1,5 @@
 {
-  "version": "2.101.0",
+  "version": "2.102.0",
   "date": "2026-11-18",
-  "notes": "POS Upload — the Corridor POS card and its two buttons are off the page, the loaded sheet has a live item search (it draws EVERY row now instead of the first fifty, and the count says how many of how many), and the whole page wears the Crown Seal look: a ribboned head with Rows loaded · Matched · Unmatched as gilded cards (Unmatched opens the Error Queue), the drop box slimmed from a 250px panel to a 39px band, and the list in the Issue Register’s premium hand. The page is 1,072px tall no more — 828px."
+  "notes": "Liquor Alias now carries EVERY brand — the same list the Tally Sheet and Beverage Control carry. A brand with no POS link (BUDWEISER) was missing from this page while it sold on the other two, because the engine ties a POS name to a brand of the same name without any alias row; that tie is now shown as a gold ·direct chip, a manual name-map tie as a ·name map chip, and a brand nothing points at says “no POS link yet” with a ⚠ No POS link · N button to list them. Removing a brand clears it from the Tally Sheet, Beverage Control, this page, its POS links, its name-map entries and its opening/closing figures together — the POS lines move to the Error Queue, so no sale is lost. A link left pointing at a brand that is gone is listed and marked instead of disappearing."
 }

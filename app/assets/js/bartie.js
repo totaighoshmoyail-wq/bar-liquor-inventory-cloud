@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.101.0';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.102.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -2799,32 +2799,77 @@ function doResolve(){
    ============================================================ */
 let aQuery='';
 // group aliases by brand → one row per brand showing all its POS aliases
+/* EVERY BRAND IS ON THIS PAGE (v2.102.0). Client, with the Tally Sheet showing BUDWEISER selling
+   108 pcs beside a Liquor Alias search for "bud" that did not list it at all: "sudu budwiser lakha
+   name ta amar tally sheet & beverage control a acha but liquor alias a nei — ai rokom hole amar
+   calclution to match korbe na". They are right, and it is this function: it was built from the
+   ALIAS TABLE, so a brand with no POS link never became a group — while `resolvePosToTally` falls
+   back to the brand's own name (and to the manual name map) and counts the sale anyway. Measured
+   on a staged store: the brand sells 202 pcs on the Tally Sheet and Beverage Control, nothing
+   waits in the Error Queue, and the Liquor Alias page does not hold the name at all.
+   It is built from tallyItems now, so the three pages carry ONE list of brands; an alias row left
+   pointing at a brand that is gone is kept too (onTally:false) instead of quietly disappearing. */
+function aliasDirectMap(){            // POS names that reach a brand without an alias row
+  if(!_tallyIdx) rebuildIndexes();
+  const m={};
+  posData.forEach(p=>{
+    const pn=norm(p.name);
+    if(_aliasIdx && _aliasIdx.has(pn)) return;                      // a real link — it shows as itself
+    const r=resolvePosToTally(p.name); if(!r) return;               // unresolved → the Error Queue
+    const k=norm(r.tallyName);
+    (m[k]=m[k]||[]).push({ posName:p.name, qty:(+p.qty||0),
+      how:(_nameMapIdx && _nameMapIdx.has(pn)) ? 'map' : 'name' });
+  });
+  return m;
+}
 function aliasGroups(){
   const { smlMap, posQtyMap } = calcGrandTotals();
   const map = {};
   aliasTable.forEach(a=>{ const k=norm(a.tallyItem); (map[k]=map[k]||{brand:a.tallyItem, aliases:[]}).aliases.push(a); });
-  return Object.values(map).map(g=>{ const it=getTallyItem(g.brand);
-    return { brand:g.brand, category:it?it.category:'—', aliases:g.aliases, pcs:rvIsPcs(g.brand),
-      qty: it?getEffectivePosQty(it,posQtyMap):0, ml: it?getEffectiveStraightMl(it,smlMap):0 };
-  }).sort((a,b)=>b.ml-a.ml);
+  const direct = aliasDirectMap(), seen = {};
+  const out = tallyItems.map(t=>{ const k=norm(t.name); seen[k]=1; const g=map[k];
+    return { brand:t.name, category:t.category||'—', aliases:g?g.aliases:[], direct:direct[k]||[],
+      pcs:rvIsPcs(t.name), qty:getEffectivePosQty(t,posQtyMap), ml:getEffectiveStraightMl(t,smlMap), onTally:true };
+  });
+  Object.keys(map).forEach(k=>{ if(seen[k]) return;                 // an alias pointing at a brand that is gone
+    seen[k]=1;
+    out.push({ brand:map[k].brand, category:'—', aliases:map[k].aliases, direct:direct[k]||[],
+      pcs:false, qty:0, ml:0, onTally:false }); });
+  Object.keys(direct).forEach(k=>{ if(seen[k]) return;              // a NAME MAP pointing at one, same thing
+    seen[k]=1;
+    out.push({ brand:direct[k][0] ? (resolvePosToTally(direct[k][0].posName)||{}).tallyName || k : k,
+      category:'—', aliases:[], direct:direct[k], pcs:false, qty:0, ml:0, onTally:false }); });
+  return out.sort((a,b)=>b.ml-a.ml || b.aliases.length-a.aliases.length || String(a.brand).localeCompare(String(b.brand)));
 }
-let _alSel='', _alOpen='', _aCat='ALL';
+let _alSel='', _alOpen='', _aCat='ALL', _aNoLink=false;
+function alNoLink(){ _aNoLink=!_aNoLink; route(); }
 function setAliasLayout(v){ pref.aliasLayout=v; bsv('pref',pref); route(); }
 function alSelBrand(b){ _alSel=b; route(); }
 function alToggle(b){ _alOpen=(_alOpen===b?'':b); route(); }
 function setACat(c){ _aCat=c; route(); }
 VIEWS.alias = () => {
   const lay=pref.aliasLayout||'ledger';
-  let groups = aliasGroups().filter(g=>!aQuery||norm(g.brand).includes(norm(aQuery))||g.aliases.some(a=>norm(a.posName).includes(norm(aQuery))));
+  const ALL = aliasGroups();                       // worked out ONCE — the head and the chips reuse it
+  const noLink = g=>!g.aliases.length && !g.direct.length;
+  const nNo = ALL.filter(noLink).length, nOff = ALL.filter(g=>!g.onTally).length;
+  let groups = ALL.filter(g=>!aQuery||norm(g.brand).includes(norm(aQuery))||g.aliases.some(a=>norm(a.posName).includes(norm(aQuery))));
+  if(_aNoLink) groups=groups.filter(noLink);
   if(lay==='dense' && _aCat!=='ALL') groups=groups.filter(g=>g.category===_aCat);
   const totMl = groups.filter(g=>!g.pcs).reduce((a,g)=>a+g.ml,0);
   const totPcs = groups.filter(g=>g.pcs).reduce((a,g)=>a+g.ml,0);
   const totTxt = fmt(totMl)+' ml'+(totPcs?' · '+fmt(totPcs)+' pcs':'');   // beer is pieces, liquor is ml (v2.65.0)
   const uTxt = g=>fmt(g.ml)+' '+(g.pcs?'pcs':'ml');
+  const offPill = g=>g.onTally?'':' <span class="pill red" style="font-size:9px" title="This POS link points at a brand the Tally Sheet no longer holds — its sale lands nowhere. Press 🗑 to clear the link.">not on the Tally Sheet</span>';
   const chipsOf=g=>{
+    if(!g.aliases.length && !g.direct.length)
+      return '<span class="muted" style="font-size:11.5px">no POS link yet — press ＋ to tie a POS button name to this brand</span>';
     const dq=posQtyOfName(g.brand);
-    const direct = dq>0 ? `<span class="chip" style="border-color:var(--gold)">${esc(g.brand)} <span class="pill gold" style="font-size:9px;padding:1px 6px">qty ${fmt(dq)}</span> <span class="muted">·direct</span></span>` : '';
-    return direct + g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1;
+    const direct = dq>0 ? `<span class="chip" style="border-color:var(--gold)" title="This POS name IS the brand name, so the engine ties the two by itself — no alias row is needed.">${esc(g.brand)} <span class="pill gold" style="font-size:9px;padding:1px 6px">qty ${fmt(dq)}</span> <span class="muted">·direct</span></span>` : '';
+    /* a POS name tied by the manual NAME MAP has no alias row and is not the brand's own name,
+       so without this chip the cell would be empty while the sale is counted (v2.102.0) */
+    const mp={}; (g.direct||[]).forEach(d=>{ if(norm(d.posName)===norm(g.brand)) return; mp[d.posName]=(mp[d.posName]||0)+d.qty; });
+    const mapped = Object.keys(mp).map(nm=>`<span class="chip" style="border-color:var(--blue,#5b8def)" title="Tied by the manual name map (Smart Mapping → Linking), not by an alias row.">${esc(nm)} <span class="pill blue" style="font-size:9px;padding:1px 6px">qty ${fmt(mp[nm])}</span> <span class="muted">·name map</span></span>`).join('');
+    return direct + mapped + g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1;
       const calc = g.pcs ? `·${fmt(ax)} pc${ax===1?'':'s'}`
         : (ax!==1 ? `·${a.mlPerUnit}×${ax}=${fmt(Math.round((+a.mlPerUnit||0)*ax))} ml` : `·${a.mlPerUnit} ml`);
       return `<span class="chip">${a.posName} <span class="pill blue" style="font-size:9px;padding:1px 6px">qty ${fmt(posQtyOfName(a.posName))}</span> <span class="muted">${calc}</span> <span class="xx" onclick='removeAliasAsk(${JSON.stringify(a.posName)})'>✕</span></span>`; }).join('');
@@ -2833,7 +2878,7 @@ VIEWS.alias = () => {
   let bodyHtml='';
   if(lay==='ledger'){
     const body=groups.map(g=>`<tr>
-      <td><strong>${g.brand}</strong></td><td><span class="pill gray">${g.category}</span></td>
+      <td><strong>${g.brand}</strong>${offPill(g)}</td><td><span class="pill gray">${g.category}</span></td>
       <td><div class="chips">${chipsOf(g)}</div></td>
       <td class="num">${fmt(g.qty)}</td><td class="num gold">${uTxt(g)}</td>
       <td class="right nowrap">${manage(g)}</td></tr>`).join('');
@@ -2850,7 +2895,7 @@ VIEWS.alias = () => {
     bodyHtml=`<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
       <div class="card" style="width:270px;flex:none"><div class="card-head"><h3>Brands · ${groups.length}</h3></div>
         <div style="max-height:560px;overflow-y:auto">${list||'<p class="muted center" style="padding:20px">No brands</p>'}</div></div>
-      <div class="card" style="flex:1;min-width:300px">${sel?`<div class="card-head"><div><h3>${sel.brand}</h3><p>${sel.category} · Qty ${fmt(sel.qty)} · <span class="gold">${uTxt(sel)}</span></p></div><div class="nowrap">${manage(sel)}</div></div>
+      <div class="card" style="flex:1;min-width:300px">${sel?`<div class="card-head"><div><h3>${sel.brand}${offPill(sel)}</h3><p>${sel.category} · Qty ${fmt(sel.qty)} · <span class="gold">${uTxt(sel)}</span></p></div><div class="nowrap">${manage(sel)}</div></div>
         <div class="card-body"><div class="chips">${chipsOf(sel)||'<span class="muted">No aliases yet — press ＋</span>'}</div></div>`:'<div class="card-body muted center" style="padding:30px">Select a brand</div>'}</div></div>`;
   } else if(lay==='accordion'){
     bodyHtml=`<div class="card">${groups.map(g=>{ const open=_alOpen===g.brand;
@@ -2868,7 +2913,7 @@ VIEWS.alias = () => {
         <div class="mt-8">${manage(g)}</div></div></div>`).join('')||'<p class="muted center" style="padding:24px">No brands</p>'}</div>
       <div class="card mt-16"><div class="card-body" style="display:flex;justify-content:space-between"><span class="muted">Total straight sale</span><strong class="gold">${totTxt}</strong></div></div>`;
   } else { // dense
-    const cats=['ALL',...new Set(aliasGroups().map(g=>g.category))];
+    const cats=['ALL',...new Set(ALL.map(g=>g.category))];
     const catChips=cats.map(c=>`<button class="btn btn-sm ${_aCat===c?'btn-gold':''}" style="margin:2px;padding:3px 9px;font-size:11px" onclick='setACat(${JSON.stringify(c)})'>${c}</button>`).join('');
     const rows=groups.map(g=>`<tr>
       <td><strong>${g.brand}</strong> <span class="muted" style="font-size:11px">${g.aliases.map(a=>{ const ax=(+a.x>0)?+a.x:1; return `${a.posName}·qty ${fmt(posQtyOfName(a.posName))}·${g.pcs?fmt(ax)+' pcs':a.mlPerUnit+(ax!==1?'×'+ax:'')+' ml'}`; }).join(' · ')}</span></td>
@@ -2882,12 +2927,13 @@ VIEWS.alias = () => {
       </table></div></div>`;
   }
   return `
-    <div class="page-head"><div><h1>Liquor Alias Table</h1><p>${aliasTable.length} POS links across ${aliasGroups().length} brands · showing ${groups.length}. One brand → all its POS button names.</p></div>
+    <div class="page-head"><div><h1>Liquor Alias Table</h1><p>${fmt(aliasTable.length)} POS links across <b>${fmt(ALL.length)}</b> brands — the same list the Tally Sheet and Beverage Control carry · showing ${fmt(groups.length)}${nOff?` · <span class="red">${fmt(nOff)} name${nOff===1?' points':'s point'} at a brand that is gone</span>`:''}</p></div>
       <div class="page-actions">
         <select class="input" style="width:auto;padding:6px 9px;font-size:12px" onchange="setAliasLayout(this.value)" title="Layout">
           ${[['ledger','① Chip Ledger'],['twopane','② Two-Pane'],['accordion','③ Accordion'],['cards','④ Brand Cards'],['dense','⑤ Dense Inline']].map(o=>`<option value="${o[0]}" ${lay===o[0]?'selected':''}>${o[1]}</option>`).join('')}
         </select>
         <div class="search" style="width:210px">🔎<input id="searchBox" placeholder="Search brand / alias…" value="${esc(aQuery)}" oninput="searchType('alias',this.value)"></div>
+        ${nNo?`<button class="btn btn-sm ${_aNoLink?'btn-gold':''}" onclick="alNoLink()" title="Brands on the Tally Sheet that no POS button name points at yet">⚠ No POS link · ${fmt(nNo)}</button>`:''}
         <button class="btn btn-gold btn-sm" onclick="openNewAlias()">＋ New Alias</button></div></div>
     ${bodyHtml}`;
 };
@@ -2899,14 +2945,33 @@ function removeAlias(posName){
 }
 function removeAliasAsk(posName){ confirmAsk(`Delete POS link <strong>${esc(posName)}</strong>?`, ()=>removeAlias(posName)); }
 function removeAliasEditorDel(posName, brand){ confirmAsk(`Delete POS link <strong>${esc(posName)}</strong>?`, ()=>{ removeAlias(posName); closeModal(); openAliasEditor(brand); }); }
+/* ONE BRAND, ONE DELETE (v2.102.0). The Tally Sheet, Beverage Control and the Liquor Alias page
+   all read tallyItems, so this one call clears the name from all three — and it now takes the
+   manual NAME MAP with it as well (delPos has always done that for a POS name). A name-map row
+   left pointing at a brand that is gone used to send that POS line's sale nowhere, in silence.
+   The Item Master / Liquor Room list (rawData) is deliberately NOT touched — the client fixed
+   that on 2026-09-18: no cascade between the store-room list and the bar's brand list. */
 function removeBrand(brand){
-  confirmAsk(`Remove brand <strong>${esc(brand)}</strong> and all its POS aliases? It disappears from the Tally Sheet & Bar Inventory too.`, ()=>{
+  const bn0=norm(brand);
+  const nmN=(typeof nameMapList!=='undefined') ? nameMapList.filter(m=>norm(m.tally)===bn0).length : 0;
+  const alN=aliasTable.filter(a=>norm(a.tallyItem)===bn0).length;
+  const alsoBits=[]; if(alN) alsoBits.push(`${fmt(alN)} POS link${alN===1?'':'s'}`);
+  if(nmN) alsoBits.push(`${fmt(nmN)} name-map entr${nmN===1?'y':'ies'}`);
+  alsoBits.push('its opening &amp; closing figures');
+  const alsoTxt = alsoBits.length>1 ? (alsoBits.slice(0,-1).join(', ') + ' and ' + alsoBits[alsoBits.length-1]) : alsoBits[0];
+  confirmAsk(`Remove brand <strong>${esc(brand)}</strong> everywhere?<br><span class="muted" style="font-size:11.5px">`
+    + `It goes from the <b>Tally Sheet</b>, <b>Beverage Control</b> and this page together, taking ${alsoTxt} with it.`
+    + ` Any POS line that pointed at it moves to the <b>Error Queue</b> — no sale is lost.`
+    + ` The Item Master / Liquor Room list is left alone.</span>`, ()=>{
     const bn=norm(brand);
     const ti=tallyItems.findIndex(t=>norm(t.name)===bn); if(ti>=0) tallyItems.splice(ti,1);
     for(let i=aliasTable.length-1;i>=0;i--){ if(norm(aliasTable[i].tallyItem)===bn) aliasTable.splice(i,1); }
+    if(typeof nameMapList!=='undefined'){ let k=0;
+      for(let i=nameMapList.length-1;i>=0;i--){ if(norm(nameMapList[i].tally)===bn){ nameMapList.splice(i,1); k++; } }
+      if(k) bsv('namemap',nameMapList); }
     if(typeof invData!=='undefined' && invData[bn]){ delete invData[bn]; bsv('inv',invData); }
     bsv('tally',tallyItems); bsv('alias',aliasTable); rebuildIndexes(); invalidateCalcCache();
-    route(); toast('Removed',`${brand} & its aliases deleted`,'err');
+    route(); toast('Removed everywhere',`${brand} — Tally Sheet · Beverage Control · Liquor Alias`,'err');
   });
 }
 // ---- Tally: edit a brand (cascades rename to aliases + Bar Inventory) ----
