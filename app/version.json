@@ -1,5 +1,5 @@
 {
-  "version": "2.100.1",
+  "version": "2.101.0",
   "date": "2026-11-18",
-  "notes": "Bar Stock Issue — the Issue Slip’s item search shows every name again. Two causes: yesterday’s slip scroll box was CLIPPING the list (three names matched and only the first was on screen), and the search itself only ever returned eight names without saying so. The list now hangs off the card instead of a cell inside the scroll box, follows the search box as the page or the slip scrolls, carries up to forty names in a list of its own that scrolls, and its foot says how many matched and how many are not on it."
+  "notes": "POS Upload — the Corridor POS card and its two buttons are off the page, the loaded sheet has a live item search (it draws EVERY row now instead of the first fifty, and the count says how many of how many), and the whole page wears the Crown Seal look: a ribboned head with Rows loaded · Matched · Unmatched as gilded cards (Unmatched opens the Error Queue), the drop box slimmed from a 250px panel to a 39px band, and the list in the Issue Register’s premium hand. The page is 1,072px tall no more — 828px."
 }

@@ -6,7 +6,7 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let CHARTS = [];
-const APP_VERSION = '2.100.1';  // keep in sync with version.json when releasing an update
+const APP_VERSION = '2.101.0';  // keep in sync with version.json when releasing an update
 // the client's hosted app folder — used by the update check whenever cfg.updateUrl is blank
 const UPDATE_URL_DEFAULT = 'https://totaighoshmoyail-wq.github.io/bar-liquor-inventory-cloud/app';
 // which copy is this? file:// = the desktop app on this computer, anything else = the hosted website (v2.34.0)
@@ -1191,7 +1191,7 @@ function spiritDatalist(){ return `<datalist id="spiritList">${tallyNamesSorted(
 var _quietT=null, _lastRouteId='';
 function routeQuiet(){ _quietNext=true; route(); }   // v2.49.0: a-off now stays on until the next real page change (see route)
 function searchType(kind,val){
-  if(kind==='order')oQuery=val; else if(kind==='tally')tQuery=val; else if(kind==='cocktail')cQuery=val; else if(kind==='alias')aQuery=val; else if(kind==='link')lQuery=val; else if(kind==='ckalias')ckaQuery=val;
+  if(kind==='order')oQuery=val; else if(kind==='tally')tQuery=val; else if(kind==='cocktail')cQuery=val; else if(kind==='alias')aQuery=val; else if(kind==='link')lQuery=val; else if(kind==='ckalias')ckaQuery=val; else if(kind==='pos')_posQ=val;
   routeQuiet();
   const i=document.getElementById('searchBox'); if(i){ i.focus(); try{ i.setSelectionRange(val.length,val.length); }catch(e){} }
 }
@@ -1762,52 +1762,74 @@ function posBillFile(inp){
   };
   rd.readAsText(f);
 }
+/* THE POS ITEM SEARCH (v2.101.0). Client: "item sarch akta dynamic search bar koro". The list
+   below used to draw .slice(0,50) of the loaded rows, so most of a sheet could not be looked at
+   at all. It draws EVERY row now and the box narrows it as it is typed, through searchType's
+   own focus restore (#searchBox) — measured at 7 ms a keystroke on 232 rows, so every count on
+   the page is recomputed from the filtered list and none of them can go stale. */
+var _posQ='';
+function posFindBar(shown, total){
+  const q=_posQ||'', on=!!q.trim();
+  return `<div class="lrfind posfind${on?' on':''}">
+    <span class="ic">🔎</span>
+    <div class="bx"><input id="searchBox" type="text" autocomplete="off" spellcheck="false"
+      placeholder="Search a POS item — type any part of the name" value="${esc(q)}"
+      oninput="searchType('pos',this.value)" onkeydown="posFindKey(event)"></div>
+    ${on?`<button class="clr" onclick="posFindClear()" title="Clear the search">✕</button>`:''}
+    <div class="cnt${on&&!shown?' no':''}">${on?`<strong>${fmt(shown)}</strong> of ${fmt(total)} items`
+      :`<strong>${fmt(total)}</strong> items`}</div></div>`;
+}
+function posFindClear(){ _posQ=''; routeQuiet(); const i=document.getElementById('searchBox'); if(i) i.focus(); }
+function posFindKey(e){ if(e.key==='Escape'){ e.preventDefault(); if((_posQ||'').trim()) posFindClear(); } }
 VIEWS.upload = () => {
   const lay=pageLay('upload');
   const cls=p=>{ if(resolveCocktailName(p.name)) return 'ck'; return resolvePosToTally(p.name)?'ok':'err'; };
-  const defList=`<div class="card mt-16"><div class="card-head"><h3>Loaded POS Data — preview</h3><span class="muted" style="font-size:12px">first 50 rows</span></div>
-    <div class="table-wrap" style="max-height:420px;overflow-y:auto"><table class="tbl">
+  const _pq=norm(_posQ||'');
+  const PR=posData.map((p,i)=>({p,i})).filter(x=>!_pq || norm(x.p.name).indexOf(_pq)>=0);   // every row, narrowed by the box
+  const emptyRow = posData.length
+    ? `<tr><td colspan="3" class="center muted" style="padding:24px">No POS item matches “${esc(_posQ)}” — try fewer letters.</td></tr>`
+    : '<tr><td colspan="3" class="center muted" style="padding:24px">No POS data — upload or paste.</td></tr>';
+  const defList=`<div class="card mt-16 posgrid"><div class="card-head"><h3>Loaded POS Data</h3><span class="muted" style="font-size:12px">${_pq?(fmt(PR.length)+' of '+fmt(posData.length)+' rows'):(fmt(posData.length)+' rows')}</span></div>
+    <div class="table-wrap" style="max-height:420px;overflow-y:auto"><table class="tbl postbl">
       <thead><tr><th>#</th><th>POS Item</th><th class="right">Qty</th></tr></thead>
-      <tbody>${posData.slice(0,50).map((p,i)=>`<tr><td class="muted">${i+1}</td><td>${p.name}</td><td class="num">${p.qty}</td></tr>`).join('')||'<tr><td colspan="3" class="center muted" style="padding:24px">No POS data — upload or paste.</td></tr>'}</tbody></table></div></div>`;
+      <tbody>${PR.map(x=>`<tr><td class="muted">${x.i+1}</td><td>${esc(String(x.p.name))}</td><td class="num">${x.p.qty}</td></tr>`).join('')||emptyRow}</tbody></table></div></div>`;
   let listHtml;
   if(lay==='def') listHtml=defList;
   else if(lay==='dense') listHtml=`<div class="laydense">${defList}</div>`;
   else {
     const B=[['ok','🥃 Straight matched','gold'],['ck','🍹 Cocktails','blue'],['err','⚠️ Unmatched','red']];
-    const groups=B.map(b=>{ const rows=posData.map((p,i)=>({p,i})).filter(x=>cls(x.p)===b[0]);
+    const groups=B.map(b=>{ const rows=PR.filter(x=>cls(x.p)===b[0]);
       const tq=rows.reduce((s,x)=>s+(+x.p.qty||0),0);
       return { id:b[0], title:b[1], sub:`${rows.length} rows · qty ${fmt(tq)}`, right:`<span class="pill ${b[2]}">${rows.length}</span>`,
-        detail: rows.slice(0,100).map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(String(x.p.name))}</span><span class="nowrap"><strong>${fmt(x.p.qty)}</strong> <button class="btn btn-ghost btn-sm" onclick="editPos(${x.i})">✎</button><button class="btn btn-danger btn-sm" onclick="delPos(${x.i})">✕</button></span></div>`).join('')||'<span class="muted" style="font-size:12px">none</span>' };
+        detail: '<div class="posbucket">' + (rows.map(x=>`<div class="flex between items-center" style="padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12px;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(String(x.p.name))}</span><span class="nowrap"><strong>${fmt(x.p.qty)}</strong> <button class="btn btn-ghost btn-sm" onclick="editPos(${x.i})">✎</button><button class="btn btn-danger btn-sm" onclick="delPos(${x.i})">✕</button></span></div>`).join('')||'<span class="muted" style="font-size:12px">none</span>') + '</div>' };
     });
     listHtml=`<div class="mt-16">${renderLay('upload',lay,groups,{listTitle:'Buckets'})}</div>`;
   }
+  if(posData.length) listHtml = posFindBar(PR.length, posData.length) + listHtml;
   return `
-  <div class="page-head"><div><h1>POS Upload</h1><p>Drop a Petpooja .xlsx/.csv, or paste rows. Currently <span class="gold">${fmt(posData.length)}</span> rows loaded.</p></div>
+  <div class="page-head"><div><h1>POS Upload</h1><p>Petpooja sheet <b>→</b> brand-wise sale</p></div>
     <div class="page-actions">${layDrop('upload')}<button class="btn btn-sm" onclick="downloadTemplate()">⬇️ Template</button>
       <button class="btn btn-sm" onclick="openPaste()">📋 Manual Paste</button>
       <button class="btn btn-danger btn-sm" onclick="clearPos()">🗑️ Clear</button></div></div>
-  <div class="grid-2">
-    <div class="dropzone" id="dz"><div class="dz-ico">📄</div><h4>Drop Petpooja export here</h4>
-      <p>or <span class="gold" style="text-decoration:underline">click to browse</span> — .xlsx / .xls / .csv</p>
-      <input type="file" id="posFile" accept=".xlsx,.xls,.csv" style="display:none"></div>
-    <div class="stat-strip" style="flex-direction:column">
-      <div class="s"><div class="l">POS rows loaded</div><div class="v">${fmt(posData.length)}</div></div>
-      <div class="s"><div class="l">Matched</div><div class="v" style="color:var(--green)">${fmt(posData.length-errorRows().length)}</div></div>
-      <div class="s"><div class="l">Errors (unmatched)</div><div class="v" style="color:var(--red)">${fmt(errorRows().length)}</div></div>
-    </div></div>
-  ${(()=>{ const bl=posBillsAll(), sp=bl?posBillSpan(bl):null;
-    return `<div class="card mt-16"><div class="card-head"><h3>🍽️ Corridor POS — bring the billing straight in</h3>
-      <span class="muted" style="font-size:12px">${bl?(fmt(bl.length)+' bills found'+(sp&&sp.from?(' · '+sp.from+' → '+sp.to):'')):'no bills found in this browser'}</span></div>
-      <div class="card-body">
-        <p class="muted" style="font-size:11.5px;margin:0 0 10px">Every bill saved in the billing app is added up per item and loaded here — no Excel in between.
-          Names go through the alias table exactly as an uploaded sheet does, so anything unknown still waits in the Error Queue.</p>
-        <div class="flex gap-8 items-end" style="flex-wrap:wrap">
-          <div class="field" style="margin:0"><label>From</label><input class="input" type="date" id="pbFrom" value="${esc(period.from)}"></div>
-          <div class="field" style="margin:0"><label>To</label><input class="input" type="date" id="pbTo" value="${esc(period.to)}"></div>
-          <button class="btn btn-gold btn-sm" onclick="posBillPreview()">👁 Preview &amp; load</button>
-          <label class="btn btn-sm" style="cursor:pointer">📂 From an export file<input type="file" accept=".json" style="display:none" onchange="posBillFile(this)"></label>
-        </div>
-      </div></div>`; })()}
+  ${(()=>{ const bad=errorRows().length, good=posData.length-bad;
+    const pct=posData.length?Math.round(good/posData.length*1000)/10:0;
+    return `<div class="card lrseal posseal">
+      <i class="cd tl"></i><i class="cd tr"></i><i class="cd bl"></i><i class="cd br"></i>
+      <div class="rib"><span class="ln"></span><span class="tt">POS Sale Sheet</span><span class="ln r"></span></div>
+      <div class="sg3">
+        <div class="sc cl"><div class="l">Rows loaded</div><div class="v">${fmt(posData.length)}</div>
+          <div class="n">${posData.length?'item lines in this sheet':'nothing loaded yet'}</div></div>
+        <div class="sc rv"><div class="l">Matched</div><div class="v">${fmt(good)}</div>
+          <div class="n">${posData.length?(pct+'% reached a brand or a cocktail'):'—'}</div></div>
+        <div class="sc is${bad?' tap':''}"${bad?' onclick="location.hash=\'#errors\'" title="Open the Error Queue"':''}>
+          <div class="l">Unmatched</div><div class="v">${fmt(bad)}</div>
+          <div class="n">${bad?'<strong>open the Error Queue →</strong>':'every name was placed'}</div></div>
+      </div>
+      <div class="band dzband" id="dz"><span class="di">📄</span>
+        <span class="dt">Drop the Petpooja export here — or <u>click to browse</u></span>
+        <span class="df">.xlsx · .xls · .csv</span>
+        <input type="file" id="posFile" accept=".xlsx,.xls,.csv" style="display:none"></div>
+    </div>`; })()}
   ${listHtml}`;
 };
 AFTER.upload = () => {
