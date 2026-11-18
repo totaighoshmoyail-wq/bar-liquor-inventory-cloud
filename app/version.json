@@ -1,5 +1,5 @@
 {
-  "version": "2.100.0",
-  "date": "2026-11-17",
-  "notes": "Bar Stock Issue: ↑↓ now walk the Issue Slip’s own lines ONE BY ONE — from the row you type in, through every line, and on into the Issue Register (and back up the same way). The slip shows EVERY line of the date instead of the newest twelve, so the last issue can be reached; it scrolls with its heading and the typing row pinned. ↓ on a line’s date box no longer nudges the day and moves the line to another date. The Issue Register wears a premium skin — double gold head, banded ISSUED column, zebra rows and a gold focus ring."
+  "version": "2.100.1",
+  "date": "2026-11-18",
+  "notes": "Bar Stock Issue — the Issue Slip’s item search shows every name again. Two causes: yesterday’s slip scroll box was CLIPPING the list (three names matched and only the first was on screen), and the search itself only ever returned eight names without saying so. The list now hangs off the card instead of a cell inside the scroll box, follows the search box as the page or the slip scrolls, carries up to forty names in a list of its own that scrolls, and its foot says how many matched and how many are not on it."
 }

@@ -1623,7 +1623,7 @@ function mrHitsHtml(){
    → pick → qty → Enter = saved), the lines of that date beneath it (newest first). Same figures as before: stock =
    Opening + Received − Issued (`_msStock`), amount = qty × landOf. Saving pushes the same {date,group,item,qty} entry
    (plus an id, like manual purchases) and re-renders quietly, so the empty entry row is simply there again. */
-var _ms={i:-1, q:'', sel:0, hits:[], qty:''};   // the live row: picked rawData index · typed text · dropdown highlight · matches · typed qty (kept across a quiet re-render)
+var _ms={i:-1, q:'', sel:0, hits:[], qty:'', n:0, fit:false};   // the live row: picked rawData index · typed text · dropdown highlight · matches · typed qty (kept across a quiet re-render)
 var _msLast=-1;                            // index of the line just saved — flashed green once
 /* ---- what has been issued past the stock (v2.75.0) ---------------------------------------------
    Client: "today issue remove kore add koro negative stock issue & negative issue items name."
@@ -1669,10 +1669,17 @@ function mrNegModal(){
 function mrNegFind(name){ closeModal(); _mrf.q=String(name||''); location.hash='#mrdetail'; route();
   const b=$('#mrfQ'); if(b){ b.value=_mrf.q; b.focus({preventScroll:true}); } }
 function _msStock(name){ const op=fnum(invGet(name).lrOpen), rv=receivedForItem(name), is=issuedForItem(name); return {op, rv, is, cl:op+rv-is}; }
-function _msHits(q){ q=norm(q); if(!q) return []; const starts=[], incl=[];
+/* THE SLIP'S ITEM LIST (v2.100.1). The cap was EIGHT and the list never said how many names it
+   had left out — the client's "search item er somoy all brands show korche na". The list scrolls
+   (.msdd, max-height set by mrSlipFit), so forty is reachable, and _ms.n carries how many really
+   matched so the foot can say what is not on it. */
+const MS_FIND_MAX = 40;
+function _msHits(q){ q=norm(q); if(!q){ _ms.n=0; return []; } const starts=[], incl=[];
   rawData.forEach((r,i)=>{ const n=norm(r.item); if(n.startsWith(q)) starts.push(i); else if(n.includes(q)||norm(r.group||'').includes(q)) incl.push(i); });
   const byStock=arr=>arr.map((i,k)=>({i,k,r:_msStock(rawData[i].item).cl>0?0:1})).sort((a,b)=>a.r-b.r||a.k-b.k).map(x=>x.i);   // what is in hand first, sheet order within
-  return byStock(starts).concat(byStock(incl)).slice(0,8); }
+  const all=byStock(starts).concat(byStock(incl));
+  _ms.n=all.length;                                      // every match, so the foot can name what is cut
+  return all.slice(0,MS_FIND_MAX); }
 function _msNewId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function mrSlipLinesHtml(){
   /* EVERY line of this date is drawn now (v2.100.0). It used to be .slice(0,12) with a
@@ -1704,22 +1711,58 @@ function mrFindPanel(){
       <div class="h c">#</div><div class="h c">Date</div><div class="h">Item · type to search</div><div class="h">Group</div><div class="h r" title="Opening + Received − Issued, as it stands now">In Liquor Room</div><div class="h r">Qty</div><div class="h r">Amount ₹</div><div class="h"></div>
       <div class="c lv n">→</div>
       <div class="c lv dt"><span class="d">${esc(_mqDate||period.from)}</span></div>
-      <div class="c lv it"><input id="msItem" class="cell-input msin" placeholder="Search item…" autocomplete="off" value="${esc(_ms.q)}" oninput="mrSlipType(this.value)" onfocus="mrSlipType(this.value)" onblur="mrSlipBlur()" onkeydown="mrSlipItemKey(event)"><div id="msDD" class="msdd"></div></div>
+      <div class="c lv it"><input id="msItem" class="cell-input msin" placeholder="Search item…" autocomplete="off" value="${esc(_ms.q)}" oninput="mrSlipType(this.value)" onfocus="mrSlipType(this.value)" onblur="mrSlipBlur()" onkeydown="mrSlipItemKey(event)"></div>
       <div class="c lv g" id="msGrp"><span class="mu">—</span></div>
       <div class="c lv r stk" id="msStk"><span class="mu">—</span></div>
       <div class="c lv r"><input id="msQty" class="cell-input msin q" type="number" min="0" step="any" placeholder="qty" value="${esc(_ms.qty||'')}" oninput="_ms.qty=this.value;mrSlipLive()" onkeydown="mrSlipQtyKey(event)"></div>
       <div class="c lv r amt" id="msAmt"><span class="mu">—</span></div>
       <div class="c lv x"><button class="btn btn-gold btn-sm" onclick="mrSlipAdd()" title="Save this line (Enter does the same)">＋</button></div>
       <div id="msLines" style="display:contents">${mrSlipLinesHtml()}</div>
-    </div></div>`;
+    </div>
+    <div id="msDD" class="msdd"></div></div>`;
 }
 function mrSlipDate(v){ if(!v) return; _mqDate=v; const l=$('#msLines'), h=$('#msHead'); if(l) l.innerHTML=mrSlipLinesHtml(); if(h) h.innerHTML=mrSlipHead(); }   // innerHTML: mrSlipHead() carries the amber 'outside the period' mark (v2.71.0)
 function mrSlipType(v){ _ms.q=v; _ms.i=-1; _ms.hits=_msHits(v); _ms.sel=0; mrSlipDD(); mrSlipLive(); }
+/* THE LIST IS PLACED AGAINST THE VIEWPORT (v2.100.1). v2.100.0 made .mrslip .msg a scroll box so
+   a long day's lines would not stretch the page — and an ABSOLUTELY positioned dropdown inside a
+   scroll box is CLIPPED by it: measured on their own search, three names matched and only the
+   first was on screen, 57px of the list sitting below the box. position:fixed escapes the box, so
+   the place has to be worked out here, on every paint, scroll and resize. (Same trap as v2.66.0,
+   where .modal{overflow:hidden} clipped the Resolve box's own list.) */
+function mrSlipFit(){
+  const d=$('#msDD'), b=$('#msItem'); if(!d || !b || !d.classList.contains('open')) return;
+  const card=d.parentElement; if(!card) return;
+  const r=b.getBoundingClientRect(), cr=card.getBoundingClientRect();
+  if(!r.width && !r.height) return;
+  /* The card wears a hover lift (transform: translateY(-2px)), and a transform makes an element
+     the containing block for its positioned children — so a viewport-fixed list jumped by the
+     card's own offset. Placing it by the DELTA of two rects taken in the same frame cannot be
+     caught out by that, by a page zoom, or by the browser pane's scaling. */
+  const sc = card.offsetHeight ? (cr.height/card.offsetHeight) : 1;      // rect px per layout px
+  const bw = b.offsetWidth || 240;
+  const room = (window.innerWidth*sc - r.left)/sc - 14;                  // layout px to the right of the box
+  d.style.width = Math.round(Math.max(240, Math.min(Math.max(bw, 580), room))) + 'px';
+  d.style.left  = Math.round((r.left - cr.left)/sc) + 'px';
+  d.style.bottom= 'auto';
+  const below=(window.innerHeight*sc - r.bottom)/sc - 12, above=r.top/sc - 12;
+  const up = below<180 && above>below;                                   // under the box unless there is plainly more room over it
+  d.style.maxHeight = Math.round(Math.min(Math.max(up?above:below, 150), 360)) + 'px';
+  const h = d.offsetHeight || 150;                                       // read the real height, THEN place it
+  let t = up ? (r.top - cr.top)/sc + 2 - h : (r.bottom - cr.top)/sc - 2;
+  const wTop=(0 - cr.top)/sc + 8, wBot=(window.innerHeight*sc - cr.top)/sc - 8;   // the window, in the card's own frame
+  if(t + h > wBot) t = wBot - h;                                         // a short window may not push it off screen
+  if(t < wTop) t = wTop;
+  d.style.top = Math.round(t) + 'px';
+}
+function mrSlipFitOn(){ if(_ms.fit) return; _ms.fit=true;
+  window.addEventListener('scroll', mrSlipFit, true); window.addEventListener('resize', mrSlipFit); }
 function mrSlipDD(){ const d=$('#msDD'); if(!d) return;
-  if(!_ms.hits.length){ d.innerHTML=_ms.q.trim()?`<div class="none">No Item Master entry matches “${esc(_ms.q)}” — add it in Item Master first.</div>`:''; d.classList.toggle('open', !!_ms.q.trim()); return; }
+  if(!_ms.hits.length){ d.innerHTML=_ms.q.trim()?`<div class="none">No Item Master entry matches “${esc(_ms.q)}” — add it in Item Master first.</div>`:''; d.classList.toggle('open', !!_ms.q.trim()); mrSlipFit(); return; }
   d.innerHTML=_ms.hits.map((i,k)=>{ const r=rawData[i], s=_msStock(r.item);
-    return `<div class="o ${k===_ms.sel?'on':''}" onmousedown="event.preventDefault();mrSlipPick(${i})"><span class="nm">${esc(r.item)}</span><span class="gp">${esc(r.group||'')}</span><b class="st ${s.cl<=0?'z':''}" title="Opening ${fmt(s.op)} + Received ${fmt(s.rv)} − Issued ${fmt(s.is)}">${fmt(s.cl)}<small>btl</small></b></div>`; }).join('');
-  d.classList.add('open'); const on=d.querySelector('.o.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }
+    return `<div class="o ${k===_ms.sel?'on':''}" onmousedown="event.preventDefault();mrSlipPick(${i})"><span class="nm">${esc(r.item)}</span><span class="gp">${esc(r.group||'')}</span><b class="st ${s.cl<=0?'z':''}" title="Opening ${fmt(s.op)} + Received ${fmt(s.rv)} − Issued ${fmt(s.is)}">${fmt(s.cl)}<small>btl</small></b></div>`; }).join('')
+    + `<div class="ft">${fmt(_ms.hits.length)} of ${fmt(_ms.n||_ms.hits.length)} item${(_ms.n||1)===1?'':'s'} match “${esc(_ms.q.trim())}”${(_ms.n||0)>_ms.hits.length?` · ${fmt(_ms.n-_ms.hits.length)} more — type a few more letters`:''} · ↑↓ to walk, Enter to pick</div>`;
+  d.classList.add('open'); mrSlipFit(); mrSlipFitOn();
+  const on=d.querySelector('.o.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }
 function mrSlipPick(i){ const r=rawData[i]; if(!r) return; _ms.i=i; _ms.q=r.item; _ms.hits=[]; const inp=$('#msItem'); if(inp) inp.value=r.item;
   const d=$('#msDD'); if(d){ d.classList.remove('open'); d.innerHTML=''; } mrSlipLive(); const q=$('#msQty'); if(q){ q.focus(); if(q.select) q.select(); } }
 function mrSlipBlur(){ setTimeout(()=>{ const d=$('#msDD'); if(d) d.classList.remove('open'); },150);
